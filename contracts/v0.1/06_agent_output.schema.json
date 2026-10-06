@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PancreaticSequentialDecisionAgentOutputV0_1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "policy_version",
+    "step",
+    "state_summary",
+    "decision_gaps",
+    "mode",
+    "action",
+    "source_ids",
+    "confidence"
+  ],
+  "properties": {
+    "case_id": {"type": "string"},
+    "policy_version": {"const": "pancreas_seq_v0.1"},
+    "step": {"type": "integer", "minimum": 0, "maximum": 2},
+    "state_summary": {"type": "string", "maxLength": 1800},
+    "decision_gaps": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap_id", "domain", "current_status", "priority", "why_unresolved", "source_ids"],
+        "properties": {
+          "gap_id": {"type": "string"},
+          "domain": {
+            "enum": ["M_LIVER", "M_PERITONEAL", "M_LUNG", "M_OTHER", "LOCAL_RESECTABILITY", "HISTOLOGY", "FITNESS", "DATA_FRESHNESS", "OTHER"]
+          },
+          "current_status": {
+            "enum": ["UNKNOWN", "POSSIBLE", "PROBABLE", "CONFIRMED_NEGATIVE", "CONFIRMED_POSITIVE", "CONFLICTING"]
+          },
+          "priority": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+          "why_unresolved": {"type": "string", "maxLength": 800},
+          "source_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+        }
+      }
+    },
+    "mode": {
+      "enum": ["CONTINUE_CURATIVE_PATH", "PAUSE_FOR_EVIDENCE", "EXIT_CURATIVE_PATH", "DEFER_TO_EXPERT"]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical_action", "target_gap_id", "target_site", "expected_information_gain", "management_if_positive", "management_if_negative", "rationale"],
+      "properties": {
+        "canonical_action": {
+          "enum": ["CONTINUE_NO_NEW_STAGING", "EXIT_CURATIVE_PATH", "DEFER_EXPERT_REVIEW", "LIVER_MRI", "STAGING_LAPAROSCOPY", "RESTAGING_CT", "OTHER_CROSS_SECTIONAL_MR", "PET_CT", "BIOPSY_FNA", "EXPERT_RADIOLOGY_REVIEW", "MDT_REVIEW", "OTHER_TARGETED_EVIDENCE"]
+        },
+        "target_gap_id": {"type": ["string", "null"]},
+        "target_site": {"type": ["string", "null"]},
+        "expected_information_gain": {"enum": ["LOW", "MEDIUM", "HIGH", "NOT_APPLICABLE"]},
+        "management_if_positive": {"type": "string", "maxLength": 500},
+        "management_if_negative": {"type": "string", "maxLength": 500},
+        "rationale": {"type": "string", "maxLength": 900}
+      }
+    },
+    "source_ids": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode_confidence", "action_confidence"],
+      "properties": {
+        "mode_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "action_confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }
+  }
+}
