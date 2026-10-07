@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pancreatic-decision-agent"
+version = "0.1.0"
+description = "Audited offline state machine for pancreatic surgical decision research"
+requires-python = ">=3.11"
+dependencies = ["openai>=2,<3", "jsonschema>=4,<5"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[tool.setuptools.packages.find]
+include = ["pancreatic_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,22 @@
+{
+  "version": "action-event-map-v1",
+  "event_actions": {
+    "staging_laparoscopy_result": "STAGING_LAPAROSCOPY",
+    "liver_targeted_mri_result": "LIVER_MRI",
+    "mr_result": "OTHER_CROSS_SECTIONAL_MR",
+    "restaging_ct_result": "RESTAGING_CT",
+    "pet_ct_result": "PET_CT",
+    "biopsy_result": "BIOPSY_FNA",
+    "radiology_review_result": "EXPERT_RADIOLOGY_REVIEW",
+    "mdt_result": "MDT_REVIEW",
+    "targeted_evidence_result": "OTHER_TARGETED_EVIDENCE"
+  },
+  "site_aliases": {
+    "PERITONEUM_OMENTUM": ["PERITONEUM_OMENTUM", "腹膜", "网膜", "腹膜/网膜", "腹膜与网膜"],
+    "LIVER": ["LIVER", "肝", "肝脏"],
+    "LUNG_PLEURA": ["LUNG_PLEURA", "肺", "肺/胸膜"],
+    "PANCREAS": ["PANCREAS", "胰腺"],
+    "SYSTEMIC": ["SYSTEMIC", "全身"]
+  },
+  "never_reveal": ["future_plan", "retrospective_mention", "open_exploration_result", "postoperative_pathology", "resection_pathology"]
+}
