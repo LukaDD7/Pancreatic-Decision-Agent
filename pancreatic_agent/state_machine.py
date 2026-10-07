@@ -1,14 +1,14 @@
 """Explicit control flow, independent of the clinical policy and outcome oracle."""
 
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 import json
 from pathlib import Path
 import re
-from typing import Any, Protocol
+from typing import Protocol
 
 from jsonschema import Draft202012Validator
 
@@ -16,13 +16,12 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_SCHEMA = json.loads((ROOT / "contracts/v0.1/06_agent_output.schema.json").read_text())
 ACTION_MAP = json.loads((ROOT / "configs/action_event_map.v1.json").read_text())
-DOMAINS = {"M_LIVER", "M_PERITONEAL", "M_LUNG", "M_OTHER", "LOCAL_RESECTABILITY", "HISTOLOGY", "FITNESS", "DATA_FRESHNESS", "OTHER"}
 TERMINAL_MODES = {
     "CONTINUE_NO_NEW_STAGING": "CONTINUE_CURATIVE_PATH",
     "EXIT_CURATIVE_PATH": "EXIT_CURATIVE_PATH",
     "DEFER_EXPERT_REVIEW": "DEFER_TO_EXPERT",
 }
-BASELINE_KINDS = {"history", "physical_exam", "imaging", "laboratory", "preoperative_pathology"}
+BASELINE_KINDS = {"clinical_note", "history", "physical_exam", "imaging", "laboratory", "preoperative_pathology"}
 ALL_KINDS = BASELINE_KINDS | {"laparoscopy_finding", "expert_review"}
 DECISION_TEXT = re.compile(r"拟行.{0,80}(?:根治术|切除术|腹腔镜)|拟施手术|拟手术名称|planned_strategy|无(?:明确)?手术禁忌|已签署.{0,20}手术|术中诊断|最终病理")
 
@@ -55,55 +54,53 @@ def exact_time(value):
 
 
 @dataclass
-class Evidence:
+class ClinicalRecord:
+    """A source document/report, never an extracted or researcher-labelled finding."""
     source_id: str
-    domain: str
-    value: Any
+    title: str
     kind: str
-    raw_excerpt: str
+    body: str
     available_at: str | None
     time_basis: str
-    source_time: str | None = None
-    epistemic_status: str = "present"
+    display_time: str | None = None
+    time_label: str = "记录时间"
     role: str = "clinical_evidence"
     reviewed: bool = False
-    associated_domains: list[str] = field(default_factory=list)
 
     def validate(self, baseline=False):
-        if not isinstance(self.source_id, str) or not self.source_id or self.domain not in DOMAINS:
-            raise AuditError("Invalid evidence source or domain")
-        if type(self.reviewed) is not bool or not isinstance(self.raw_excerpt, str):
-            raise AuditError("Evidence review flag/excerpt has wrong type")
-        if not isinstance(self.associated_domains, list) or any(d not in DOMAINS for d in self.associated_domains):
-            raise AuditError("Invalid associated evidence domains")
+        if not isinstance(self.source_id, str) or not self.source_id:
+            raise AuditError("Invalid source identifier")
+        if any(not isinstance(v, str) or not v.strip() for v in [self.title, self.body, self.time_label]):
+            raise AuditError("Record needs a title, original body and time label")
+        if type(self.reviewed) is not bool:
+            raise AuditError("Record review flag has wrong type")
+        if self.display_time is not None and not isinstance(self.display_time, str):
+            raise AuditError("Invalid source display time")
         if self.role != "clinical_evidence":
             raise AuditError("Clinician decision, outcome, plan and retrospective mention are forbidden")
         if self.kind not in (BASELINE_KINDS if baseline else ALL_KINDS):
             raise AuditError("Source type not allowed at this decision step")
-        if self.epistemic_status not in {"present", "unknown", "conflicting"}:
-            raise AuditError("Unknown evidence status")
-        if self.epistemic_status == "unknown" and self.value is not None:
-            raise AuditError("Unknown evidence must not be represented as a negative/value")
         if self.time_basis not in {"EXACT", "EXAM_PROXY", "DOCUMENT_PROXY", "NARRATIVE_ORDER", "UNKNOWN"}:
             raise AuditError("Unknown temporal basis")
         if self.time_basis == "EXACT":
             exact_time(self.available_at)
-        if DECISION_TEXT.search(json.dumps(self.value, ensure_ascii=False) + " " + self.raw_excerpt):
+        if DECISION_TEXT.search(self.title + " " + self.body):
             raise AuditError("Potential clinician-decision leakage: paragraph review required")
 
     def visible(self):
-        # Review annotations are environment-side; no raw documents or source bundle.
-        return {k: v for k, v in asdict(self).items() if k not in {"reviewed", "role"}}
+        # Availability adjudication and audit labels stay out of the clinical chart.
+        return {k: getattr(self, k) for k in ("source_id", "title", "kind", "display_time", "time_label", "body")}
 
 
 @dataclass
 class CaseState:
     case_id: str
-    evidence: list[Evidence]
+    records: list[ClinicalRecord]
     decision_time: str | None
     endpoint: str = "BEFORE_ANY_INCISION"
     temporal_policy: str = "STRICT"
     baseline_reviewed: bool = False
+    input_format: str = "clinical-records-v0.2"
     endpoint_time: str | None = None
     max_window_days: int = 30
     baseline_time: str | None = None
@@ -112,17 +109,19 @@ class CaseState:
 
     @classmethod
     def from_dict(cls, value):
-        allowed = {"case_id", "evidence", "decision_time", "endpoint", "temporal_policy", "baseline_reviewed", "endpoint_time", "max_window_days"}
+        allowed = {"case_id", "records", "decision_time", "endpoint", "temporal_policy", "baseline_reviewed", "endpoint_time", "max_window_days", "input_format"}
         if set(value) - allowed:
             raise AuditError("Unexpected baseline fields: never load the full source bundle")
         try:
             kwargs = dict(value)
-            kwargs["evidence"] = [Evidence(**e) for e in value["evidence"]]
+            kwargs["records"] = [ClinicalRecord(**e) for e in value["records"]]
             return cls(**kwargs)
         except (TypeError, KeyError) as exc:
             raise AuditError("Invalid baseline structure") from exc
 
     def validate(self, for_execution=False):
+        if self.input_format != "clinical-records-v0.2":
+            raise AuditError("Unsupported input format; prepare original clinical records")
         if not isinstance(self.case_id, str) or not self.case_id or type(self.baseline_reviewed) is not bool:
             raise AuditError("Invalid case/review metadata")
         if self.endpoint not in {"BEFORE_ANY_INCISION", "BEFORE_DEFINITIVE_RESECTION"}:
@@ -137,9 +136,9 @@ class CaseState:
             exact_time(self.endpoint_time)
             if self.decision_time and exact_time(self.endpoint_time) <= exact_time(self.decision_time):
                 raise AuditError("Decision must precede the irreversible endpoint")
-        if not self.evidence or len({e.source_id for e in self.evidence}) != len(self.evidence):
+        if not self.records or len({e.source_id for e in self.records}) != len(self.records):
             raise AuditError("Missing evidence or duplicate sources")
-        for e in self.evidence:
+        for e in self.records:
             e.validate(baseline=self.step == 0)
             if e.available_at and self.decision_time and exact_time(e.available_at) > exact_time(self.decision_time):
                 raise AuditError("Future evidence is not allowed")
@@ -155,13 +154,12 @@ class CaseState:
         self.validate()
         return {
             "case_id": self.case_id,
+            "input_format": self.input_format,
             "step": self.step,
             "as_of": self.decision_time,
             "irreversible_boundary": self.endpoint,
-            "temporal_policy": self.temporal_policy,
-            "evidence": [e.visible() for e in self.evidence],
+            "records": [e.visible() for e in self.records],
             "agent_previous_decisions": deepcopy(self.agent_history),
-            "domains_without_indexed_evidence": sorted(DOMAINS - {domain for e in self.evidence for domain in [e.domain, *e.associated_domains]}),
         }
 
 
@@ -175,7 +173,7 @@ def validate_output(raw, state):
         raise AuditError("Output violates the original strict JSON schema")
     if value["case_id"] != state.case_id or value["step"] != state.step:
         raise AuditError("Wrong case or decision step")
-    allowed = {e.source_id for e in state.evidence}
+    allowed = {e.source_id for e in state.records}
     cited = set(value["source_ids"])
     gaps = value["decision_gaps"]
     if len({g["gap_id"] for g in gaps}) != len(gaps):
@@ -209,7 +207,7 @@ class Observation:
     event_type: str
     target_site: str
     resolves_domains: list[str]
-    evidence: list[Evidence]
+    records: list[ClinicalRecord]
     available_at: str | None
     time_basis: str
     audited: bool = False
@@ -224,7 +222,7 @@ class Observation:
     def from_dict(cls, value):
         try:
             data = dict(value)
-            data["evidence"] = [Evidence(**e) for e in data["evidence"]]
+            data["records"] = [ClinicalRecord(**e) for e in data["records"]]
             return cls(**data)
         except (TypeError, KeyError) as exc:
             raise AuditError("Invalid observation structure") from exc
@@ -261,13 +259,13 @@ class LoggedEnvironment:
                 continue
             if state.endpoint == "BEFORE_ANY_INCISION" and event.after_incision:
                 continue
-            if not event.audited or not event.evidence or any(not e.reviewed for e in event.evidence):
+            if not event.audited or not event.records or any(not e.reviewed for e in event.records):
                 needs_review = True
                 continue
             try:
-                for e in event.evidence:
+                for e in event.records:
                     e.validate()
-                if {e.source_id for e in event.evidence} & {e.source_id for e in state.evidence}:
+                if {e.source_id for e in event.records} & {e.source_id for e in state.records}:
                     raise AuditError("Observation reuses an already visible source")
                 if event.time_basis == "EXACT":
                     if not state.decision_time:
@@ -279,12 +277,12 @@ class LoggedEnvironment:
                         continue
                     if state.baseline_time and exact_time(event.available_at) > exact_time(state.baseline_time) + timedelta(days=state.max_window_days):
                         continue
-                    for e in event.evidence:
+                    for e in event.records:
                         if not e.available_at or not exact_time(state.decision_time) < exact_time(e.available_at) <= exact_time(event.available_at):
                             raise AuditError("Observation contains evidence not yet available")
                 elif event.time_basis not in {"EXAM_PROXY", "DOCUMENT_PROXY", "NARRATIVE_ORDER"} or state.temporal_policy != "REVIEWED_PROXY" or not event.order_reviewed or not event.after_baseline:
                     raise AuditError("Non-exact observation order is unreviewed")
-                if state.temporal_policy == "STRICT" and any(e.time_basis != "EXACT" for e in event.evidence):
+                if state.temporal_policy == "STRICT" and any(e.time_basis != "EXACT" for e in event.records):
                     raise AuditError("Strict transition cannot contain proxy-timed evidence")
             except AuditError:
                 needs_review = True
@@ -371,7 +369,7 @@ class StateMachine:
                 self.record(event="replay_stop", reason=status.value)
                 return self.status
             self.state.agent_history.append({"step": self.state.step, "mode": output["mode"], "action": output["action"], "decision_gaps": output["decision_gaps"]})
-            self.state.evidence.extend(deepcopy(observation.evidence))
+            self.state.records.extend(deepcopy(observation.records))
             self.state.step += 1
             # A narrative boundary stays imprecise; do not invent a timestamp.
             self.state.decision_time = observation.available_at

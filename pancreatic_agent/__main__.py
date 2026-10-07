@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from .policies import PROMPT_VERSION, SYSTEM_PROMPT, OpenAICompatiblePolicy, ScriptedPolicy, build_messages
+from .policies import PROMPT_VERSION, SYSTEM_PROMPT, OpenAICompatiblePolicy, ScriptedPolicy, build_messages, render_chart
 from .state_machine import ROOT, ACTION_MAP, AuditError, CaseState, LoggedEnvironment, Observation, StateMachine, Status
 
 
@@ -43,8 +43,10 @@ def main():
         state.validate()
         messages = build_messages(state.visible())
         (output / "llm_input_preview.json").write_text(json.dumps(messages, ensure_ascii=False, indent=2))
+        (output / "clinical_chart.md").write_text(render_chart(state.visible()), encoding="utf-8")
         manifest = {
-            "case_id": state.case_id, "controller_version": "finite-state-v0.1", "policy_version": "pancreas_seq_v0.1",
+            "case_id": state.case_id, "controller_version": "finite-state-v0.2", "policy_version": "pancreas_seq_v0.1",
+            "input_format": state.input_format,
             "anchor_policy": "PRE_CLINICIAN_DECISION", "contract_variant": "predecision-review-draft-v0.1",
             "prompt_version": PROMPT_VERSION, "prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
             "baseline_sha256": digest(args.baseline), "event_file_sha256": digest(args.events) if args.events and args.command == "run" else None,

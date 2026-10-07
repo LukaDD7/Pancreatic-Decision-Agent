@@ -9,11 +9,11 @@ from openai import OpenAI
 from .state_machine import OUTPUT_SCHEMA
 
 
-PROMPT_VERSION = "predecision-blinded-v0.1"
+PROMPT_VERSION = "clinical-chart-predecision-v0.2"
 SYSTEM_PROMPT = """你参与离线临床决策研究，不执行任何治疗。
-只根据提供的当前证据，独立评价是否有足够依据跨过所定义的不可逆根治步骤，或应先取得什么证据。
+阅读当前时点可见的病历、完整检查报告及检验结果，独立判断下一步临床处理，是否可以进入根治性切除，或还需检查、讨论及其他处理。
 不知道真实医生的选择及后续结果；不要猜测数据集结局。影像报告中的诊断措辞是报告证据，不自动等于病理确认。
-unknown 不等于阴性，疑似不等于确诊，未提及不等于正常。保留冲突、时间代理和未解决的病种问题。
+资料中未记录不等于阴性或正常。自行识别资料中的问题、矛盾与不确定性；没有研究者预先提供的 gap 或关键发现清单。
 选择恰好一个 canonical_action。诊断性腹腔镜或活检是取证，不是根治切除；CONTINUE_NO_NEW_STAGING 表示不再增加分期而继续所评价的根治路径。
 PAUSE 必须指定当前存在的 gap 和目标部位；不能只因缺某项检查就机械补齐套餐。
 目标部位优先使用 PERITONEUM_OMENTUM、LIVER、LUNG_PLEURA、PANCREAS、SYSTEMIC。
@@ -30,13 +30,28 @@ class GenerationError(ValueError):
 
 def build_messages(visible_state):
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps({
-            "task": "根据当前证据独立判断下一步，不预告真实医生决策。",
-            "decision_state": visible_state,
-            "output_schema": OUTPUT_SCHEMA,
-        }, ensure_ascii=False)},
+        {"role": "system", "content": SYSTEM_PROMPT + "\n输出 JSON schema：\n" + json.dumps(OUTPUT_SCHEMA, ensure_ascii=False)},
+        {"role": "user", "content": render_chart(visible_state)},
     ]
+
+
+def render_chart(state):
+    """Present source text verbatim; formatting never selects findings or lab rows."""
+    lines = [
+        "# 当前决策时点的病历资料", f"病例别名：{state['case_id']}",
+        f"决策步骤：{state['step']}", f"当前时点：{state['as_of'] or '精确时间未核实'}",
+        f"所评价的不可逆边界：{state['irreversible_boundary']}",
+        "请阅读以下资料，独立决定此时的下一步处理，并按输出格式作答。", "",
+    ]
+    for record in state["records"]:
+        lines.extend([
+            f"## [{record['source_id']}] {record['title']}",
+            f"{record['time_label']}：{record['display_time'] or '未记录'}", "",
+            record["body"], "",
+        ])
+    if state["agent_previous_decisions"]:
+        lines.extend(["## 你在此前步骤的判断", json.dumps(state["agent_previous_decisions"], ensure_ascii=False), ""])
+    return "\n".join(lines)
 
 
 class ScriptedPolicy:
