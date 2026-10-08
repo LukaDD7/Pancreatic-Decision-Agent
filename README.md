@@ -11,6 +11,7 @@
 - `data/copy_verification.json`：本地复制校验清单。
 - `private/`：本地病例时间线、来源映射和病例分析，未纳入 Git。
 - `docs/`：不含患者资料的研究设计文档。
+- `data_pipeline/`：Stage 5原始来源解析、Stage 6主键连接与病理接入、Stage 7时间轴构建代码。
 - `scripts/cohort_construction/`：特殊病例、100/751/851/180队列及Agent资料包构建代码。
 - `pancreatic_agent/`：状态、严格输出校验、日志匹配、显式状态机与可选 LLM adapter。
 - `configs/`：版本化动作/事件映射。

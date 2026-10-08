@@ -16,10 +16,11 @@ cohort = [
   "pandas>=2.0,<3",
   "pyarrow>=11,<24",
   "requests>=2.32,<3",
+  "lxml>=5,<7",
 ]
 
 [tool.setuptools.packages.find]
-include = ["pancreatic_agent*"]
+include = ["pancreatic_agent*", "data_pipeline*", "scripts*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

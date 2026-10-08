@@ -1,6 +1,6 @@
 # 队列数据来源、时间语义与复现说明
 
-本文对应 Issue #1，说明本仓库当前能够复现的边界。仓库不包含真实病例、索引、输出或人工审阅表；本地数据仍由 `PANCREATIC_DATA_ROOT` 指向。当前代码从已建立的 Stage 5/6/7 索引开始消费数据，原始医院 XML、CSV 到这些索引的全部早期解析器尚未随本 PR 提交，不能把本说明理解为原始数据库的完整 ETL。
+本文对应 Issue #1，说明本仓库当前能够复现的边界。仓库不包含真实病例、索引、输出或人工审阅表；本地数据仍由 `PANCREATIC_DATA_ROOT` 指向。`data_pipeline/` 已包含本项目实际使用的 Stage 5 文书/检验/影像解析、Stage 6 患者连接和病理接入、Stage 7 时间轴及旧 XML 文书增量代码。医院数据库导出动作和影像文件下载仍不属于本仓库。
 
 ## 运行入口
 
@@ -14,6 +14,40 @@ $env:PANCREATIC_DATA_ROOT = "D:\path\to\local-data"
 按依赖关系运行：
 
 ```powershell
+# Stage 5：CSV/XLSX来源清洗和分片。先生成manifest和canary，再正式运行
+python -m data_pipeline.stage5_sources.stage5_pipeline manifest
+python -m data_pipeline.stage5_sources.stage5_pipeline canary
+python -m data_pipeline.stage5_sources.stage5_pipeline init-state
+python -m data_pipeline.stage5_sources.stage5_pipeline run
+
+# 影像CSV的15列安全聚类和修复管线
+python -m data_pipeline.stage5_sources.imaging_pipeline --help
+
+# 胰腺相关影像报告索引；v3显式分开检查所见、影像印象和源系统结果分类
+python -m data_pipeline.report_index.build_pancreas_imaging_report_index --help
+
+# Stage 6：跨来源患者连接；full-run仍要求显式release批准
+python -m data_pipeline.stage6_identity.stage6_alignment_v2 preflight
+python -m data_pipeline.stage6_identity.stage6_alignment_v2 canary
+python -m data_pipeline.stage6_identity.stage6_alignment_v2 full-run-preflight
+python -m data_pipeline.stage6_identity.stage6_alignment_v2 full-run --release-approved
+
+# Stage 6病理接入
+python -m data_pipeline.stage6_identity.pathology_increment_v1 preflight
+python -m data_pipeline.stage6_identity.pathology_increment_v1 canary
+python -m data_pipeline.stage6_identity.pathology_increment_v1 full-run
+python -m data_pipeline.stage6_identity.pathology_increment_v1 validate
+
+# Stage 7：事件时间、可见时间和日级时间轴
+python -m data_pipeline.stage7_timeline.stage7_timeline preflight
+python -m data_pipeline.stage7_timeline.stage7_timeline canary
+python -m data_pipeline.stage7_timeline.stage7_timeline validate
+python -m data_pipeline.stage7_timeline.stage7_full_timeline initialize
+python -m data_pipeline.stage7_timeline.stage7_full_timeline run
+
+# 2021年以前XML文书增量；运行前必须先完成Stage 6主键库
+python -m data_pipeline.stage7_timeline.ingest_legacy_xml_stage7
+
 # 输入契约、来源盘点、分层抽样和校验；不执行批量医学事实抽取
 python -m scripts.cohort_construction.agent_packaging_and_audit.shared.stage8a run-all
 
@@ -46,7 +80,7 @@ python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step0
 | --- | --- | --- | --- | --- |
 | 文书 | Stage 5 `document_l1`；Stage 7 `document_day_detail` | `source_file`、`source_row`、`source_record_id`、`PATIENT_ID`、`VISIT_ID`、`文书名称`、`文书内容`、`create_time` | `patient_uid`；就诊层用 `encounter_uid`/`VISIT_ID`；记录层用 `source_record_key` | 文书类型、正文、决策前可见时间、来源定位 |
 | 检验 | Stage 7 所有 `lab_result_detail/*.parquet` 分片 | `item_name`、各结果字段、单位、`sample_time`、`report_time`、`available_time`、异常标记 | `patient_uid`、`source_record_key` | 检验项目、原值/数值/定性值、单位和时间 |
-| 影像报告 | 胰腺影像报告索引及 Stage 7 `imaging_event` | `index_report_uid`、`source_record_key`、`patient_id`、`patient_uid`、`exam_datetime`、检查方法、描述、诊断、全文 | 患者号先映射到唯一 `patient_uid`；报告用 `index_report_uid` | 描述和诊断均保留，不只保留结论；当前缺少完整签发时间 |
+| 影像报告 | 原始15列CSV、影像聚类结果及 Stage 7 `imaging_event` | 患者号、影像号、检查日期/时间/方法、第9列检查所见、第14列影像印象、第15列源系统结果分类 | 患者号先映射到唯一 `patient_uid`；记录层用 `source_record_key` | 检查所见和影像印象进入报告正文；源系统阳性/阴性分类单独保存；当前缺少完整签发时间 |
 | 病理 | Stage 6 `pathology_total_v2/pathology_record` 所有 Parquet 分片；Stage 7 `pathology_event` | 标本、临床诊断、病理诊断、镜下所见、取材/收到/报告日期、`pathology_record_uid` | `patient_uid`、`source_record_key`、`pathology_record_uid` | 病理正文、标本信息和报告可见时间 |
 | 随访 | 本地专病随访表 | 患者号或规范化病理号、结局字段 | 患者号优先；病理号仅作受审计的辅助映射 | 与原始临床事实分开存放，不倒灌到术前输入 |
 
@@ -80,8 +114,8 @@ python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step0
 - 检验按项目行保存，不把采样时间当结果可见时间。所有选中 Stage 7 Parquet 分片都会读取，不能只取首个分片。
 - 病理同样读取全部 Parquet 分片。本 PR 已移除固定 `part-00001.parquet` 的旧实现。
 - 文书正文解码优先使用结构化 Parquet；遗留字节按 `gb18030` 兼容解码。报告结构化证据片段最多 1,200 字符，原始受限副本不因此删除；文书读取时去标识化上限为 50,000 字符，术前安全状态片段另有 1,800 字符限制。
-- 影像描述、诊断和可用全文均参与规则，不是只保留影像结论。
-- “阳性/阴性”“转移信号”“窗口类型”和规范答案是派生标签，不是原报告字段；存放时与原始证据和实际行为标签分层。
+- 影像CSV列名与临床语义并不完全一致：第9列原表头为“报告结论”，实际保存较长的检查所见；第14列原表头为“报告表现”，实际更接近影像印象；第15列“诊断结果”保存源系统的“阳性/阴性”。`data_pipeline.report_index.imaging_fields` 显式拆分三者。
+- “阳性/阴性”是医院原始CSV自带的第15列，不是本项目模型生成，但也不是自由文本影像诊断，不能拼进给 Agent 的报告正文。转移信号、窗口类型和规范答案才是本项目后加的派生标签；它们与原始证据和实际行为标签分层保存。
 
 ## 队列关系与筛选
 
@@ -113,7 +147,7 @@ python -m scripts.cohort_construction.example_fictional_bundle examples/fictiona
 
 ## 已知缺陷
 
-1. 原始医院 XML/CSV 到 Stage 5/6/7 的完整上游解析器尚未全部进入仓库；现阶段复现起点是已建立的索引。
+1. 医院数据库的导出动作、字段权限配置和影像文件下载工具未进入仓库；代码复现从已导出的 XML/CSV/XLSX 开始。
 2. 影像报告签发时间覆盖不足，`exam_datetime` 只能作为弱代理。
 3. 旧文书的 `00:00` 可能是真实午夜，也可能是占位；未获得更精确来源前只能标低精度。
 4. 随访表的患者号/病理号匹配存在人工核对环节，不能自动当作术前事实。
