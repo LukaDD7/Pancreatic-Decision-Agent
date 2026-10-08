@@ -65,11 +65,14 @@ class ScriptedPolicy:
 
 
 class OpenAICompatiblePolicy:
-    def __init__(self, model="kimi-k3", temperature=1.0, max_tokens=3000, timeout=60.0, seed=None):
-        key = os.environ.get("BOYU_API_KEY")
-        if not key:
-            raise ValueError("BOYU_API_KEY is not configured")
-        self.client = OpenAI(api_key=key, base_url="https://apicz.boyuerichdata.com/v1/", timeout=timeout, max_retries=5)
+    def __init__(self, model=None, temperature=1.0, max_tokens=3000, timeout=60.0, seed=None):
+        key = os.environ.get("LLM_API_KEY", "").strip()
+        base_url = os.environ.get("LLM_API_URL", "").strip()
+        model = (model or os.environ.get("LLM_MODEL", "")).strip()
+        missing = [name for name, value in (("LLM_API_KEY", key), ("LLM_API_URL", base_url), ("LLM_MODEL", model)) if not value]
+        if missing:
+            raise ValueError(f"missing model settings: {', '.join(missing)}")
+        self.client = OpenAI(api_key=key, base_url=base_url, timeout=timeout, max_retries=5)
         self.model, self.temperature, self.max_tokens, self.seed = model, temperature, max_tokens, seed
 
     def decide(self, state):

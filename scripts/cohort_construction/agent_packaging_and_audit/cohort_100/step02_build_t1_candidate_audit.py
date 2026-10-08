@@ -128,7 +128,7 @@ def load_pathology_details_by_uid(events: list[dict[str, Any]]) -> list[dict[str
         "病理诊断",
         "镜下所见",
     ]
-    table = pq.read_table(state_builder.PATHOLOGY_PATH, columns=columns)
+    table = state_builder.read_pathology_table(columns)
     filtered = table.filter(pc.is_in(table["pathology_record_uid"], value_set=pa.array(sorted(needed))))
     output = []
     for row in filtered.to_pylist():

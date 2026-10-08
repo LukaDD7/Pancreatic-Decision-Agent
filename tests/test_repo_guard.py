@@ -15,7 +15,7 @@ def guard(tmp_path,monkeypatch):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     subprocess.run(["git","init","-q",str(tmp_path)],check=True)
     monkeypatch.setattr(module,"ROOT",tmp_path)
-    monkeypatch.delenv("BOYU_API_KEY",raising=False)
+    monkeypatch.delenv("LLM_API_KEY",raising=False)
     monkeypatch.setattr(sys,"argv",["check_repo_safety.py","--staged"])
     return module,tmp_path
 
@@ -47,7 +47,7 @@ def test_guard_detects_key_pattern_without_printing_value(guard,capsys):
 def test_guard_detects_active_provider_key_without_a_prefix(guard,monkeypatch,capsys):
     module,root=guard
     fake="synthetic-private-provider-credential"
-    monkeypatch.setenv("BOYU_API_KEY",fake)
+    monkeypatch.setenv("LLM_API_KEY",fake)
     stage(root,"example.txt",fake.encode())
     assert module.main()==1
     assert fake not in capsys.readouterr().out

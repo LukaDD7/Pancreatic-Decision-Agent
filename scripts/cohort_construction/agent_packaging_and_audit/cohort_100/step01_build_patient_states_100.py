@@ -18,6 +18,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from scripts.cohort_construction.paths import data_root
+from scripts.cohort_construction.source_semantics import time_precision
 from scripts.cohort_construction.agent_packaging_and_audit.shared import stage8a
 
 DATA_ROOT = data_root()
@@ -40,7 +41,7 @@ TIMELINE_PLAN_PATH = (
 TIMELINE_TASK_ROOT = (
     DATA_ROOT / "pipeline_outputs_stage7_v1" / "restricted" / "full_day_timeline" / "tasks"
 )
-PATHOLOGY_PATH = (
+PATHOLOGY_ROOT = (
     DATA_ROOT
     / "pipeline_outputs_stage6_v2"
     / "restricted"
@@ -48,7 +49,6 @@ PATHOLOGY_PATH = (
     / "pathology_total_v2"
     / "full"
     / "pathology_record"
-    / "part-00001.parquet"
 )
 DEFAULT_OUT = RESTRICTED_ROOT / "patient_state_100_v1" / "outputs" / "state_100_20261003"
 
@@ -83,13 +83,22 @@ def json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
-def source(source_type: str, source_id: str, date_value: str | None, quote: str) -> dict[str, Any]:
-    return {
+def source(
+    source_type: str,
+    source_id: str,
+    date_value: str | None,
+    quote: str,
+    provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    item = {
         "type": source_type,
         "id": source_id,
         "date": date_value,
         "raw_text": clean(quote)[:1200],
     }
+    if provenance:
+        item["provenance"] = {key: clean(value) for key, value in provenance.items() if clean(value)}
+    return item
 
 
 def unknown(note: str = "T0 前可用资料未见该字段") -> dict[str, Any]:
@@ -131,6 +140,22 @@ def filter_batches(paths: Iterable[Path], columns: list[str], patient_uids: set[
             filtered = batch.filter(mask)
             output.extend(filtered.to_pylist())
     return output
+
+
+def pathology_files() -> list[Path]:
+    files = sorted(PATHOLOGY_ROOT.rglob("*.parquet"))
+    if not files:
+        raise FileNotFoundError(f"no pathology parquet shards under {PATHOLOGY_ROOT}")
+    return files
+
+
+def pathology_schema_names() -> list[str]:
+    return pq.ParquetFile(pathology_files()[0]).schema_arrow.names
+
+
+def read_pathology_table(columns: list[str]) -> pa.Table:
+    tables = [pq.read_table(path, columns=columns) for path in pathology_files()]
+    return tables[0] if len(tables) == 1 else pa.concat_tables(tables, promote_options="default")
 
 
 def load_cohort_and_imaging() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str]]:
@@ -245,7 +270,8 @@ def select_pre_t0_rows(
     for row in rows:
         uid = clean(row.get("patient_uid"))
         t0 = t0_by_uid[uid]
-        dt = next((parse_dt(row.get(field)) for field in time_fields if parse_dt(row.get(field))), None)
+        selected_field = next((field for field in time_fields if parse_dt(row.get(field))), None)
+        dt = parse_dt(row.get(selected_field)) if selected_field else None
         if dt is None:
             continue
         if date_only_same_day_excluded and dt.time() == datetime.min.time() and dt.date() == t0.date():
@@ -253,6 +279,8 @@ def select_pre_t0_rows(
         if in_window(dt, t0):
             item = dict(row)
             item["_available_dt"] = dt
+            item["_time_basis"] = selected_field
+            item["_time_precision"] = time_precision(row.get(selected_field))
             output.append(item)
     return output
 
@@ -321,16 +349,17 @@ def load_pathology_details(events: list[dict[str, Any]]) -> list[dict[str, Any]]
     ]
     output = []
     value_set = pa.array(sorted(needed))
-    for batch in pq.ParquetFile(PATHOLOGY_PATH).iter_batches(batch_size=20_000, columns=columns):
-        index = batch.schema.get_field_index("source_record_key")
-        filtered = batch.filter(pc.is_in(batch.column(index), value_set=value_set))
-        for row in filtered.to_pylist():
-            event = event_by_key.get(clean(row.get("source_record_key")))
-            if not event:
-                continue
-            item = dict(row)
-            item.update({"patient_uid": event["patient_uid"], "_available_dt": event["_available_dt"]})
-            output.append(item)
+    for path in pathology_files():
+        for batch in pq.ParquetFile(path).iter_batches(batch_size=20_000, columns=columns):
+            index = batch.schema.get_field_index("source_record_key")
+            filtered = batch.filter(pc.is_in(batch.column(index), value_set=value_set))
+            for row in filtered.to_pylist():
+                event = event_by_key.get(clean(row.get("source_record_key")))
+                if not event:
+                    continue
+                item = dict(row)
+                item.update({"patient_uid": event["patient_uid"], "_available_dt": event["_available_dt"]})
+                output.append(item)
     return output
 
 
@@ -352,23 +381,62 @@ def doc_source(row: dict[str, Any], quote: str) -> dict[str, Any]:
         f"DOC:{clean(row.get('source_record_key'))[:16]}:{clean(row.get('document_type'))}",
         iso(dt),
         quote,
+        {
+            "source_record_key": row.get("source_record_key"),
+            "source_file": row.get("source_file"),
+            "source_record_id": row.get("source_record_id"),
+            "document_type": row.get("document_type"),
+        },
     )
 
 
 def imaging_source(row: dict[str, Any] | pd.Series, quote: str) -> dict[str, Any]:
     dt = parse_dt(row.get("exam_dt") or row.get("exam_datetime"))
-    return source("imaging", f"IMG:{clean(row.get('index_report_uid'))}", iso(dt), quote)
+    return source(
+        "imaging",
+        f"IMG:{clean(row.get('index_report_uid'))}",
+        iso(dt),
+        quote,
+        {
+            "source_record_key": row.get("source_record_key"),
+            "source_file": row.get("source_file_name"),
+            "index_report_uid": row.get("index_report_uid"),
+        },
+    )
 
 
 def lab_source(row: dict[str, Any]) -> dict[str, Any]:
     value = clean(row.get("result_raw") or row.get("result_numeric_value") or row.get("result_qualitative_value") or row.get("result_text_value"))
     unit = clean(row.get("unit_normalized") or row.get("unit_raw"))
     quote = f"{clean(row.get('item_name'))}={value}{unit}"
-    return source("laboratory", f"LAB:{clean(row.get('source_record_key'))[:16]}:{clean(row.get('item_name'))}", iso(row.get("_available_dt")), quote)
+    return source(
+        "laboratory",
+        f"LAB:{clean(row.get('source_record_key'))[:16]}:{clean(row.get('item_name'))}",
+        iso(row.get("_available_dt")),
+        quote,
+        {
+            "source_record_key": row.get("source_record_key"),
+            "item_name": row.get("item_name"),
+            "available_time": row.get("available_time"),
+            "report_time": row.get("report_time"),
+            "sample_time": row.get("sample_time"),
+        },
+    )
 
 
 def pathology_source(row: dict[str, Any], quote: str) -> dict[str, Any]:
-    return source("pathology", f"PATH:{clean(row.get('pathology_record_uid'))}", iso(row.get("_available_dt")), quote)
+    return source(
+        "pathology",
+        f"PATH:{clean(row.get('pathology_record_uid'))}",
+        iso(row.get("_available_dt")),
+        quote,
+        {
+            "source_record_key": row.get("source_record_key"),
+            "pathology_record_uid": row.get("pathology_record_uid"),
+            "report_date": row.get("report_date_parsed") or row.get("报告日期"),
+            "specimen_date": row.get("specimen_date_parsed") or row.get("取材日期"),
+        },
+    )
 
 
 def pick_demographic(docs: list[dict[str, Any]], pathology: list[dict[str, Any]], field: str) -> dict[str, Any]:

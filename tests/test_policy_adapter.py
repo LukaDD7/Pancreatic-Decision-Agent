@@ -17,8 +17,10 @@ def mocked_policy(monkeypatch, final_text, finish="stop", reasoning="do not pers
     def handle(request):
         requests.append(request)
         return httpx.Response(200,json={"id":"mock-only","created":1,"object":"chat.completion","model":"mock-model-alias","choices":[{"index":0,"finish_reason":finish,"message":{"role":"assistant","content":final_text,"reasoning_content":reasoning}}]})
-    client=OpenAI(api_key="mock-not-a-real-key",base_url="https://apicz.boyuerichdata.com/v1/",http_client=httpx.Client(transport=httpx.MockTransport(handle)),max_retries=0)
-    monkeypatch.setenv("BOYU_API_KEY","mock-not-a-real-key")
+    client=OpenAI(api_key="mock-not-a-real-key",base_url="https://example.invalid/v1/",http_client=httpx.Client(transport=httpx.MockTransport(handle)),max_retries=0)
+    monkeypatch.setenv("LLM_API_KEY","mock-not-a-real-key")
+    monkeypatch.setenv("LLM_API_URL","https://example.invalid/v1/")
+    monkeypatch.setenv("LLM_MODEL","mock-model")
     monkeypatch.setattr(policies,"OpenAI",lambda **kwargs:client)
     return OpenAICompatiblePolicy(),requests
 
@@ -31,7 +33,7 @@ def test_preview_and_actual_request_have_identical_visible_state(monkeypatch):
         assert machine.run(policy)==Status.TERMINAL
         body=json.loads(requests[0].content)
         assert body["messages"]==build_messages(state.visible())
-        assert body["model"]=="kimi-k3"
+        assert body["model"]=="mock-model"
         trace=json.dumps(machine.trace)
         assert "do not persist this" not in trace
         assert "mock-not-a-real-key" not in trace

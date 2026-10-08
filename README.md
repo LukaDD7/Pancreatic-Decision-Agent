@@ -11,6 +11,7 @@
 - `data/copy_verification.json`：本地复制校验清单。
 - `private/`：本地病例时间线、来源映射和病例分析，未纳入 Git。
 - `docs/`：不含患者资料的研究设计文档。
+- `scripts/cohort_construction/`：特殊病例、100/751/851/180队列及Agent资料包构建代码。
 - `pancreatic_agent/`：状态、严格输出校验、日志匹配、显式状态机与可选 LLM adapter。
 - `configs/`：版本化动作/事件映射。
 - `tests/`：只含虚构数据的控制器测试。
@@ -32,7 +33,7 @@ D0 在被评价的医生选择之前：不输入医生拟术式、推荐或结�
 python3 scripts/maas_smoke_test.py
 ```
 
-最后一条仅发送固定的“你是谁”。远程调用只使用专用 `BOYU_API_KEY`。本机令牌由项目之外的用户配置提供，源码中无令牌值。环境建立与真实模型调用参数见 [本机 API 说明](docs/local-api-check.md)。
+最后一条仅发送固定的“你是谁”。远程调用统一使用 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`。本机令牌由项目之外的用户配置提供，源码中无令牌值。环境建立与真实模型调用参数见 [本机 API 说明](docs/local-api-check.md)。队列来源、字段字典、运行顺序和时间语义见 [队列数据来源与复现说明](docs/cohort-data-provenance.md)。
 
 ## 版本管理
 

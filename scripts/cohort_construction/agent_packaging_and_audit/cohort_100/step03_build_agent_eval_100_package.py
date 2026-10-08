@@ -207,8 +207,8 @@ def extract_timeline_and_sources(
     write_jsonl(output_structured / "pathology_events_100.jsonl", pathology_event_rows)
     write_jsonl(output_structured / "imaging_reports_100.jsonl", imaging_rows)
 
-    pathology_columns = pq.ParquetFile(state_builder.PATHOLOGY_PATH).schema_arrow.names
-    pathology_table = pq.read_table(state_builder.PATHOLOGY_PATH, columns=pathology_columns)
+    pathology_columns = state_builder.pathology_schema_names()
+    pathology_table = state_builder.read_pathology_table(pathology_columns)
     patient_column = pathology_table["病人编号"]
     filtered = pathology_table.filter(pc.is_in(patient_column, value_set=pa.array(sorted(set(cohort["患者ID"].astype(str))))))
     pq.write_table(filtered, output_raw / "pathology_records_100_raw.parquet", compression="zstd")
@@ -264,7 +264,9 @@ def followup_matches(
             if normalized:
                 pathno_to_cases[normalized].add(clean(row["_case_id"]))
 
-    all_path = pq.read_table(state_builder.PATHOLOGY_PATH, columns=["病人编号", "病理号", "pathology_no_normalized"]).to_pandas().fillna("")
+    all_path = state_builder.read_pathology_table(
+        ["病人编号", "病理号", "pathology_no_normalized"]
+    ).to_pandas().fillna("")
     all_pathno_to_cases: dict[str, set[str]] = defaultdict(set)
     for _, row in all_path.iterrows():
         for value in (row.get("pathology_no_normalized"), row.get("病理号")):

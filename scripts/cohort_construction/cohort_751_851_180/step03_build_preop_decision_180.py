@@ -945,7 +945,7 @@ def enrich_timeline(selected: list[dict[str, Any]]) -> None:
         "report_date_parsed",
         "source_record_key",
     ]
-    pathology_table = pq.read_table(state_builder.PATHOLOGY_PATH, columns=pathology_columns)
+    pathology_table = state_builder.read_pathology_table(pathology_columns)
     patient_ids = {row["patient_id"] for row in selected}
     pathology_table = pathology_table.filter(
         pc.is_in(pathology_table["病人编号"], value_set=pa.array(sorted(patient_ids)))

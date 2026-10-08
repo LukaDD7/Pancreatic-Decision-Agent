@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Call the user-specified MaaS endpoint with one fixed, nonclinical message."""
+"""Call an OpenAI-compatible endpoint with one fixed, nonclinical message."""
 
 import argparse
 import getpass
@@ -15,35 +15,32 @@ import openai
 from openai import OpenAI
 
 
-BASE_URL = "https://apicz.boyuerichdata.com/v1/"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MESSAGES = [{"role": "user", "content": "你是谁"}]
 
 
-def load_key():
-    """Use only this provider's dedicated key, never ambient OPENAI_API_KEY."""
-    key = os.environ.get("BOYU_API_KEY", "").strip()
-    if key:
-        return key
+def load_setting(setting_name, *, secret=False):
+    value = os.environ.get(setting_name, "").strip()
+    if value:
+        return value
     path = PROJECT_ROOT / ".env.local"
     if path.is_file():
         for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
-            name, value = line.split("=", 1)
-            if name.strip() == "BOYU_API_KEY":
-                value = value.strip()
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-                    value = value[1:-1]
-                if value:
-                    return value
-    if not sys.stdin.isatty():
-        raise ValueError("请在本机 .env.local 设置 BOYU_API_KEY，或在终端交互运行此脚本。")
-    key = getpass.getpass("输入该 MaaS 平台 API key（不回显、不保存）：").strip()
-    if not key:
-        raise ValueError("API key 为空；未发送请求。")
-    return key
+            name, candidate = line.split("=", 1)
+            if name.strip() == setting_name:
+                candidate = candidate.strip()
+                if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in "\"'":
+                    candidate = candidate[1:-1]
+                if candidate:
+                    return candidate
+    if secret and sys.stdin.isatty():
+        value = getpass.getpass(f"输入 {setting_name}（不回显、不保存）：").strip()
+        if value:
+            return value
+    raise ValueError(f"请在环境变量或本机 .env.local 设置 {setting_name}。")
 
 
 def save_result(record):
@@ -57,7 +54,7 @@ def save_result(record):
 def run(args, client):
     record = {
         "purpose": "nonclinical_connectivity_check",
-        "base_url": BASE_URL,
+        "base_url": args.base_url,
         "requested_model": args.model,
         "messages": MESSAGES,
         "max_tokens": args.max_tokens,
@@ -111,7 +108,8 @@ def run(args, client):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default="kimi-k3")
+    parser.add_argument("--base-url", default=os.environ.get("LLM_API_URL", ""))
+    parser.add_argument("--model", default=os.environ.get("LLM_MODEL", ""))
     parser.add_argument("--max-tokens", type=int, default=200)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--timeout", type=float, default=60.0)
@@ -121,11 +119,15 @@ def main():
     if args.max_tokens <= 0 or args.timeout <= 0 or args.retries < 0 or args.retry_delay < 0:
         parser.error("token/timeout 必须为正，重试次数/间隔不能为负。")
     try:
-        key = load_key()
+        key = load_setting("LLM_API_KEY", secret=True)
+        if not args.base_url:
+            args.base_url = load_setting("LLM_API_URL")
+        if not args.model:
+            args.model = load_setting("LLM_MODEL")
     except (ValueError, EOFError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    with OpenAI(api_key=key, base_url=BASE_URL, timeout=args.timeout, max_retries=0) as client:
+    with OpenAI(api_key=key, base_url=args.base_url, timeout=args.timeout, max_retries=0) as client:
         return run(args, client)
 
 

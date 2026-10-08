@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--staged", action="store_true")
     parser.add_argument("--history", action="store_true")
     args = parser.parse_args()
-    key = os.environ.get("BOYU_API_KEY", "").encode()
+    key = os.environ.get("LLM_API_KEY", "").encode()
     identifiers = patient_identifiers()
     violations = []
     if args.history:
