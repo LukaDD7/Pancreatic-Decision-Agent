@@ -3,8 +3,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pytest
 
 from scripts.cohort_construction.example_fictional_bundle import build_bundle
 from scripts.cohort_construction.source_semantics import resolve_available_time, visible_before
@@ -44,6 +43,9 @@ def test_fictional_example_separates_sources_and_exclusions():
 
 
 def test_pathology_reader_uses_every_parquet_shard(monkeypatch, tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    pytest.importorskip("pandas")
     monkeypatch.setenv("PANCREATIC_DATA_ROOT", str(tmp_path))
     module = importlib.import_module(
         "scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step01_build_patient_states_100"
@@ -56,3 +58,17 @@ def test_pathology_reader_uses_every_parquet_shard(monkeypatch, tmp_path):
     table = module.read_pathology_table(["source_record_key", "病人编号"])
     assert table.num_rows == 2
     assert set(table["source_record_key"].to_pylist()) == {"a", "b"}
+
+
+def test_document_archival_time_cannot_make_later_body_visible():
+    resolved = resolve_available_time({"create_time": "2026-01-14 09:00:00",
+                                      "document_completion_time": "2026-01-16 11:00:00"}, "document")
+    assert resolved["field"] == "document_completion_time"
+    assert not visible_before(resolved, datetime(2026, 1, 15, 10))
+
+
+def test_document_missing_body_completion_has_no_archival_fallback():
+    resolved = resolve_available_time({"create_time": "2026-01-14 09:00:00",
+                                      "event_time_used": "2026-01-14 09:00:00"}, "document")
+    assert resolved["status"] == "unknown"
+    assert not visible_before(resolved, datetime(2026, 1, 15, 10))

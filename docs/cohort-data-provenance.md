@@ -1,6 +1,9 @@
 # 队列数据来源、时间语义与复现说明
 
-本文对应 Issue #1，说明本仓库当前能够复现的边界。仓库不包含真实病例、索引、输出或人工审阅表；本地数据仍由 `PANCREATIC_DATA_ROOT` 指向。当前代码从已建立的 Stage 5/6/7 索引开始消费数据，原始医院 XML、CSV 到这些索引的全部早期解析器尚未随本 PR 提交，不能把本说明理解为原始数据库的完整 ETL。
+本文对应 Issue #1，说明本仓库当前能够复现的边界。
+
+**本目录保存上游队列生成逻辑，供来源审计和历史复现；不等于当前四阶段实验的已验证可见性规则。当前输入分包使用 `pancreatic_agent.timeline_extract` 和 contract v0.3。旧脚本的 `pre_T0`、`temporal_bucket`、规范答案均不能直接作为独立评估的真实可见性或临床金标准。**
+仓库不包含真实病例、索引、输出或人工审阅表；本地数据仍由 `PANCREATIC_DATA_ROOT` 指向。当前代码从已建立的 Stage 5/6/7 索引开始消费数据，原始医院 XML、CSV 到这些索引的全部早期解析器尚未随本 PR 提交，不能把本说明理解为原始数据库的完整 ETL。
 
 ## 运行入口
 
@@ -38,7 +41,7 @@ python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step0
 python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step03_build_agent_eval_100_package
 ```
 
-仅特殊病例候选的模型复核需要远程模型。运行时使用 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`；提示词和输出校验在对应脚本中，密钥不进入文件。其他步骤是确定性规则或本地人工审阅结果的消费。
+仅特殊病例候选的模型复核需要远程模型。运行时使用 `LLM_API_KEY`、`LLM_API_URL`、`LLM_MODEL`；`LLM_API_URL` 按 SDK 约定配置为基础地址（如 `https://example.invalid/v1/`），队列 HTTP 调用自动追加 `chat/completions`，同时兼容旧完整请求地址；提示词和输出校验在对应脚本中，密钥不进入文件。其他步骤是确定性规则或本地人工审阅结果的消费。
 
 ## 原始来源与字段映射
 
@@ -58,9 +61,9 @@ python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step0
 
 | 字段 | 含义 | 能否直接表示当时可见 |
 | --- | --- | --- |
-| `create_time` | 文书在系统中的创建/完成代理时间 | 可作代理；不能证明正文全部在该时刻形成，也不能替代临床事件时间 |
+| `create_time` | 本来源的住院建档/归档时间 | 不能作为文书完成或可见时间；旧队列脚本仍按此字段截断，仅保留作历史复现 |
 | 住院建档/入院时间 | 就诊开始时间 | 不能据此认为本次住院全部文书已经可见 |
-| 文书正文标题或页眉时间 | 文书叙述的临床时间或落款时间 | 仅作临床事件线索；除非与系统创建时间核对，否则不作可见时间 |
+| 正文首时间或明确记录时间 | 整理方确认的文书完成时间 | 当前实验依据；混合版本和正文冲突仍需审阅，不要求与建档时间一致 |
 | `exam_datetime` | 影像检查实施时间 | 当前因签发时间不完整而作为弱代理，并标记为 proxy；不能声称报告当时已经签发 |
 | `sample_time` | 标本采样时间 | 不是检验结果可见时间 |
 | `report_time` | 检验或病理报告时间 | 无更直接的 `available_time` 时使用 |
@@ -68,9 +71,9 @@ python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step0
 | 取材/收到日期 | 病理流程中的临床或接收日期 | 不是病理诊断可见时间 |
 | 病理报告日期 | 病理结论形成日期 | 可作日级代理；同日且没有时分时不能证明在决策前可见 |
 
-检验按 `available_time > report_time > event_time_used`，病理按 `report_time > available_time > event_time_used`，文书按 `create_time > event_time_used`。只有日期或 `00:00` 的记录标为低精度；病理同日低精度记录不进入决策前状态。原100例若信号只有日期，会把 T0 暂置为当日 `23:59:59`，字段同时标记 `date_only_end_of_day_proxy`；这只能用于候选构建，不能解释成医生在全天任何时刻都已见到材料。
+以下为**历史队列构建规则**：检验按 `available_time > report_time > event_time_used`，病理按 `report_time > available_time > event_time_used`，文书按 `create_time > event_time_used`。这段描述不认可建档时间作为当前实验的可见性依据。共享示例函数已改为只接受调用方从正文核对的 `document_completion_time`；缺失则排除，不回退到 `create_time`。只有日期或 `00:00` 的记录标为低精度；病理同日低精度记录不进入决策前状态。原100例若信号只有日期，会把 T0 暂置为当日 `23:59:59`，字段同时标记 `date_only_end_of_day_proxy`；这只能用于候选构建，不能解释成医生在全天任何时刻都已见到材料。
 
-事后补录、出院总结和回顾性病史可能描述更早事件。系统时间决定其最早可见边界，正文中的更早日期只能作为 `clinical_time`，不能倒推为当时已知。时间冲突不自动选择“更合理”的一个，需保留冲突或从决策输入排除。
+事后补录、出院总结和回顾性病史可能描述更早事件。建档时间不能决定其最早可见边界。正文完成时间限制整篇文书的纳入；正文引用的既往事件只能经来源绑定的片段审阅回建，不能把后来整篇文书倒推为当时已知。时间冲突不自动选择“更合理”的一个，需保留冲突或从决策输入排除。
 
 ## 文书、检验与泄漏控制
 
@@ -81,7 +84,7 @@ python -m scripts.cohort_construction.agent_packaging_and_audit.cohort_100.step0
 - 病理同样读取全部 Parquet 分片。本 PR 已移除固定 `part-00001.parquet` 的旧实现。
 - 文书正文解码优先使用结构化 Parquet；遗留字节按 `gb18030` 兼容解码。报告结构化证据片段最多 1,200 字符，原始受限副本不因此删除；文书读取时去标识化上限为 50,000 字符，术前安全状态片段另有 1,800 字符限制。
 - 影像描述、诊断和可用全文均参与规则，不是只保留影像结论。
-- “阳性/阴性”“转移信号”“窗口类型”和规范答案是派生标签，不是原报告字段；存放时与原始证据和实际行为标签分层。
+- “转移信号”“窗口类型”和规范答案是派生标签。`diagnosis_deidentified` 中的“阳性/阴性”当前被原样透传；因早期影像索引生成器未提交，不能凭本 PR 判定其来自原始报告还是后处理标签，实验输入应单独审阅。
 
 ## 队列关系与筛选
 
@@ -118,3 +121,5 @@ python -m scripts.cohort_construction.example_fictional_bundle examples/fictiona
 3. 旧文书的 `00:00` 可能是真实午夜，也可能是占位；未获得更精确来源前只能标低精度。
 4. 随访表的患者号/病理号匹配存在人工核对环节，不能自动当作术前事实。
 5. 通用人工修改日志尚未完整实现；发布数据集前需补齐逐条变更记录。
+6. 历史队列仍含以建档时间截断文书的实现；不能直接用于当前四阶段效果评估，需经过正文时间与原文片段重建。
+7. 原始影像描述、诊断和“阳性/阴性”的列语义需要早期索引生成器确认，本 PR 的字段透传无法独立证明其是报告原文或派生标签。

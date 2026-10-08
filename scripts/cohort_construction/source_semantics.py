@@ -11,7 +11,9 @@ from typing import Any
 
 
 TIME_FIELD_PRIORITY = {
-    "document": ("create_time", "event_time_used"),
+    # Archival create_time in this source is admission/file establishment.
+    # The caller must extract and validate the completion time from the body.
+    "document": ("document_completion_time",),
     "laboratory": ("available_time", "report_time", "event_time_used"),
     "pathology": ("report_time", "available_time", "event_time_used"),
     "imaging": ("report_time", "available_time", "exam_datetime", "event_time_used"),

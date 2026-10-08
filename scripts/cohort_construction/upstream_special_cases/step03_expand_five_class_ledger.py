@@ -255,7 +255,7 @@ EXCLUDE：未证明计划与术中事实发生关键冲突、实际完成常规�
 
 证据：{json.dumps(payload, ensure_ascii=False)}"""
     response = requests.post(
-        settings.api_url,
+        settings.chat_completions_url,
         headers={"Authorization": f"Bearer {settings.api_key}", "Content-Type": "application/json"},
         json={
             "model": settings.model,

@@ -41,6 +41,7 @@
       "event_type": "CLINICAL_DOCUMENT",
       "report_type": "ADMISSION_NOTE",
       "create_time": "2026-01-15 11:00:00",
+      "document_completion_time": "2026-01-15 11:00:00",
       "clinical_time": "2026-01-15 09:00:00",
       "text": "虚构示例：入院记录在决策后完成。"
     },

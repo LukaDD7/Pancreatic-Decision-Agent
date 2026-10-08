@@ -10,6 +10,12 @@ class ModelAPISettings:
     api_url: str
     model: str
 
+    @property
+    def chat_completions_url(self) -> str:
+        """Accept the same base URL as the SDK, plus legacy full endpoints."""
+        url = self.api_url.rstrip("/")
+        return url if url.endswith("/chat/completions") else url + "/chat/completions"
+
 
 def load_model_api_settings() -> ModelAPISettings:
     values = {

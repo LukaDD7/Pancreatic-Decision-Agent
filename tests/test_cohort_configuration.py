@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.cohort_construction.model_api import load_model_api_settings
+from scripts.cohort_construction.model_api import ModelAPISettings, load_model_api_settings
 from scripts.cohort_construction.paths import data_root
 
 
@@ -26,3 +26,10 @@ def test_model_api_rejects_missing_settings(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(RuntimeError, match="missing model API settings"):
         load_model_api_settings()
+
+
+@pytest.mark.parametrize("url", ["https://example.invalid/v1/", "https://example.invalid/v1",
+                                  "https://example.invalid/v1/chat/completions"])
+def test_requests_endpoint_is_compatible_with_sdk_base_url(url):
+    settings = ModelAPISettings("placeholder", url, "placeholder")
+    assert settings.chat_completions_url == "https://example.invalid/v1/chat/completions"

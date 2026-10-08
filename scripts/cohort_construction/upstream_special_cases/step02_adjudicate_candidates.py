@@ -119,7 +119,7 @@ def invoke(settings: ModelAPISettings, row: dict) -> dict:
         "response_format": {"type": "json_object"},
     }
     response = requests.post(
-        settings.api_url,
+        settings.chat_completions_url,
         headers={"Authorization": f"Bearer {settings.api_key}", "Content-Type": "application/json"},
         json=body,
         timeout=90,
