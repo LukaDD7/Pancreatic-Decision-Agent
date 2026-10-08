@@ -14,8 +14,8 @@ from jsonschema import Draft202012Validator
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT_SCHEMA = json.loads((ROOT / "contracts/v0.1/06_agent_output.schema.json").read_text())
-ACTION_MAP = json.loads((ROOT / "configs/action_event_map.v1.json").read_text())
+OUTPUT_SCHEMA = json.loads((ROOT / "contracts/v0.1/06_agent_output.schema.json").read_text(encoding="utf-8"))
+ACTION_MAP = json.loads((ROOT / "configs/action_event_map.v1.json").read_text(encoding="utf-8"))
 TERMINAL_MODES = {
     "CONTINUE_NO_NEW_STAGING": "CONTINUE_CURATIVE_PATH",
     "EXIT_CURATIVE_PATH": "EXIT_CURATIVE_PATH",

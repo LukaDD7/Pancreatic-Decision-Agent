@@ -1,0 +1,61 @@
+{
+  "patient_uid": "FICTIONAL-P001",
+  "decision_time": "2026-01-15 10:00:00",
+  "records": [
+    {
+      "source_type": "imaging",
+      "source_system": "fictional_ris",
+      "source_file": "fictional_imaging.csv",
+      "source_sheet": "reports",
+      "source_row": 2,
+      "source_record_id": "IMG-001",
+      "source_record_key": "fictional:imaging:001",
+      "event_type": "IMAGING_EXAM",
+      "report_type": "IMAGING_REPORT",
+      "exam_datetime": "2026-01-10 09:30:00",
+      "clinical_time": "2026-01-10 09:30:00",
+      "text": "虚构示例：胰头占位，未见明确远处转移。"
+    },
+    {
+      "source_type": "laboratory",
+      "source_system": "fictional_lis",
+      "source_file": "fictional_laboratory.xml",
+      "source_row": 8,
+      "source_record_id": "LAB-001",
+      "source_record_key": "fictional:laboratory:001",
+      "event_type": "LAB_RESULT",
+      "report_type": "LABORATORY_REPORT",
+      "sample_time": "2026-01-14 08:00:00",
+      "report_time": "2026-01-14 12:00:00",
+      "available_time": "2026-01-14 12:00:00",
+      "clinical_time": "2026-01-14 08:00:00",
+      "text": "虚构示例：CA19-9=120 U/mL。"
+    },
+    {
+      "source_type": "document",
+      "source_system": "fictional_emr",
+      "source_file": "fictional_documents.xml",
+      "source_row": 11,
+      "source_record_id": "DOC-001",
+      "source_record_key": "fictional:document:001",
+      "event_type": "CLINICAL_DOCUMENT",
+      "report_type": "ADMISSION_NOTE",
+      "create_time": "2026-01-15 11:00:00",
+      "clinical_time": "2026-01-15 09:00:00",
+      "text": "虚构示例：入院记录在决策后完成。"
+    },
+    {
+      "source_type": "pathology",
+      "source_system": "fictional_pathology",
+      "source_file": "fictional_pathology.csv",
+      "source_row": 3,
+      "source_record_id": "PATH-001",
+      "source_record_key": "fictional:pathology:001",
+      "event_type": "PATHOLOGY_REPORT",
+      "report_type": "PATHOLOGY_REPORT",
+      "report_time": "2026-01-15",
+      "clinical_time": "2026-01-13 14:00:00",
+      "text": "虚构示例：日期精度不足，不能证明决策前可见。"
+    }
+  ]
+}
