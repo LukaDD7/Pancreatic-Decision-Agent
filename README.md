@@ -2,13 +2,16 @@
 
 研究计划根治性胰腺手术路径中的证据充分性与序贯决策。
 
-当前阶段：四阶段固定临床 context 的规则提取与资料审阅。已验证非临床 API 连通性，尚未向远程模型发送真实病例。
+当前阶段：四阶段固定临床 context 的规则提取、资料审阅与独立LLM测试。临床数据和测试结果均保存在本地忽略目录。
+
+Phase A 交接入口为 `python -m pancreatic_agent.phase_a`：冻结四问输入与来源复核记录、离线校验、按指定模型独立复跑。克隆后的虚构示例、真实样本交接包使用方式、历史 Codex 复核执行过程与数据流转见 [Phase A 交接指南](docs/phase-a-handoff.md)。真实样本另以本地包交接，不进入公开仓库。
 
 ## 项目目录
 
 - `contracts/v0.1/`：原始 contract pack，按原文保存。
 - `contracts/v0.2/`：旧版住院/窗口提取 contract，保留用于对照。
-- `contracts/v0.3/`：当前时间线优先的四阶段单病例试验 contract。
+- `contracts/v0.3/`：历史时间线/节选与回述重建 contract，保留用于对照。
+- `contracts/v0.4/`：当前 HEWV 本院诊疗 Episode 与完整记录可见性契约。
 - `data/100例/`：本地临床数据包，未纳入 Git。
 - `data/copy_verification.json`：本地复制校验清单。
 - `private/`：本地病例时间线、来源映射和病例分析，未纳入 Git。
@@ -20,7 +23,11 @@
 
 ## 当前工作
 
-当前试验先拉平全部来源，再选择发现、分期和拟术式前锚点，用同一 system prompt 和四个问题分别独立评估；没有自主申请检查或跨阶段回答传递。报告返回后使用包含当前事件的 `<=`，拟术式前保持 `<`，不使用 `create_time`。提取规则、待审假设及运行方式见 [四阶段提取规范](docs/four-stage-extraction.md) 和 [semantic diff](docs/semantic-diff-v0.2-v0.3.md)。`python3 -m pancreatic_agent.timeline_extract --help` 为当前单病例试验命令；旧 `four_stage` 命令保留 v0.2 行为。均不调用模型，患者输出仅允许写入 `private/` 或 `outputs/`。
+当前采用 [HEWV v0.4](contracts/v0.4/01_algorithm_contract.md)：按本院诊疗过程定义 episode，区分真正首诊与最早可观测记录；每个问题累计开放整份已可见记录，不截取文书前缀、不将后来外院回述提前。四阶段是问题框架，节点可不同、共享或未定位。独立决策与既有计划复核明确区分。报告返回后用 `<=`，目标决策文书前用 `<`，不使用 `create_time`。
+
+配置与运行方式见 [提取规范](docs/hewv-extraction.md) 和 [v0.3 → v0.4 semantic diff](docs/semantic-diff-v0.3-v0.4.md)。当前入口为 `python3 -m pancreatic_agent.episode_extract --help`；`timeline_extract` 与 `four_stage` 分别保留 v0.3/v0.2 行为。均不调用模型，患者输出仅在 `private/` 或 `outputs/`。
+
+新增 `python -m pancreatic_agent.evaluation`，消费四份固定context，按[决策接口v0.1](contracts/v0.4/05_decision_interface.md)输出PAUSE/EXIT/CONTINUE、一项首选动作与严格JSON。默认只生成请求预览，`--execute`才调用；无前问记忆和动态检查回放。代码结构、运行、重复测试与结果说明见[测试指南](docs/checkpoint-evaluation.md)。新入口凭证由显式`--key-env`指定，默认BOYU_API_KEY；端点与模型独立设置。
 
 以下为保留的序贯状态机设计背景，并非当前四阶段提取器的运行要求：
 
@@ -38,7 +45,7 @@ D0 在被评价的医生选择之前：不输入医生拟术式、推荐或结�
 python3 scripts/maas_smoke_test.py
 ```
 
-最后一条仅发送固定的“你是谁”。远程调用统一使用 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`。本机令牌由项目之外的用户配置提供，源码中无令牌值。环境建立与真实模型调用参数见 [本机 API 说明](docs/local-api-check.md)。队列来源、字段字典、运行顺序和时间语义见 [队列数据来源与复现说明](docs/cohort-data-provenance.md)。
+最后一条仅发送固定的“你是谁”。历史状态机和连通性脚本使用 `LLM_API_KEY`、`LLM_API_URL` 和 `LLM_MODEL`；新独立测试入口使用显式 `--key-env`，见[测试指南](docs/checkpoint-evaluation.md)。本机令牌由用户环境配置提供，源码中无令牌值。本机 API 基础说明见 [API 说明](docs/local-api-check.md)。队列来源、字段字典、运行顺序和时间语义见 [队列数据来源与复现说明](docs/cohort-data-provenance.md)。
 
 ## 版本管理
 

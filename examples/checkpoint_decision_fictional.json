@@ -1,0 +1,20 @@
+{
+  "schema_version": "pancreas-decision-v0.1",
+  "mode": "PAUSE",
+  "clinical_assessment": "完全虚构的格式示例：现有报告提示胰腺占位，但尚不足以确定根治切除的可行性。",
+  "resectability": "UNDETERMINED",
+  "primary_action": {
+    "code": "PANCREAS_PROTOCOL_CT",
+    "target": "胰腺及相关分期范围",
+    "purpose": "解决原发灶范围及局部分期这一具体未决问题。",
+    "management_if_supporting": "若结果支持可切除，再结合患者条件讨论根治路径。",
+    "management_if_not_supporting": "若结果不支持当前根治路径，明确原因并讨论替代管理；疑点未解决则针对该疑点复评。",
+    "source_ids": ["IMG0001"]
+  },
+  "evidence": [
+    {"source_id": "IMG0001", "interpretation": "虚构报告仅记载胰腺占位，尚未提供充分的局部分期信息。"}
+  ],
+  "uncertainties": ["局部分期与手术耐受性仍有未决问题。"],
+  "decision_change_conditions": ["取得能解决局部分期问题的新报告后重新评价路径。"],
+  "confidence": 0.5
+}

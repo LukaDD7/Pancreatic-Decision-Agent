@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HEWV v0.4 local source review",
+  "type": "object",
+  "required": ["contract_version", "source_bundle_sha256", "reviewer", "source_scope", "episode", "checkpoints"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {"const": "hewv-v0.4"},
+    "source_bundle_sha256": {"$ref": "#/$defs/hash"},
+    "reviewer": {"type": "string", "minLength": 1},
+    "source_scope": {
+      "type": "object", "required": ["default_origin", "reason"], "additionalProperties": false,
+      "properties": {
+        "default_origin": {"enum": ["hospital", "external"]},
+        "reason": {"type": "string", "minLength": 1},
+        "origins": {"type": "object", "propertyNames": {"$ref": "#/$defs/sourceId"}, "additionalProperties": {"enum": ["hospital", "external"]}}
+      }
+    },
+    "episode": {
+      "type": "object", "required": ["entry_source_id", "entry_basis", "reason"], "additionalProperties": false,
+      "properties": {
+        "episode_id": {"type": "string", "minLength": 1},
+        "clinical_context": {"enum": ["initial_evaluation", "restaging", "recurrence_evaluation", "unspecified"]},
+        "entry_source_id": {"$ref": "#/$defs/sourceId"},
+        "entry_basis": {"enum": ["FIRST_OBSERVED_HOSPITAL_RECORD", "REVIEWED_FIRST_HOSPITAL_ENCOUNTER"]},
+        "encounter_time_field": {"enum": ["encounter_start_time", "visit_time", "admission_time"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "imaging_exam_proxy": {
+      "type": "object", "required": ["accepted", "reason"], "additionalProperties": false,
+      "properties": {"accepted": {"type": "boolean"}, "reason": {"type": "string", "minLength": 1}}
+    },
+    "document_version_reviews": {
+      "type": "object", "propertyNames": {"pattern": "^DOC[0-9]{4,}$"},
+      "additionalProperties": {
+        "type": "object", "required": ["body_sha256", "whole_record_available", "reason"], "additionalProperties": false,
+        "properties": {"body_sha256": {"$ref": "#/$defs/hash"}, "whole_record_available": {"const": true}, "reason": {"type": "string", "minLength": 1}}
+      }
+    },
+    "checkpoints": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {
+        "type": "object", "required": ["stage", "source_ids", "position", "reason"], "additionalProperties": false,
+        "properties": {
+          "stage": {"type": "integer", "minimum": 1, "maximum": 4},
+          "source_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/sourceId"}},
+          "position": {"enum": ["after_records", "before_record"]},
+          "task_mode": {"enum": ["independent_decision", "plan_review"]},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sourceId": {"type": "string", "pattern": "^(DOC|IMG|LAB|PATH)[0-9]{4,}$"},
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

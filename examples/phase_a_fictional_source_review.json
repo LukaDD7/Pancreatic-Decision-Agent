@@ -1,0 +1,20 @@
+{
+  "version": "phase-a-source-review-v1",
+  "reviewer_kind": "fictional",
+  "reviewer": "Fictional source review",
+  "source_bundle_sha256": "d695a5bc07a7f147b3ee3ef84448b130a4d29aa3a161c0695d0bed95f953ecae",
+  "review_manifest_sha256": "4c9a9f8540255dc35277f0e777f365d43374d3904cbf8d27c04342bf09e7a94f",
+  "reviewed_at": null,
+  "model_id": null,
+  "execution": "完全虚构的流程示例；没有调用模型，也没有进行真实病例审阅。",
+  "checks": [
+    "虚构本院来源",
+    "四问锚点和整篇可见性",
+    "目标决策文书整篇排除"
+  ],
+  "independent_clinician_approved": false,
+  "transcript_available": false,
+  "limitations": [
+    "该示例仅用于验证交接和复跑流程，不是临床参考答案"
+  ]
+}

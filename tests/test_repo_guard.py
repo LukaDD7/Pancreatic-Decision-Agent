@@ -44,10 +44,11 @@ def test_guard_detects_key_pattern_without_printing_value(guard,capsys):
     assert fake.decode() not in capsys.readouterr().out
 
 
-def test_guard_detects_active_provider_key_without_a_prefix(guard,monkeypatch,capsys):
+@pytest.mark.parametrize("key_env", ["LLM_API_KEY", "BOYU_API_KEY"])
+def test_guard_detects_active_provider_key_without_a_prefix(guard,monkeypatch,capsys,key_env):
     module,root=guard
     fake="synthetic-private-provider-credential"
-    monkeypatch.setenv("LLM_API_KEY",fake)
+    monkeypatch.setenv(key_env,fake)
     stage(root,"example.txt",fake.encode())
     assert module.main()==1
     assert fake not in capsys.readouterr().out

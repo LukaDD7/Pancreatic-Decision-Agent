@@ -1,0 +1,26 @@
+{
+  "version": "pancreas-actions-v0.1",
+  "boundary": "当前根治性胰腺切除路径；建议层，不执行动作",
+  "actions": [
+    {"code":"PANCREAS_PROTOCOL_CT","mode":"PAUSE","description":"胰腺协议多期增强CT，说明初次完善还是重评估及扫描范围"},
+    {"code":"LIVER_MRI","mode":"PAUSE","description":"针对肝脏病灶的MRI评估"},
+    {"code":"PANCREAS_MRI_MRCP","mode":"PAUSE","description":"针对胰腺/胰胆管问题的MRI，说明是否需要MRCP"},
+    {"code":"CHEST_CT","mode":"PAUSE","description":"胸部CT分期或针对肺/胸膜疑点"},
+    {"code":"PET_CT","mode":"PAUSE","description":"有明确分期问题时考虑PET-CT，不作为常规原发诊断套餐"},
+    {"code":"EUS_WITH_TISSUE_SAMPLING","mode":"PAUSE","description":"EUS及针对性取材，说明诊断目标与是否改变路径"},
+    {"code":"TARGETED_BIOPSY","mode":"PAUSE","description":"非EUS的针对性组织/细胞取材，明确部位和方式"},
+    {"code":"STAGING_LAPAROSCOPY","mode":"PAUSE","description":"诊断性分期腹腔镜，说明是否需腹腔细胞学/病灶活检；不包含根治切除"},
+    {"code":"EXPERT_RADIOLOGY_REVIEW","mode":"PAUSE","description":"复核已有影像/报告，说明需要解决的具体问题"},
+    {"code":"RETRIEVE_EXISTING_RECORDS","mode":"PAUSE","description":"调取已存在但未提供的原始病历、外院报告或原图，不编造其内容"},
+    {"code":"TARGETED_LABS","mode":"PAUSE","description":"针对性实验室检查，明确项目、解释问题与处置影响"},
+    {"code":"FITNESS_ASSESSMENT","mode":"PAUSE","description":"针对手术耐受性的功能、合并症或营养评估"},
+    {"code":"MDT_REVIEW","mode":"PAUSE","description":"针对未决路径问题的胰腺专科多学科讨论"},
+    {"code":"OPTIMIZE_CLINICAL_CONDITION","mode":"PAUSE","description":"先纠正具体可逆临床条件，并说明复评条件"},
+    {"code":"OTHER_TARGETED_EVIDENCE","mode":"PAUSE","description":"表内未覆盖的一项针对性取证，必须写明具体检查/方式；不能打包套餐"},
+    {"code":"CONTINUE_NO_NEW_STAGING","mode":"CONTINUE","description":"无须为当前问题追加分期取证，继续根治路径；仍需常规临床流程和患者共同决策"},
+    {"code":"REDIRECT_ONCOLOGY_PATHWAY","mode":"EXIT","description":"退出当前直接根治切除路径，转肿瘤治疗评估；可包括诱导/转化等后续再评估路径，不指定药物剂量"},
+    {"code":"REDIRECT_SUPPORTIVE_CARE","mode":"EXIT","description":"已有依据支持以支持/症状处理为当前路径"},
+    {"code":"REDIRECT_OTHER_DISEASE_PATHWAY","mode":"EXIT","description":"已有依据支持改走其他疾病或非当前根治术式路径"},
+    {"code":"RESPECT_DECLINED_SURGERY","mode":"EXIT","description":"有明确患者拒绝手术记录，按其意愿另行管理；不能从未记录意愿推断拒绝"}
+  ]
+}

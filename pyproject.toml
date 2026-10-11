@@ -21,6 +21,9 @@ cohort = [
 [tool.setuptools.packages.find]
 include = ["pancreatic_agent*"]
 
+[tool.setuptools.package-data]
+"pancreatic_agent.evaluation" = ["resources/*.json", "resources/*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

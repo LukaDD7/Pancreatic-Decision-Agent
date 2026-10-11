@@ -1,0 +1,55 @@
+{
+  "S001": {
+    "contract_version": "hewv-v0.4",
+    "source_bundle_sha256": "d695a5bc07a7f147b3ee3ef84448b130a4d29aa3a161c0695d0bed95f953ecae",
+    "reviewer": "Fictional source review",
+    "source_scope": {
+      "default_origin": "hospital",
+      "reason": "Fictional hospital export"
+    },
+    "episode": {
+      "entry_source_id": "IMG0001",
+      "entry_basis": "FIRST_OBSERVED_HOSPITAL_RECORD",
+      "reason": "Earliest observable hospital disease record; first visit unknown"
+    },
+    "imaging_exam_proxy": {
+      "accepted": true,
+      "reason": "Fictional declared report-return assumption"
+    },
+    "checkpoints": [
+      {
+        "stage": 1,
+        "source_ids": [
+          "IMG0001"
+        ],
+        "position": "after_records",
+        "reason": "Observed lesion"
+      },
+      {
+        "stage": 2,
+        "source_ids": [
+          "IMG0002"
+        ],
+        "position": "after_records",
+        "reason": "Staging update"
+      },
+      {
+        "stage": 3,
+        "source_ids": [
+          "LAB0002"
+        ],
+        "position": "after_records",
+        "reason": "Evidence update, not an automatic stage transition"
+      },
+      {
+        "stage": 4,
+        "source_ids": [
+          "DOC0001"
+        ],
+        "position": "before_record",
+        "task_mode": "independent_decision",
+        "reason": "Before first identifiable surgical recommendation"
+      }
+    ]
+  }
+}

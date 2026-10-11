@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PancreasIndependentDecisionV0_1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version","mode","clinical_assessment","resectability","primary_action","evidence","uncertainties","decision_change_conditions","confidence"],
+  "properties": {
+    "schema_version": {"const":"pancreas-decision-v0.1"},
+    "mode": {"enum":["PAUSE","EXIT","CONTINUE"]},
+    "clinical_assessment": {"type":"string","minLength":1,"maxLength":1800},
+    "resectability": {"enum":["RESECTABLE","BORDERLINE_RESECTABLE","LOCALLY_ADVANCED","METASTATIC","UNDETERMINED","NOT_APPLICABLE"]},
+    "primary_action": {
+      "type":"object", "additionalProperties":false,
+      "required":["code","target","purpose","management_if_supporting","management_if_not_supporting","source_ids"],
+      "properties": {
+        "code": {"enum":["PANCREAS_PROTOCOL_CT","LIVER_MRI","PANCREAS_MRI_MRCP","CHEST_CT","PET_CT","EUS_WITH_TISSUE_SAMPLING","TARGETED_BIOPSY","STAGING_LAPAROSCOPY","EXPERT_RADIOLOGY_REVIEW","RETRIEVE_EXISTING_RECORDS","TARGETED_LABS","FITNESS_ASSESSMENT","MDT_REVIEW","OPTIMIZE_CLINICAL_CONDITION","OTHER_TARGETED_EVIDENCE","CONTINUE_NO_NEW_STAGING","REDIRECT_ONCOLOGY_PATHWAY","REDIRECT_SUPPORTIVE_CARE","REDIRECT_OTHER_DISEASE_PATHWAY","RESPECT_DECLINED_SURGERY"]},
+        "target": {"type":"string","minLength":1,"maxLength":300},
+        "purpose": {"type":"string","minLength":1,"maxLength":700},
+        "management_if_supporting": {"type":"string","minLength":1,"maxLength":600},
+        "management_if_not_supporting": {"type":"string","minLength":1,"maxLength":600},
+        "source_ids": {"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string"}}
+      }
+    },
+    "evidence": {"type":"array","minItems":1,"maxItems":8,"items":{
+      "type":"object","additionalProperties":false,"required":["source_id","interpretation"],
+      "properties":{"source_id":{"type":"string"},"interpretation":{"type":"string","minLength":1,"maxLength":700}}
+    }},
+    "uncertainties": {"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":500}},
+    "decision_change_conditions": {"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":500}},
+    "confidence": {"type":"number","minimum":0,"maximum":1}
+  }
+}

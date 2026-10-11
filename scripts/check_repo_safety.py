@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--staged", action="store_true")
     parser.add_argument("--history", action="store_true")
     args = parser.parse_args()
-    key = os.environ.get("LLM_API_KEY", "").encode()
+    keys = [value.encode() for name, value in os.environ.items() if name.endswith("API_KEY") and value]
     identifiers = patient_identifiers()
     violations = []
     if args.history:
@@ -50,7 +50,7 @@ def main():
             if git("cat-file", "-t", oid).strip() != b"blob":
                 continue
             blob = git("cat-file", "blob", oid)
-            if (key and key in blob) or SECRET_PATTERN.search(blob) or any(i in blob for i in identifiers):
+            if any(key in blob for key in keys) or SECRET_PATTERN.search(blob) or any(i in blob for i in identifiers):
                 violations.append("Sensitive content in reachable Git history")
     names = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z") if args.staged else git("ls-files", "-z")
     for name in names.decode().split("\0"):
@@ -65,7 +65,7 @@ def main():
         except (OSError, subprocess.CalledProcessError):
             violations.append("Could not inspect a tracked/staged file")
             continue
-        if (key and key in content) or SECRET_PATTERN.search(content) or any(i in content for i in identifiers):
+        if any(key in content for key in keys) or SECRET_PATTERN.search(content) or any(i in content for i in identifiers):
             violations.append(f"Sensitive content detected in {name}")
     if violations:
         print("Repository safety check failed:")

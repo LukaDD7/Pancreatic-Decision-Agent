@@ -1,5 +1,7 @@
 # 四阶段资料提取规范 v0.3：时间线优先
 
+> 历史说明。当前提取使用 [HEWV v0.4 配置与运行](hewv-extraction.md)，默认不节选、不回述前填，也不强制第三/四问共享证据。以下命令仅复现v0.3。
+
 当前单病例试验使用 [contract v0.3](../contracts/v0.3/01_algorithm_contract.md)，与旧规则的含义差异见 [semantic diff](semantic-diff-v0.2-v0.3.md)。v0.2 实现和既有输出保留。
 
 ## 处理步骤
