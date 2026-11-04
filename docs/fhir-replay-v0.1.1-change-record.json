@@ -1,0 +1,33 @@
+{
+  "document_version": "0.1.1",
+  "code_version_unchanged": "0.1",
+  "date": "2026-10-22",
+  "change_type": "methodology documentation only",
+  "reason": "User clarification: expert-blinded acceptable mode/action references permit evaluating alternatives without matching historical actions; environment continuation support is distinct from clinical acceptability.",
+  "protocol_source_sha256": "472a8838ce4c9d3f6a2d247d3672eda112450512cb73dc866be4c4dd8fca0cb1",
+  "user_provided_audit_sha256": "fd0d679a3bf8217002bf788ad3b501f007caa50638500b8b5c17000378b4d919",
+  "sections": [
+    "intro",
+    "7 rewritten",
+    "9 version scope"
+  ],
+  "cohort_change": false,
+  "parser_change": false,
+  "reference_labels_created": false,
+  "data_rerun": false,
+  "tests_rerun": false,
+  "previous_implementation_tests": 22,
+  "checks": [
+    "Q2 mode and Q3 action references kept distinct",
+    "Q4 severity and Q5 confidence preserved",
+    "off-list action blinded supplementation preserved",
+    "sequential matrix eligibility preserved",
+    "historical action/result availability not an implicit scoring gate",
+    "branch design remains open; hypothetical source never relabeled as real patient data"
+  ],
+  "files_sha256": {
+    "FHIR决策Episode回放-可实施框架-v0.1-20261022.md": "205820f74d9af49c644e3e5d301003ddf76e0216c8f29550bd15080ea956473b",
+    "FHIR决策Episode回放-可实施框架-v0.1.1-20261022.md": "8468cd0687bfe5cc5489a0a8ccb7c9f1f2266aedb83c61d8cfdf58050cefd89a",
+    "fhir-replay-v0.1-to-v0.1.1.diff": "fc732e9557ace57daf12df8283691c0bce36f77e38b262a4ff02ddfdedf4f8fc"
+  }
+}

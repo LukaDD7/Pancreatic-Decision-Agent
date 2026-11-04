@@ -1,0 +1,109 @@
+{
+  "version": "0.6",
+  "component": "model_transport_and_format_feedback",
+  "origin": "synthetic_counterexamples",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "CE-AUD-002",
+      "problem": "A format-feedback wrapper reads the last shared receipt after a request fails. An interleaved invocation can hide the current request's schema failure or contaminate its recovery decision.",
+      "change_type": "request_recovery_correctness",
+      "implementation": "Client raises a RuntimeError-compatible ModelRequestFailed carrying the exact request hash and a receipt snapshot. Both model wrappers use that bound receipt; a plain RuntimeError from legacy offline mocks uses only the newest matching request hash, never the list tail or a stale success.",
+      "compatibility": "Original request bodies and hashes, successful original-cache preference, model/host guards and maximum one format-feedback request remain unchanged. The historical default remains three exact-body transport attempts; the explicitly configured fixed-ten development execution now allows ten. No remote model calls or clinical accuracy claims are involved in regression tests.",
+      "required_test_files": [
+        {
+          "file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_format_recovery_concurrency.py",
+          "tests": [
+            "test_CEAUD002_own_schema_or_json_failure_recovers_without_interleaving",
+            "test_CEAUD002_interleaved_other_success_does_not_hide_own_schema_failure",
+            "test_CEAUD002_interleaved_other_schema_cannot_turn_network_failure_into_feedback",
+            "test_CEAUD002_legacy_mock_fallback_matches_request_hash",
+            "test_CEAUD002_real_cached_original_is_returned_without_feedback",
+            "test_CEAUD002_truncation_does_not_trigger_format_feedback",
+            "test_CEAUD002_failed_feedback_stops_after_one_changed_request",
+            "test_CEAUD002_issue_map_references_existing_required_tests"
+          ]
+        },
+        {
+          "file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py",
+          "tests": [
+            "test_CEAUD002_failure_exception_binds_sanitized_receipt_to_request",
+            "test_CEAUD002_output_truncation_reason_is_safe_and_not_schema_failure",
+            "test_CEAUD002_failure_lookup_cannot_use_other_hash_or_stale_same_hash",
+            "test_NET001_tls_failure_recreates_session_and_keeps_same_request",
+            "test_NET002_clients_share_global_configured_concurrency_limit"
+          ]
+        },
+        {
+          "file": "scripts/cohort_construction/p2_auto_checkpoint_shape_retry/test_shape_retry.py",
+          "tests": [
+            "test_failed_exact_request_gets_one_source_unchanged_reminder",
+            "test_success_cached_original_never_gets_reminder",
+            "test_unfailed_request_keeps_original_contract",
+            "test_bad_format_feedback_has_no_positive_fallback_or_second_feedback",
+            "test_new_schema_failure_also_gets_only_one_feedback_round",
+            "test_network_failure_does_not_claim_format_failure"
+          ]
+        },
+        {
+          "file": "scripts/cohort_construction/p2_auto_checkpoint_model_rerun/test_model_rerun.py",
+          "tests": [
+            "test_frozen_request_and_recovery_policy_is_unchanged",
+            "test_actual_format_feedback_preserves_every_clinical_payload_field",
+            "test_network_failure_does_not_trigger_format_feedback",
+            "test_first_discovery_request_differs_only_in_model"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CE-NET-003",
+      "problem": "The provider transport had a fixed three-attempt limit, and failed HTTP receipts lacked a safe status category for distinguishing unstable transport from provider rejection.",
+      "change_type": "transport_retry_and_diagnostic_configuration",
+      "implementation": "An explicit bounded max_http_attempts_per_request configures exact-body retries; the fixed-ten development contract sets ten and the total authorization budget rises accordingly. Successful request caches retain their original key and are not re-requested. Failed HTTP receipts now record only the numeric status code, never response bodies, headers, endpoint or formatted exception messages.",
+      "compatibility": "Callers without the new setting retain the historical three attempts. Ten attempts do not authorize another model request, graph modification or clinical release. A new execution contract and output directory are required; the completed three-attempt batch remains unchanged.",
+      "required_test_files": [
+        {
+          "file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py",
+          "tests": [
+            "test_CE_NET003_ten_attempt_limit_is_explicit_and_preserves_request_and_diagnostics",
+            "test_CE_NET003_http_receipt_retains_status_without_provider_content"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CE-NET-004",
+      "problem": "Ten unbounded-exponential retries made the three authorized diagnostic cases wait 12–15 minutes each and provided neither a configurable lower bound between request starts nor an auditable backoff cap. Observed HTTP 400 remains unresolved and must not be relabeled as proven rate limiting.",
+      "change_type": "transport_pacing_and_bounded_backoff_configuration",
+      "implementation": "The development contract may explicitly set min_request_interval_seconds, retry_backoff_base_seconds and retry_backoff_max_seconds. Each new attempt retains the identical request body, observes the existing concurrency semaphore, and records sanitized pacing and configured retry metadata without provider response content.",
+      "compatibility": "Unconfigured callers keep zero additional request-start pacing; their exponential delays retain base two but are capped at 60 seconds. New rate controls require an explicit fixed-ten authorization and new output; they do not change request count/HTTP-attempt budgets or authorize clinical release.",
+      "required_test_files": [
+        {
+          "file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py",
+          "tests": [
+            "test_CE_NET003_ten_attempt_limit_is_explicit_and_preserves_request_and_diagnostics",
+            "test_CE_NET004_request_start_pacing_is_bounded_and_audited",
+            "test_CE_NET004_pacing_is_shared_across_clients_on_same_endpoint"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CE-GRA-010",
+      "problem": "Transport Schema validation failed before Client.ask returned, so parsed reconstruction response evidence and the invocation-specific receipt were unavailable to the reconstruction failure chain.",
+      "change_type": "transport_schema_failure_private_evidence",
+      "implementation": "A parsed JSON object rejected by the response Schema is carried in the private ModelRequestFailed.response_evidence field with its provider envelope. The sanitized receipt retains invocation_id and the same response_sha256 digest semantics as success. The exception string and invocation archive do not contain the parsed response; HTTP, TLS and JSON-decode failures have no response_evidence.",
+      "compatibility": "Successful cache keys and response_sha256 semantics are unchanged. Schema failures still retry and raise ModelRequestFailed; no invalid response is accepted as a candidate graph. Private clinical evidence is not copied to public reports or the sanitized ledger.",
+      "required_test_files": [
+        {
+          "file": "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py",
+          "tests": [
+            "test_CE_GRA010_real_client_schema_exception_preserves_private_response_and_binding",
+            "test_CE_GRA010_provider_failure_revalidates_request_before_replay"
+          ]
+        }
+      ]
+    }
+  ]
+}

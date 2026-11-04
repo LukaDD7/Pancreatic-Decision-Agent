@@ -1,0 +1,40 @@
+test_acquisition_pending_relevant (test_rules.PatientAndReferenceTests.test_acquisition_pending_relevant) ... ok
+test_blank_headings_not_substantive (test_rules.PatientAndReferenceTests.test_blank_headings_not_substantive) ... ok
+test_date_only_candidate (test_rules.PatientAndReferenceTests.test_date_only_candidate) ... ok
+test_exam_number_numeric_artifact (test_rules.PatientAndReferenceTests.test_exam_number_numeric_artifact) ... ok
+test_future_plan_not_missing (test_rules.PatientAndReferenceTests.test_future_plan_not_missing) ... ok
+test_name_only_not_automatic (test_rules.PatientAndReferenceTests.test_name_only_not_automatic) ... ok
+test_no_nearest_exam_guess (test_rules.PatientAndReferenceTests.test_no_nearest_exam_guess) ... ok
+test_partial_anatomy_relevant (test_rules.PatientAndReferenceTests.test_partial_anatomy_relevant) ... ok
+test_postop_and_difference_not_veto (test_rules.PatientAndReferenceTests.test_postop_and_difference_not_veto) ... ok
+test_postop_no_parse_shortcut (test_rules.PatientAndReferenceTests.test_postop_no_parse_shortcut) ... ok
+test_same_day_unknown_identity_ambiguous (test_rules.PatientAndReferenceTests.test_same_day_unknown_identity_ambiguous) ... ok
+test_unknown_source_or_relevance_review (test_rules.PatientAndReferenceTests.test_unknown_source_or_relevance_review) ... ok
+test_unverified_not_missing (test_rules.PatientAndReferenceTests.test_unverified_not_missing) ... ok
+test_zero_hits_not_automatic_exclusion (test_rules.PatientAndReferenceTests.test_zero_hits_not_automatic_exclusion) ... ok
+test_blank_does_not_erase_other_statement (test_rules.ScopeRegressionTests.test_blank_does_not_erase_other_statement) ... ok
+test_comparison_measurements_keep_roles (test_rules.ScopeRegressionTests.test_comparison_measurements_keep_roles) ... ok
+test_duct_measurement_not_tumor (test_rules.ScopeRegressionTests.test_duct_measurement_not_tumor) ... ok
+test_explicit_uncertainty_kept (test_rules.ScopeRegressionTests.test_explicit_uncertainty_kept) ... ok
+test_front_negation (test_rules.ScopeRegressionTests.test_front_negation) ... ok
+test_history_current_both_kept (test_rules.ScopeRegressionTests.test_history_current_both_kept) ... ok
+test_other_organ_uncertainty (test_rules.ScopeRegressionTests.test_other_organ_uncertainty) ... ok
+test_other_organ_without_comma (test_rules.ScopeRegressionTests.test_other_organ_without_comma) ... ok
+test_parent_not_filled_by_branch (test_rules.ScopeRegressionTests.test_parent_not_filled_by_branch) ... ok
+test_pathology_is_separate (test_rules.ScopeRegressionTests.test_pathology_is_separate) ... ok
+test_positive_control (test_rules.ScopeRegressionTests.test_positive_control) ... ok
+test_preceding_uncertainty (test_rules.ScopeRegressionTests.test_preceding_uncertainty) ... ok
+test_qualified_front_negation (test_rules.ScopeRegressionTests.test_qualified_front_negation) ... ok
+test_quote_coordinates (test_rules.ScopeRegressionTests.test_quote_coordinates) ... ok
+test_same_unit_mixed_preserved (test_rules.ScopeRegressionTests.test_same_unit_mixed_preserved) ... ok
+test_segment_local_positive_not_erased (test_rules.ScopeRegressionTests.test_segment_local_positive_not_erased) ... ok
+test_shared_after_predicate (test_rules.ScopeRegressionTests.test_shared_after_predicate) ... ok
+test_shared_negation (test_rules.ScopeRegressionTests.test_shared_negation) ... ok
+test_short_uninvaded (test_rules.ScopeRegressionTests.test_short_uninvaded) ... ok
+test_splenic_angle_is_scoped (test_rules.ScopeRegressionTests.test_splenic_angle_is_scoped) ... ok
+test_stability_not_negative_metastasis (test_rules.ScopeRegressionTests.test_stability_not_negative_metastasis) ... ok
+
+----------------------------------------------------------------------
+Ran 35 tests in 0.276s
+
+OK

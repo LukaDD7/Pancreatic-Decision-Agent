@@ -1,0 +1,555 @@
+{
+  "schema_version": "0.1.0",
+  "scope": "synthetic_v061_material_governance_counterexamples_only",
+  "not_a_clinical_error_count": true,
+  "issues": [
+    {
+      "issue_id": "CE-AMG-001",
+      "description": "材料审核必须阅读研究者完整来源及实际医生视图，REVIEW不默认开放，机械引文定位不等于语义边界正确",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "只审核模型引文而遗漏完整原文",
+        "将REVIEW原文直接预览给医生"
+      ],
+      "controls": [
+        "完整来源和医生视图由同一compiled_sha256绑定",
+        "研究者原文与医生投影明确分离"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.FullViewTests.test_preview_masks_review_and_does_not_disclose_original",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.FullViewTests.test_all_dimensions_and_binding_required"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-002",
+      "description": "决策边界过窄/过宽、条件和否定截断须由逐字引文修订，不得改写原文或模糊选首个重复匹配",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "目标决策过宽遮蔽",
+        "重复引文任意选择",
+        "误删否定和条件"
+      ],
+      "controls": [
+        "合法证据KEEP与目标决策MASK完整互斥分区",
+        "完整原文可重建且hash保持"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_split_preserves_negation_condition_and_masks_target",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_ambiguous_quote_is_rejected_not_first_match"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-003",
+      "description": "来源纳入/排除须来自已提供给审核者的明确来源，生成新manifest和分区；旧审核不许可新hash",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "未提供来源越权纳入",
+        "来源改变后沿用旧审核",
+        "全部来源排除"
+      ],
+      "controls": [
+        "已提供既往资料可生成新范围且初始REVIEW",
+        "局部未决不等于患者或医院无资料"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_unauthorized_source_and_all_excluded_are_rejected",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_source_change_creates_new_manifest_review_not_permission"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-004",
+      "description": "自动审核不能带未决、修订或REVIEW通过，也不能冒充独立人工SemanticAudit；每版均需复审",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "PASS同时执行修订",
+        "自动PASS被当作人工PASS",
+        "REVISE无实质变化"
+      ],
+      "controls": [
+        "合法新hash的完整材料审核可通过自动门槛",
+        "人工和临床状态保持未评估"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_pass_cannot_hide_revision_unresolved_or_open_finding",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_noop_revise_and_human_review_are_not_acceptance",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_automatic_review_is_never_human_semantic_pass"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-005",
+      "description": "多轮材料审核须有独立预算、版本链和回摆/预算停止；图问题退回重建，不在材料层修改事件图",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "相邻版本反复纳入/排除来源",
+        "达到预算仍宣称通过",
+        "材料审核直接改图"
+      ],
+      "controls": [
+        "两轮修订后新hash审核通过",
+        "候选Episode引用独立Checkpoint版本并显式发起重建回路"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.ChainTests.test_two_round_revision_then_pass",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.ChainTests.test_revision_cycle_and_budget_hold",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.EpisodeTests.test_episode_versions_and_graph_handoff"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-006",
+      "description": "独立材料审核必须使用真正的独立system message；跨Checkpoint未来泄漏检查不得被编译hash去重漏掉；自动意见在浏览器展示后仍须人工核验",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "材料提示只放入用户正文而system仍是发现复核提示",
+        "相同原文用于多个Checkpoint时泄漏检查被编译hash集合吞掉",
+        "网页自动意见被冒充为人工审核"
+      ],
+      "controls": [
+        "实际发送材料审核system指令",
+        "按Checkpoint逐项检查来源重叠",
+        "浏览器实际导出的独立人工响应由Python回收"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_runtime_integration.TestMaterialRuntime.test_material_system_message_is_separate_and_cli_default_is_offline",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_runtime_integration.TestMaterialRuntime.test_same_text_in_multiple_checkpoints_cannot_hide_overlap",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_runtime_integration.TestMaterialRuntime.test_human_fhir_projection_uses_same_doctor_view"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-007",
+      "description": "抽样须冻结总体和分层，按实际独立人员回收统计；浏览器中的自动意见和版本对照不得替代人工填写",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "缺回收计为成功",
+        "修改冻结阈值",
+        "LLM或浏览器自动状态冒充独立人工"
+      ],
+      "controls": [
+        "实际回收分母和Wilson区间",
+        "同页人工填写保持PENDING且经Python回收"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_governance.HumanSamplingTests.test_frozen_stratified_selection_and_actual_denominator",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_governance.HumanSamplingTests.test_cannot_change_plan_or_substitute_auto_reviewer",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_automated_opinion_visible_but_human_export_remains_independent"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-008",
+      "audit_issue_id": "V061-AUD-001",
+      "description": "CLI须能离线准备并冻结原始输入字节、代码、提示、配置和有效运行参数；已有目录不覆盖；执行失败保留HOLD回执",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "未声明candidate_sources导致普通CLI崩溃",
+        "只保存JSON重序列化hash而非实际输入字节",
+        "失败丢失前面已完成轮次"
+      ],
+      "controls": [
+        "普通CLI默认仅准备，不初始化远程客户端",
+        "请求/轮次逐项落盘且预算和模型参数有hash绑定",
+        "配置凭证不写入快照"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestCliRemediation.test_v061_aud001_default_cli_and_candidates_are_offline",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestCliRemediation.test_v061_aud001_snapshots_preserve_input_bytes_code_prompt_and_config",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestCliRemediation.test_v061_aud001_existing_output_is_never_overwritten",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestCliRemediation.test_v061_aud001_unapproved_config_gets_failure_hold_without_client",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestCliRemediation.test_v061_aud001_round_journal_preserves_success_before_failure",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRevisionHistoryAndRunSnapshot.test_v061_aud001_effective_cli_budget_and_sanitized_runtime_bound",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRevisionHistoryAndRunSnapshot.test_v061_aud001_credentials_in_config_are_rejected_before_archive"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-009",
+      "audit_issue_id": "V061-AUD-002",
+      "description": "回归必需项须由pytest真实收集并在JUnit中实际通过，不能靠AST存在同名方法放行",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "普通类中的test方法未收集",
+        "错模块或错类引用被同名方法掩盖",
+        "必需参数变体未执行或跳过仍宣称通过"
+      ],
+      "controls": [
+        "精确模块/类/方法/参数节点解析",
+        "所有必需参数变体均核对实际执行结果",
+        "旧五个runtime用例全部纳入实际收集"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_AUD002_registry_rejects_wrong_class_or_module_even_when_method_exists",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_AUD002_actual_pytest_collection_does_not_count_uncollected_class",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_AUD002_required_test_must_have_actual_passed_execution",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_AUD002_junit_receipt_binds_class_parameter_and_success",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_AUD002_ambiguous_short_reference_cannot_bind_different_module",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_AUD002_parameter_punctuation_preserved_in_junit_and_registry"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-010",
+      "audit_issue_id": "V061-AUD-003",
+      "description": "程序生成可回显的响应绑定信封；模型不用计算hash；验证以实际发送请求及固定协议为准",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "要求模型猜测输入中不存在的canonical请求摘要",
+        "响应自选旧协议",
+        "响应绑定到另一时点上下文"
+      ],
+      "controls": [
+        "模拟提供者只复制可见信封即可通过结构核验",
+        "传给提供者的对象被改动不影响封存请求",
+        "旧格式和错误hash被拒绝"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRequestBindingRemediation.test_v061_aud003_echo_envelope_suffices_without_model_hashing",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRequestBindingRemediation.test_v061_aud003_old_protocol_cannot_define_expected_request",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRequestBindingRemediation.test_v061_aud003_old_response_format_rejected",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRequestBindingRemediation.test_v061_aud003_expected_sent_request_cannot_be_swapped",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRequestBindingRemediation.test_v061_aud003_response_hash_or_target_tampering_rejected",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRequestBindingRemediation.test_v061_aud003_provider_mutation_does_not_change_frozen_sent_request",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_runtime_integration.TestMaterialRuntime.test_cli_actual_client_echoes_visible_binding_without_network"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-011",
+      "audit_issue_id": "V061-AUD-004",
+      "description": "研究者来源与医生投影须逐源绑定版本、hash、字符长度和完全重建原文",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "同ID新版manifest与旧compiled混用",
+        "同字正文但版本不同仍混用",
+        "重算compiled摘要掩盖正文改变"
+      ],
+      "controls": [
+        "同源同版的完整原文重建通过",
+        "跨来源范围重叠和声明错误hash被拒绝"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestSourceVersionRemediation.test_v061_aud004_same_id_new_text_manifest_old_partition_rejected",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestSourceVersionRemediation.test_v061_aud004_same_text_new_version_is_not_interchangeable",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestSourceVersionRemediation.test_v061_aud004_self_consistent_partition_tamper_still_rejected_by_manifest",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestSourceVersionRemediation.test_v061_aud004_overlapping_or_changed_external_source_is_rejected"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-012",
+      "audit_issue_id": "V061-AUD-005",
+      "description": "不可变来源registry保存所有已提供原文；纳入后再排除的来源进入后续排除视图，不会从审核中消失",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "初始纳入来源被排除后消失",
+        "候选来源先纳入再排除却回到未读候选范围"
+      ],
+      "controls": [
+        "每轮完整呈现当前纳入、候选及已排除来源",
+        "原文、版本及registry摘要保持一致"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestChainTailAndRegistryRemediation.test_v061_aud005_excluded_original_reappears_in_every_later_review",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestChainTailAndRegistryRemediation.test_v061_aud005_initial_candidate_and_excluded_sources_remain_available",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRevisionHistoryAndRunSnapshot.test_v061_aud005_candidate_included_then_excluded_is_in_excluded_view"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-013",
+      "audit_issue_id": "V061-AUD-006",
+      "description": "已应用修订、HOLD/失败停止状态、链尾版本和医生预览必须一致；失败保存已有轮次",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "账本APPLIED而链尾返回修订前版本",
+        "HOLD被后续自动PASS冲掉",
+        "第二轮失败丢失第一轮修订",
+        "自动PASS却附带必须完成的阻断待办"
+      ],
+      "controls": [
+        "先更新已执行版本再停止",
+        "失败轮请求和原因绑定当前版本",
+        "HOLD不形成临床许可",
+        "required_actions非空不能PASS；修订后可保留新版本并HOLD"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestChainTailAndRegistryRemediation.test_v061_aud006_applied_revision_and_hold_have_same_final_version",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestChainTailAndRegistryRemediation.test_v061_aud006_required_actions_hold_does_not_continue_to_auto_pass",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestChainTailAndRegistryRemediation.test_v061_aud006_provider_failure_preserves_completed_revision",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestChainTailAndRegistryRemediation.test_v061_aud006_invalid_response_produces_bound_failure_hold",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestPassRequiredActionsRemediation.test_v061_aud006_pass_cannot_carry_uncompleted_required_actions",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestPassRequiredActionsRemediation.test_v061_aud006_revise_required_actions_retains_revision_and_stops_hold",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestReplayReceiptRemediation.test_v061_aud006_cli_replays_durable_chain_and_retains_failures"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-014",
+      "audit_issue_id": "V061-AUD-007",
+      "description": "Episode和工作台核验完整历史；Python确定性重放请求及操作，浏览器核验身份、摘要、连续性和停止状态",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "空轮次伪PASS",
+        "历史输入/目标/账本篡改而尾版不变",
+        "重算所有辅助hash掩盖历史篡改"
+      ],
+      "controls": [
+        "合法三轮修订与新增来源完整通过",
+        "实际Chrome拒绝重算hash的坏历史",
+        "失败零完成轮次仅可表示HOLD"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_replay_valid_multiround_with_new_source",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_replay_rejects_historical_tampering",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_empty_pass_does_not_become_verified_history",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_provider_failure_retains_zero_completed_rounds_only_as_hold",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_episode_requires_whole_replay_and_graph_membership",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_actual_revisions_new_source_and_rehashed_bad_history_rejected_in_chrome",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_tampered_history_boot_is_rejected_by_chrome",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_required_action_revision_adopts_tail_then_holds_and_cannot_be_forged_pass"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-015",
+      "audit_issue_id": "V061-AUD-008",
+      "description": "抽样计划冻结完整总体及按种子生成的有序分配；人工回收绑定实际包、方案和审核声明",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "相同总样本数但全部来自一层",
+        "替换/改层/重排分配",
+        "改写外层hash掩盖清单不符",
+        "回收无人员或时间/任务绑定"
+      ],
+      "controls": [
+        "同一总体与种子可重现原分配",
+        "逐层分母及缺回收透明报告",
+        "旧未绑定总体方案不得冒充新冻结"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_AUD008_frozen_population_and_seeded_assignment_cannot_be_substituted",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_AUD008_assignment_binding_rejects_count_preserving_changes",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_AUD008_recomputed_outer_hash_does_not_hide_manifest_disagreement",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_AUD008_recovery_requires_actual_reviewer_declarations_and_task_binding",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_AUD008_legacy_unbound_plan_cannot_be_used_as_new_freeze"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-016",
+      "audit_issue_id": "GAP-01",
+      "description": "实际修订后派生新准备审计和PENDING人工草稿，保留原始审计、引文及未决；HTML回收绑定新版本",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "更换compiled hash却沿用旧准备审计",
+        "只测试无变化HOLD",
+        "旧人工响应套到新版本"
+      ],
+      "controls": [
+        "新增来源和重编后形成可回收研究者HTML",
+        "原始来源路由事实保留且材料范围变化单列",
+        "人工判断初始未填写"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_workbench_revision.test_revision_derives_provenance_preserving_preparation_and_pending_draft",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_workbench_revision.test_revised_human_export_recovers_new_hash_and_rejects_old_response",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_workbench_revision.test_original_preparation_and_historical_ledger_cannot_be_rebound",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_actual_revisions_new_source_and_rehashed_bad_history_rejected_in_chrome"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-017",
+      "audit_issue_id": "GAP-02",
+      "description": "候选图快照、图版本、目标事件及Episode成员必须绑定；图修订后从新请求重新材料审核",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "同一自动PASS贴到不相干Episode/事件",
+        "只改图版本标签沿用旧PASS",
+        "图重建后只有文字待办没有可执行入口"
+      ],
+      "controls": [
+        "原图和真实成员绑定可组成候选Episode材料集",
+        "新图上下文生成新请求并拒绝旧响应",
+        "程序成员核验不宣称临床时间已认证"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_episode_requires_whole_replay_and_graph_membership",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_graph_change_requires_new_material_review_not_relabeling",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_event_reference_cannot_be_rebound_and_graph_requires_target",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_reconstruction_entry_runs_fresh_review_and_rejects_previous_pass_response"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-018",
+      "audit_issue_id": "GAP-03",
+      "description": "不等比分层及未定义聚类时只报告实际包级描述统计；未定义总体估计设计不得形成统计验收或自动许可",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "配额样本合并Wilson区间冒充总体准确性",
+        "全回收被当成总体统计验收",
+        "缺陷总数误用为缺陷包比例分子"
+      ],
+      "controls": [
+        "逐层报告总体N、分配n、回收和缺陷包分母",
+        "Wilson标为未校正二项诊断区间",
+        "统计验收及总体推断和自动发布保持false"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_GAP03_layer_denominators_packet_defects_and_no_population_inference",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_sampling_remediation.test_GAP03_missing_layer_response_is_not_success_or_completed_validation"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-019",
+      "description": "既有候选图到材料任务的装配必须保留目标、完整原文、证据预算遗漏、零发现及局部失败，不得只导出已入选引文",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "证据预算遗漏来源从材料审核消失",
+        "候选Episode丢失目标Checkpoint",
+        "缺源候选导致其他Checkpoint静默跳过",
+        "零发现单位未进入后续漏事件审计范围"
+      ],
+      "controls": [
+        "逐Checkpoint绑定原图、完整来源注册表和证据来源路由",
+        "预算遗漏原文作为待审候选来源而非自动纳入或忽略",
+        "缺源局部HOLD且零发现/未入选单位进入覆盖清单"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_candidate_graph_prepares_all_targets_and_retains_omitted_sources",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_missing_source_is_local_hold_and_zero_discovery_is_retained"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-020",
+      "description": "批量材料编排默认离线，执行时逐点保留失败、版本链、Episode集及未决人工任务，不覆盖旧输出或把自动意见当作人工通过",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "未显式执行却调用模型适配器",
+        "一个无效模型响应清除其他Checkpoint结果",
+        "旧输出目录被覆盖",
+        "自动审核意见预填人员身份或独立性"
+      ],
+      "controls": [
+        "默认只生成准备任务",
+        "执行失败成为可重放HOLD且继续同例其他目标",
+        "真实多轮修订后的新hash进入工作台和Python回收",
+        "完成状态仍禁止临床发布"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_orchestration_multiround_episode_workbench_and_local_failure",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_orchestration_offline_and_exclusive_output"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-021",
+      "description": "同一候选病例的顺序编排及断点续跑必须严格共享实际未缓存模型调用预算；缓存命中不占未缓存调用额，拒绝调用不得访问模型，预算停止须保留局部HOLD且不伪造未启动链",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "逐Checkpoint重置预算使同一病例超限调用",
+        "链内第二轮仍越过已耗尽的未缓存调用预算",
+        "预算拒绝后虚构已执行review chain或临床许可"
+      ],
+      "controls": [
+        "SharedModelBudget累计成功及失败未缓存调用并分开记录缓存命中和拒绝",
+        "预算耗尽时当前链保留可核验HOLD，未启动目标仅保留执行回执",
+        "断点续跑继承父链实际model_usage，继续累计同一总预算"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_shared_model_budget_stops_inside_chain_and_preserves_local_hold",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_only_unfinished_targets_and_rebinds_parent_budget"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-022",
+      "description": "断点续跑只能在新sibling目录中真正处理父例尚未形成完成链的目标；父例保持只读，已完成父链只重放而不再次调用模型，未决目标不能被静默跳过",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "续跑重复执行已经完成的目标",
+        "续跑覆盖父summary或父review chain",
+        "仅复制父结果而没有实际处理剩余目标",
+        "将全部目标重新送入模型适配器"
+      ],
+      "controls": [
+        "按父例完成链计算remaining并仅选择这些目标",
+        "继承父结果和链，模型适配器调用记录确认无父目标重放调用",
+        "新sibling保存剩余目标结果，父文件字节不变",
+        "预算不足使剩余目标保持MODEL_BUDGET_HOLD"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_only_unfinished_targets_and_rebinds_parent_budget"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-023",
+      "description": "断点续跑须以冻结父链、父输入及执行合同为权威进行replay；父输入字节或图改变、合同改变、父任务或链不符均须拒绝，且拒绝前不得创建新case输出",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "修改候选图输入后沿用父例续跑",
+        "重算或改写父任务、链、执行回执后冒充原父链",
+        "执行合同或图版本改变却继续复用父结果",
+        "合同拒绝后留下可被误认为有效续跑的新输出"
+      ],
+      "controls": [
+        "逐项核对冻结输入、执行合同、候选图和来源注册表",
+        "对已继承链执行完整replay并绑定相同重组任务输入",
+        "父例完整性及合同检查先于新case生成"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_only_unfinished_targets_and_rebinds_parent_budget",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_rejects_changed_graph_and_does_not_create_new_output"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-024",
+      "description": "装配及续跑必须登记逐轮journal和不可变输入／实现快照；直接库调用也须冻结实际输入字节及代码，续跑验证父快照和归档实现，逐点失败不得抹除已完成轮次",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "只在CLI路径冻结输入而直接装配调用无实现快照",
+        "续跑不检查父input-snapshot-receipt或归档代码字节",
+        "失败覆盖已完成轮次journal",
+        "只有最终summary而没有逐轮持久化记录"
+      ],
+      "controls": [
+        "直接装配在case根旁冻结输入、配置、代码和有效运行参数",
+        "续跑复核父输入快照、归档代码及输入字节hash",
+        "每个执行目标创建round journal，局部失败保留可重放HOLD",
+        "逐点model-budget-receipt记录执行前后共享预算"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_orchestration_multiround_episode_workbench_and_local_failure",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_only_unfinished_targets_and_rebinds_parent_budget",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestCliRemediation.test_v061_aud001_round_journal_preserves_success_before_failure",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_review_remediation.TestRevisionHistoryAndRunSnapshot.test_v061_aud001_effective_cli_budget_and_sanitized_runtime_bound"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-025",
+      "description": "真实SCALE-03材料审核响应以重复短句SET_DISPOSITION，程序正确拒绝DISPOSITION_QUOTE_NOT_UNIQUE，但材料system提示缺少与图审核一致的连续上下文消歧操作规则；须修复提示而非任意选定位置",
+      "implementation_status": "implemented_with_synthetic_regression_and_real_response_diagnosis",
+      "counterexamples": [
+        "同一来源重复的短句引文被程序选择第一处或最后一处",
+        "材料审核者未获明确规则而提交DISPOSITION_QUOTE_NOT_UNIQUE响应"
+      ],
+      "controls": [
+        "材料system指令要求扩展邻近连续原文至指定来源内唯一",
+        "重复短句仍由确定性校验拒绝，唯一连续上下文引文可按原分区规则执行",
+        "真实旧响应保持失败分类；本次未获SCALE-03新远程重跑授权，不宣称已验证该例修复"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_ambiguous_quote_is_rejected_not_first_match",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance.RevisionTests.test_CE_AMG025_disposition_quote_expands_context_not_first_match",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_runtime_integration.TestMaterialRuntime.test_material_system_message_is_separate_and_cli_default_is_offline"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-026",
+      "description": "局部材料修订应自动进入新hash的独立复审，而不是因仍有REVIEW区间或required_actions就提前HOLD；真实SCALE-02/04的材料问题涉及分区、遮蔽和人工请求，不等于原始病历质量差",
+      "implementation_status": "implemented_with_synthetic_regression_and_real_hold_structural_attribution",
+      "counterexamples": [
+        "仅需SET_DISPOSITION的局部修订却因required_actions非空被归为REVIEW_HOLD",
+        "新compiled hash沿用旧轮PASS或未经新请求审核",
+        "REQUEST_HUMAN_REVIEW或图问题被下一轮LLM自行清除",
+        "材料分区/遮蔽修订被表述为原始临床资料错误或临床放行"
+      ],
+      "controls": [
+        "提示将可局部修订与真实未决HOLD区分；可自动REVISE时required_actions为空",
+        "确定性执行操作后重编材料，下一轮绑定新manifest、compiled和doctor_view hash",
+        "人工请求、未解决来源和图问题停止自动链，预算有界",
+        "材料自动PASS仍不是医生SemanticAudit或临床Reference"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_material_governance.py::RevisionTests::test_CE_AMG026_local_material_revisions_continue_until_fresh_pass",
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_material_governance.py::RevisionTests::test_CE_AMG026_unresolved_human_or_graph_issue_still_stops"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "version": "0.1",
+  "date": "2026-10-22",
+  "change_type": "P2 feasibility prototype and research specification; no P1 or cohort changes",
+  "fhir_version": "4.0.1",
+  "jsonschema_version": "4.19.2",
+  "mira_reviewed_commit": "73666b1a9ec3a0d9cfb078d31e546d01a581a3e4",
+  "official_schema_url": "https://hl7.org/fhir/R4/fhir.schema.json.zip",
+  "official_schema_sha256": "2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01",
+  "validation_scope": "Official JSON Schema and internal resource references; not full FHIR validator/profile/terminology validation",
+  "source_counts": {
+    "document": 31,
+    "imaging": 6,
+    "lab": 631
+  },
+  "resources_including_provenance": 1338,
+  "checkpoint_count": 4,
+  "checkpoint_origin": "manual reviewed anchors; not automatic detector output",
+  "automatic_decision_detection": false,
+  "formal_blind_evaluation_ready": false,
+  "tests": {
+    "new_replay": 14,
+    "previous_casebook": 8,
+    "all_passed": true
+  },
+  "issue_ids": [
+    "FR-001",
+    "FR-002",
+    "FR-003",
+    "FR-004",
+    "FR-005",
+    "FR-006",
+    "FR-007",
+    "FR-008",
+    "FR-009",
+    "FR-010",
+    "FR-011",
+    "FR-012",
+    "FR-013",
+    "FR-014"
+  ],
+  "comparison_to_previous_D03": {
+    "clinical_document_blocks": [
+      7,
+      10
+    ],
+    "original_reports": [
+      2,
+      4
+    ],
+    "raw_lab_rows": [
+      138,
+      138
+    ],
+    "reason": "Includes three admission/education forms, chest radiograph and first drainage report; not additional decisions"
+  },
+  "known_limits": [
+    "N01-only source adapter; 31 of 48 delivered documents in prior context scope",
+    "True version availability unverified",
+    "No automated semantic extractor, episode boundary engine, CQL or FHIR server",
+    "Current-note cuts are manually reviewed reconstruction assumptions"
+  ]
+}

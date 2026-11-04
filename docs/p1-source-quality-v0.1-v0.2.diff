@@ -1,0 +1,341 @@
+--- v0.1/report_parser.py
++++ v0.2/report_parser.py
+@@ -36,7 +36,21 @@
+ UNCERTAIN=re.compile(r'不能(?:明确|确定|排除)|无法(?:明确|判断|确定|测量|评估|评价)|难以(?:判断|确定|评估|辨认)|不明确|不确定|不详|关系不清|界面不清|分界不清|界限不清|不除外|待排|可疑|疑似|[?？]')
+ NEG=re.compile(r'无(?:明显)?(?:接触|受侵|侵犯|包绕|累及)|未见(?:明显)?(?:接触|受侵|侵犯|包绕|累及)|未受(?:累|侵)|无受累|(?:分界|界限|界面)(?:尚)?清(?:楚|晰)|脂肪间隙(?:尚)?(?:清晰|存在)')
+ POS=re.compile(r'接触|受侵|侵犯|包绕|包裹|累及|受压|压迫|粘连|黏连|附着|贴附|紧贴')
+-ANGLE=re.compile(r'(?P<op><=|>=|≤|≥|<|>|=)?\s*(?P<lo>\d{1,3})(?:\s*[-~—至]\s*(?P<hi>\d{1,3}))?\s*°')
++ANGLE=re.compile(r'(?P<op><=|>=|≤|≥|<|>|=)?\s*(?P<lo>\d{1,3})(?:\s*[-~—至]\s*(?P<hi>\d{1,3}))?\s*(?:°|度)')
++BRANCH_RELATION=re.compile(r'(?P<predicate>无(?:明显)?(?:累及|侵犯|受侵|接触)|未见(?:明显)?(?:累及|侵犯|受侵|接触)|累及|侵犯|受侵|接触)(?P<structure>(?:第(?:一|二|三|[1-3]))?空肠(?:引流)?支)')
++
++def parent_relationship_view(text):
++    """Keep raw text; mask only explicit predicates whose object is a jejunal branch.
++
++    Equal-length masking preserves coordinates. These facts remain separately
++    inspectable and never establish a main-trunk relationship by themselves.
++    """
++    facts=[];chars=list(text)
++    for m in BRANCH_RELATION.finditer(text):
++        facts.append({'structure':m['structure'],'state':'NO_CONTACT_OR_INVASION' if re.match(r'无|未见',m['predicate']) else 'CONTACT_OR_INVASION',
++                      'quote':m.group(),'relative_start':m.start(),'relative_end':m.end()})
++        chars[m.start():m.end()]=[' ']*(m.end()-m.start())
++    return ''.join(chars),facts
+ 
+ def angle_value(text):
+     m=ANGLE.search(text)
+@@ -62,18 +76,19 @@
+     if y[1]==x[0] and not(y[3] and x[2]):return True
+     return False
+ 
+-def relationship(text,in_contact_summary=False):
+-    t=normalize(text);a=angle_value(t)
++def relationship(text,in_contact_summary=False,in_vascular_template=False):
++    t,child_facts=parent_relationship_view(normalize(text));a=angle_value(t)
+     if PLACEHOLDER.fullmatch(t.strip()):
+-        return ('CONTACT_OR_INVASION' if in_contact_summary and not t.strip() else 'MISSING'),a
++        return ('CONTACT_OR_INVASION' if in_contact_summary and not t.strip() and not child_facts else 'MISSING'),a
+     if a and a.get('invalid'):return 'UNRECOGNIZED_VALUE',a
+     if UNCERTAIN.search(t):return 'EXPLICIT_INDETERMINATE',a
+     if NEG.search(t):return 'NO_CONTACT_OR_INVASION',a
+     if re.search(r'接触(?:面|角度)\s*[:：]?\s*无(?:[。.;；]|$)',t) or (in_contact_summary and t.strip(' 。.;；')=='无'):return 'NO_CONTACT_OR_INVASION',a
++    if in_vascular_template and t.strip(' 。.;；')=='无':return 'NO_CONTACT_OR_INVASION',a
+     if a and a['op']=='=' and a['lo']==0 and a.get('hi') is None:return 'NO_CONTACT_OR_INVASION',a
+     if re.search(r'接触(?:面|角度)\s*[:：]?\s*[。.;；]?\s*$',t) and not a:return 'EMPTY_ANGLE_FIELD',a
+-    if POS.search(t) or a or (in_contact_summary and t.strip()):return 'CONTACT_OR_INVASION',a
+-    if re.search(r'通畅|显影|显示清晰|未见狭窄|未见闭塞',t):return 'PATENCY_ONLY',a
++    if POS.search(t) or a or (in_contact_summary and t.strip() and not child_facts):return 'CONTACT_OR_INVASION',a
++    if re.search(r'通畅|显影|显示清晰|未见狭窄|未见闭塞|无(?:明显)?狭窄|无(?:明显)?闭塞',t):return 'PATENCY_ONLY',a
+     return 'UNRECOGNIZED_VALUE',a
+ 
+ def vessel_evidence(text,vessels,source):
+@@ -81,6 +96,7 @@
+     # A comma-separated list in a contact-summary supplies contact, never an unmentioned negative.
+     evidence={k:[] for k in vessels}
+     summary=section(text,'与血管接触',['可疑淋巴结','远处转移','其它诊断','其他诊断','其它','其他']) or section(text,'血管接触',['可疑淋巴结','远处转移','其它诊断','其他诊断','其它','其他'])
++    vascular_sections=[s for s in [section(text,'动脉评估',['静脉评估','其它评估','其他评估','其它放射学描述','其他放射学描述']),section(text,'静脉评估',['其它评估','其他评估','其它放射学描述','其他放射学描述'])] if s]
+     for m in re.finditer(r'[^。；;\n]+',text):
+         clause=m.group();matches=[]
+         if re.search(r'(?:可疑)?淋巴结\s*[:：]',clause):continue
+@@ -97,36 +113,44 @@
+             stop=hits[i+1][0] if i+1<len(hits) else len(clause)
+             tail=clause[b:stop].strip(' ,，、和及与:：')
+             in_summary=bool(summary and summary['start']<=m.start()+a<summary['end'])
+-            state,angle=relationship(tail,in_summary)
++            in_template=any(s['start']<=m.start()+a<s['end'] for s in vascular_sections)
++            state,angle=relationship(tail,in_summary,in_template)
++            parent_view,child_facts=parent_relationship_view(tail)
+             if re.search(r'(?:可疑|疑似|不除外)\s*$',clause[:a]) and state=='CONTACT_OR_INVASION':state='EXPLICIT_INDETERMINATE'
+             # Explicit shared predicates after a list apply to the named members.
+             if state in ['MISSING','UNRECOGNIZED_VALUE'] and i+1<len(hits) and not in_summary:
+                 between=clause[b:hits[-1][1]]
+                 if re.fullmatch(r'[\s、,，和及与\u4e00-\u9fffA-Za-z]*',between):
+                     shared=clause[hits[-1][1]:]
+-                    if re.match(r'\s*(?:均|皆|都)',shared):state,angle=relationship(shared)
++                    if re.match(r'\s*(?:均|皆|都)',shared):state,angle=relationship(shared,in_vascular_template=in_template)
+             if re.search(r'既往|此前|上次|原先',clause[:a]):
+                 # Historical comparison clauses are retained separately, not used to fill current slots.
+                 continue
+             qstart=max(0,a-12);qend=min(len(clause),stop+10)
+             evidence[key].append({'source_field':source,'normalized_start':m.start()+a,'normalized_end':m.start()+stop,
+                                   'normalized_quote_start':m.start()+qstart,'normalized_quote_end':m.start()+qend,
+-                                  'quote':clause[qstart:qend],'state':state,'angle':angle})
++                                  'quote':clause[qstart:qend],'state':state,'angle':angle,
++                                  'in_vascular_template':in_template,'template_bare_no':in_template and tail.strip(' 。.;；')=='无',
++                                  'parent_classification_view':parent_view if child_facts else None,'child_relationships':child_facts})
+     return evidence
+ 
+ def resolve_vessel(items):
+     states={e['state'] for e in items}
+     substantive=states&{'NO_CONTACT_OR_INVASION','CONTACT_OR_INVASION','EXPLICIT_INDETERMINATE'}
++    flags=[]
++    if any(e.get('child_relationships') for e in items):flags.append('CHILD_RELATION_SCOPED')
++    if any(e.get('template_bare_no') for e in items):flags.append('TEMPLATE_BARE_NO_ACCEPTED')
++    if 'EMPTY_ANGLE_FIELD' in states and substantive:flags.append('REDUNDANT_EMPTY_FIELD')
++    meta={'quality_flags':flags,'empty_field_count':sum(e['state']=='EMPTY_ANGLE_FIELD' for e in items)}
+     conflict='NO_CONTACT_OR_INVASION' in substantive and 'CONTACT_OR_INVASION' in substantive
+     aa=[e['angle'] for e in items if e['angle'] and not e['angle'].get('invalid')]
+     conflict=conflict or any(disjoint(a,b) for i,a in enumerate(aa) for b in aa[i+1:])
+-    if conflict:return {'state':'CONFLICT','represented':False,'evidence':items}
+-    # Malformed explicit slot is not hidden by a second incidental mention.
+-    if 'EMPTY_ANGLE_FIELD' in states:return {'state':'EMPTY_ANGLE_FIELD','represented':False,'evidence':items}
++    if conflict:return {'state':'CONFLICT','represented':False,'evidence':items,**meta}
+     if substantive:
+         chosen='EXPLICIT_INDETERMINATE' if 'EXPLICIT_INDETERMINATE' in substantive else next(iter(sorted(substantive)))
+-        return {'state':chosen,'represented':True,'angle_unquantified':'CONTACT_OR_INVASION' in substantive and not aa,'evidence':items}
+-    return {'state':'PATENCY_ONLY' if 'PATENCY_ONLY' in states else 'UNRECOGNIZED_VALUE' if items else 'MISSING','represented':False,'evidence':items}
++        return {'state':chosen,'represented':True,'angle_unquantified':'CONTACT_OR_INVASION' in substantive and not aa,'evidence':items,**meta}
++    if 'EMPTY_ANGLE_FIELD' in states:return {'state':'EMPTY_ANGLE_FIELD','represented':False,'evidence':items,**meta}
++    return {'state':'PATENCY_ONLY' if 'PATENCY_ONLY' in states else 'UNRECOGNIZED_VALUE' if items else 'MISSING','represented':False,'evidence':items,**meta}
+ 
+ def field_value(text,pattern):
+     m=re.search(r'(?:'+pattern+r')\s*[:：]\s*([^\n。；;]*)',text)
+--- v0.1/run_quality.py
++++ v0.2/run_quality.py
+@@ -12,6 +12,16 @@
+     with path.open(encoding='utf-8') as f:
+         for line in f:
+             if line.strip():yield json.loads(line)
++
++def classify_patient(identity_ok,clinical_notes,passed_reports,review_reports,read_errors):
++    """A qualifying report plus a missing patient-level gate stays reviewable.
++
++    Better report extraction must not make a source-context gap silently drop
++    from the review queue into NOT_MET merely because REVIEW reports disappear.
++    """
++    if identity_ok and clinical_notes and passed_reports and not read_errors:return 'PASS_V2'
++    if passed_reports or review_reports or not identity_ok or read_errors:return 'REVIEW_V2'
++    return 'NOT_MET_V2'
+ 
+ class InputAudit:
+     def __init__(self):self.items={}
+@@ -146,12 +156,13 @@
+         if len(qids)>1:
+             for qid in qids:
+                 r=all_reports[qid];r['reason_codes'].append('SAME_REPORT_UID_DIFFERENT_CONTENT');r['quality_state']='REVIEW'
+-    status=Counter();reasons=Counter();vessel_states={k:Counter() for k in rules['required_vessels']};report_state=Counter();template_state=Counter();raw_proof=Counter()
++    status=Counter();reasons=Counter();vessel_states={k:Counter() for k in rules['required_vessels']};report_state=Counter();template_state=Counter();raw_proof=Counter();quality_flags=Counter()
+     for r in all_reports.values():
+         report_state[r['quality_state']]+=1
+         if r['parsed']['template_detected']:template_state[r['quality_state']]+=1
+         for k,v in r['parsed']['vessels'].items():vessel_states[k][v['state']]+=1
+         reasons.update(r['reason_codes'])
++        quality_flags.update(set(flag for v in r['parsed']['vessels'].values() for flag in v.get('quality_flags',[])))
+         for ref in r['source_refs']:raw_proof[ref['source_verification']['reason']]+=1
+     for p in patients.values():
+         rr=[all_reports[q] for q in p['image_ids']];passed=[r for r in rr if r['quality_state']=='PASS'];review=[r for r in rr if r['quality_state']=='REVIEW']
+@@ -163,7 +174,7 @@
+         p['qualifying_report_ids']=[r['quality_report_id'] for r in passed]
+         p['qualifying_report_dates']=sorted(set(r['date'] for r in passed));p['qualifying_reports_in_window']=sum(rules['study_window'][0]<=r['date']<=rules['study_window'][1] for r in passed)
+         p['review_report_count']=len(review);p['report_content_count']=len(rr);p['reason_codes']=pc
+-        p['state']='PASS_V1' if not pc else 'REVIEW_V1' if review or not p['identity_index_ok'] or p['image_read_errors'] else 'NOT_MET_V1'
++        p['state']=classify_patient(p['identity_index_ok'],p['qualified_clinical_notes'],len(passed),len(review),p['image_read_errors'])
+         status[p['state']]+=1
+         if not p['qualifying_reports_in_window']:p['scope_flag']='NO_QUALIFIED_REPORT_IN_WINDOW'
+     assert sum(status.values())==2707
+@@ -175,8 +186,8 @@
+         'patients_with_anchored_pancreas_clinical_note':sum(p['qualified_clinical_notes']>0 for p in patients.values()),
+         'patients_with_any_report_pass':sum(bool(p['qualifying_report_ids']) for p in patients.values()),
+         'patients_with_any_report_pass_in_window':sum(p['qualifying_reports_in_window']>0 for p in patients.values()),
+-        'source_read_errors':errorlog,'clinical_decoding':decoding,'elapsed_seconds':round(time.monotonic()-start,1),
+-        'important':'PASS is operational source-representation eligibility v0.1, not clinical correctness or P3 eligibility. Content versions are not independent exams.'}
++        'source_read_errors':errorlog,'clinical_decoding':decoding,'elapsed_seconds':round(time.monotonic()-start,1),'nonblocking_quality_flag_report_versions':quality_flags,
++        'important':'PASS is operational source-representation eligibility v0.2, not clinical correctness or P3 eligibility. Content versions are not independent exams.'}
+     jsonwrite(args.output/'summary.json',summary);jsonwrite(args.output/'input_manifest.json',audit.items)
+     with (args.output/'report_quality.jsonl').open('w',encoding='utf-8') as f:
+         for r in all_reports.values():f.write(json.dumps(r,ensure_ascii=False)+'\n')
+--- v0.1/quality_rules.json
++++ v0.2/quality_rules.json
+@@ -1,33 +1,91 @@
+ {
+-  "version": "p1-source-quality-v0.1",
++  "version": "p1-source-quality-v0.2",
+   "purpose": "患者级关键影像事实表征质量初筛；不是手术可行性判断；P2识别候选Episode，P3继续核查具体Episode及节点时点",
+   "patient_rule": "P0_member AND identity_index_ok AND anchored_pancreas_clinical_note_exists AND qualified_report_exists",
+   "report_rule": "verified_source AND valid_exam_date AND contrast_CT_or_MR AND index_pancreatic_lesion_context AND lesion_site_represented AND lesion_size_represented AND five_vessel_relationships_represented AND metastatic_domain_represented AND no_detected_internal_conflict",
+   "time_scope": "P1检查全部已交付历史；另记录研究期内合格报告，不以任意历史报告替代P3时点资料",
+-  "study_window": ["2021-01-01", "2026-10-18"],
++  "study_window": [
++    "2021-01-01",
++    "2026-10-18"
++  ],
+   "required_vessels": {
+-    "SMA": ["肠系膜上动脉", "SMA"],
+-    "CA": ["腹腔干动脉", "腹腔干", "腹腔动脉"],
+-    "CHA": ["肝总动脉", "CHA"],
+-    "PV": ["门静脉", "PV", "MPV"],
+-    "SMV": ["肠系膜上静脉", "SMV"]
++    "SMA": [
++      "肠系膜上动脉",
++      "SMA"
++    ],
++    "CA": [
++      "腹腔干动脉",
++      "腹腔干",
++      "腹腔动脉"
++    ],
++    "CHA": [
++      "肝总动脉",
++      "CHA"
++    ],
++    "PV": [
++      "门静脉",
++      "PV",
++      "MPV"
++    ],
++    "SMV": [
++      "肠系膜上静脉",
++      "SMV"
++    ]
+   },
+-  "accepted_relationship_values": ["NO_CONTACT_OR_INVASION", "CONTACT_OR_INVASION", "EXPLICIT_INDETERMINATE"],
+-  "nonaccepted_relationship_values": ["MISSING", "EMPTY_ANGLE_FIELD", "PATENCY_ONLY", "UNRECOGNIZED_VALUE", "CONFLICT"],
+-  "contact_angle_policy": "明确接触但未量化角度保留CONTACT_OR_INVASION并标记ANGLE_UNQUANTIFIED；接触面/接触角度字段有名无值且无明确不确定表述则EMPTY_ANGLE_FIELD；不把缺描述推断为未接触",
+-  "structured_headings": ["肿块评估", "胰胆管评估", "动脉评估", "静脉评估", "其它评估", "其他评估"],
++  "accepted_relationship_values": [
++    "NO_CONTACT_OR_INVASION",
++    "CONTACT_OR_INVASION",
++    "EXPLICIT_INDETERMINATE"
++  ],
++  "nonaccepted_relationship_values": [
++    "MISSING",
++    "EMPTY_ANGLE_FIELD",
++    "PATENCY_ONLY",
++    "UNRECOGNIZED_VALUE",
++    "CONFLICT"
++  ],
++  "contact_angle_policy": "明确接触但未量化角度保留CONTACT_OR_INVASION并标记ANGLE_UNQUANTIFIED；仅空角度且无有效值时EMPTY_ANGLE_FIELD；角度可用°或度；不从沉默推断未接触",
++  "structured_headings": [
++    "肿块评估",
++    "胰胆管评估",
++    "动脉评估",
++    "静脉评估",
++    "其它评估",
++    "其他评估"
++  ],
+   "lesion_site_pattern": "胰头钩突|胰头|钩突|胰颈|胰体尾|胰体|胰尾|胰腺头|胰腺颈|胰腺体|胰腺尾|残胰",
+   "size_pattern": "数值x数值[可有第三径]并有mm/cm/毫米/厘米单位；或明确最大径/直径；或肿瘤段明确记载无法测量/病灶不再可辨",
+   "metastatic_domain_rule": "远处转移字段有实质取值 OR 肝脏病变字段与腹膜/网膜字段均有实质取值；不把腹水或淋巴结独立等同转移",
+-  "allowed_origins": ["全量251个原报告记录簇按身份关联", "病理目录根部CT总表原文", "24个疾病子表中的CT/MR原文"],
++  "allowed_origins": [
++    "全量251个原报告记录簇按身份关联",
++    "病理目录根部CT总表原文",
++    "24个疾病子表中的CT/MR原文"
++  ],
+   "supplement_origin_requires_review": "NAT工作簿报告摘录_未独立回源核验",
+   "source_verification": "记录簇的原始片段/原token字段或同患者原表源行中，归一化后实际出现本报告findings和impression；并核对来源键与日期。不是仅相信original字段名",
+-  "identity_index_allowed": ["无所检索标识冲突"],
++  "identity_index_allowed": [
++    "无所检索标识冲突"
++  ],
+   "clinical_document_include_pattern": "病程|查房|入院记录|出院|会诊|术前讨论|术前小结|手术记录|胰腺肿瘤手术|MDT|多学科|诊疗记录",
+   "clinical_document_exclude_pattern": "护理|教育|同意书|交接|核查|物品|告知|临床路径|申请单|报告卡",
+   "postoperative_context_pattern": "胰十二指肠(?:切除)?术后|胰腺十二指肠术后|胰腺术后|胰腺癌术后|胰头术后|胰(?:腺)?(?:体尾|体|尾|部分|次全|全)(?:部)?[+及和联合脾脏]*(?:切除|根治)术?后|全胰(?:腺)?切除术?后",
+   "postoperative_policy": "术后/疑复发报告进入REVIEW_CONTEXT，不自动当作原发灶在位的合格基线报告；同一患者其他合格报告仍可支持P1",
+-  "patient_states": ["PASS_V1", "REVIEW_V1", "NOT_MET_V1"],
++  "patient_states": [
++    "PASS_V2",
++    "REVIEW_V2",
++    "NOT_MET_V2"
++  ],
+   "not_met_meaning": "当前交付资料不满足本版本；不是临床不适合手术或永久排除",
+-  "limitations": ["五血管为本院已观察模板的首版统一标准，不等于临床所有病例均必须逐项决策", "只检查表征和内部一致性，不验证影像诊断本身正确", "P1通过不代表全部Episode或checkpoint通过", "不从结局、实际手术或后期报告回填早期信息", "未识别叙述格式进入待核，不能自动视为临床缺失"]
+-}
++  "limitations": [
++    "五血管为本院已观察模板的首版统一标准，不等于临床所有病例均必须逐项决策",
++    "只检查表征和内部一致性，不验证影像诊断本身正确",
++    "P1通过不代表全部Episode或checkpoint通过",
++    "不从结局、实际手术或后期报告回填早期信息",
++    "未识别叙述格式进入待核，不能自动视为临床缺失"
++  ],
++  "redundant_blank_policy": "同血管已有相容有效取值时，重复空角度栏保留原文并标REDUNDANT_EMPTY_FIELD，不覆盖有效值；没有有效值或明确冲突仍待核",
++  "negation_scope_policy": "空肠[引流]支及第一空肠[引流]支的显式关系独立记录，在主干关系分类视图中遮罩该限定片段，原文不变；不将分支阴性误作主干阴性",
++  "template_bare_no_policy": "动脉/静脉评估范围内的无、无。可作为明确阴性；非模板孤立无不采用该规则",
++  "controlled_comparison": "与v0.1使用相同冻结P0及研究期标记窗口2021-01-01至2026-10-18；新运行日期2026-10-19；本轮不放宽五血管齐备门槛，不更改P0及Episode规则",
++  "context_gap_triage": "已有合格报告但缺患者级临床上下文时归REVIEW_V2；不因候选报告变好而退到NOT_MET_V2；临床文书条件仍是PASS门槛。"
++}--- v0.1/test_report_parser.py
++++ v0.2/test_report_parser.py
+@@ -1,7 +1,7 @@
+ import copy,json,unittest
+ from pathlib import Path
+ from report_parser import parse_report,evaluate_report,relationship,disjoint,angle_value,normalize
+-from run_quality import verify_source
++from run_quality import verify_source,classify_patient
+ 
+ RULES=json.loads(Path(__file__).with_name('quality_rules.json').read_text())
+ BASE='''肿块评估：胰头可见肿块，大小约15X18mm。
+@@ -76,6 +76,55 @@
+     def test_nodal_contact_does_not_fill_primary_relation(self):
+         p,s=assess(record(BASE+'可疑淋巴结：肠系膜上动脉周围组（接触>180°）。'))
+         self.assertEqual(p['vessels']['SMA']['state'],'NO_CONTACT_OR_INVASION')
++    def test_redundant_blank_does_not_overwrite_negative(self):
++        p,s=assess(record(BASE.replace('肠系膜上动脉无明显接触。','肠系膜上动脉无明显接触；1.与肠系膜上动脉接触面。')))
++        self.assertEqual(s[0],'PASS');self.assertIn('REDUNDANT_EMPTY_FIELD',p['vessels']['SMA']['quality_flags'])
++        self.assertEqual(len(p['vessels']['SMA']['evidence']),2)
++    def test_redundant_blank_does_not_overwrite_positive(self):
++        p,s=assess(record(BASE.replace('肠系膜上动脉无明显接触。','肠系膜上动脉接触>180°；1.与肠系膜上动脉接触面。')))
++        self.assertEqual(s[0],'PASS');self.assertEqual(p['vessels']['SMA']['state'],'CONTACT_OR_INVASION')
++    def test_redundant_blank_does_not_overwrite_indeterminate(self):
++        p,s=assess(record(BASE.replace('肠系膜上动脉无明显接触。','肠系膜上动脉关系难以判断；1.与肠系膜上动脉接触面。')))
++        self.assertEqual(s[0],'PASS');self.assertEqual(p['vessels']['SMA']['state'],'EXPLICIT_INDETERMINATE')
++    def test_real_conflict_not_cured_by_ignoring_blank(self):
++        p,s=assess(record(BASE.replace('肠系膜上动脉无明显接触。','肠系膜上动脉无明显接触；1.与肠系膜上动脉接触>180°；1.与肠系膜上动脉接触面。')))
++        self.assertEqual(s[0],'REVIEW');self.assertEqual(p['vessels']['SMA']['state'],'CONFLICT')
++    def test_jejunal_branch_negative_does_not_negate_smv_contact(self):
++        d=record(BASE.replace('肠系膜上静脉无明显接触','肠系膜上静脉接触面>180°，管腔无狭窄，无累及空肠引流支'),'与血管接触：肠系膜上静脉>180°。远处转移：未见。')
++        p,s=assess(d);v=p['vessels']['SMV'];self.assertEqual(s[0],'PASS');self.assertEqual(v['state'],'CONTACT_OR_INVASION')
++        self.assertEqual(v['evidence'][0]['child_relationships'][0]['state'],'NO_CONTACT_OR_INVASION')
++        self.assertIn('无累及空肠引流支',v['evidence'][0]['quote'])
++    def test_branch_positive_kept_separate_from_trunk_negative(self):
++        p,s=assess(record(BASE.replace('肠系膜上静脉无明显接触','肠系膜上静脉无明显接触，累及第一空肠引流支')))
++        self.assertEqual(s[0],'PASS');self.assertEqual(p['vessels']['SMV']['state'],'NO_CONTACT_OR_INVASION')
++        self.assertEqual(p['vessels']['SMV']['evidence'][0]['child_relationships'][0]['state'],'CONTACT_OR_INVASION')
++    def test_branch_only_does_not_impute_trunk_relationship(self):
++        p,s=assess(record(BASE.replace('肠系膜上静脉无明显接触','肠系膜上静脉无累及空肠引流支')))
++        self.assertFalse(p['vessels']['SMV']['represented']);self.assertEqual(s[0],'REVIEW')
++    def test_uncertain_trunk_survives_branch_negative(self):
++        p,s=assess(record(BASE.replace('肠系膜上静脉无明显接触','肠系膜上静脉关系难以判断，无累及空肠支')))
++        self.assertEqual(s[0],'PASS');self.assertEqual(p['vessels']['SMV']['state'],'EXPLICIT_INDETERMINATE')
++    def test_bare_no_in_template_is_value(self):
++        p,s=assess(record(BASE.replace('腹腔干动脉无明显接触','腹腔干动脉无')))
++        self.assertEqual(s[0],'PASS');self.assertIn('TEMPLATE_BARE_NO_ACCEPTED',p['vessels']['CA']['quality_flags'])
++    def test_bare_no_outside_template_is_not_value(self):self.assertEqual(relationship('无')[0],'UNRECOGNIZED_VALUE')
++    def test_patency_not_reclassified_by_bare_no_rule(self):self.assertEqual(relationship('无狭窄',in_vascular_template=True)[0],'PATENCY_ONLY')
++    def test_chinese_degree(self):
++        self.assertEqual(relationship('接触面>180度')[1]['lo'],180)
++        self.assertTrue(disjoint(angle_value('≤180度'),angle_value('>180°')))
++    def test_all_vessels_positive_are_not_clinically_excluded(self):
++        p,s=assess(record(BASE.replace('无明显接触','接触>180°')))
++        self.assertEqual(s[0],'PASS');self.assertTrue(all(v['state']=='CONTACT_OR_INVASION' for v in p['vessels'].values()))
++    def test_all_vessels_indeterminate_are_represented(self):
++        p,s=assess(record(BASE.replace('无明显接触','关系难以判断')))
++        self.assertEqual(s[0],'PASS');self.assertTrue(all(v['state']=='EXPLICIT_INDETERMINATE' for v in p['vessels'].values()))
++    def test_splenic_contact_is_not_automatic_exclusion(self):self.assertEqual(assess(record(impression='与血管接触：脾动脉、脾静脉>180°。远处转移：未见。'))[1][0],'PASS')
++    def test_better_report_cannot_drop_missing_context_from_review(self):
++        before=classify_patient(True,0,0,1,[]);after=classify_patient(True,0,1,0,[])
++        self.assertEqual(before,'REVIEW_V2');self.assertEqual(after,'REVIEW_V2')
++    def test_qualifying_image_does_not_waive_clinical_context_gate(self):self.assertEqual(classify_patient(True,0,1,3,[]),'REVIEW_V2')
++    def test_all_patient_gates_satisfied(self):self.assertEqual(classify_patient(True,1,1,0,[]),'PASS_V2')
++    def test_no_qualifying_or_reviewable_source(self):self.assertEqual(classify_patient(True,1,0,0,[]),'NOT_MET_V2')
+     def test_narrative_shared_predicate(self):
+         p,s=assess(record(BASE.replace('1.与肠系膜上动脉无明显接触。2.与腹腔干动脉无明显接触。3.与肝总动脉无明显接触。','SMA、腹腔干、CHA均无明显接触。')))
+         self.assertEqual(s[0],'PASS')

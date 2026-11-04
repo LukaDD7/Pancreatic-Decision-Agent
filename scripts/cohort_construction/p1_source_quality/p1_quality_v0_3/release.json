@@ -1,0 +1,25 @@
+{
+  "version": "p1-relevance-usability-v0.3",
+  "parent_commit": "86bd8b2f7b538985d3fde22aa3373d74c65dcd43",
+  "synthetic_tests": 35,
+  "code_sha256": {
+    "README.md": "11019758311a36d5c6c732d18d664661bdc0cf430c74f2ea0d1734d48216d83a",
+    "__init__.py": "4411c9d7ac3944608ed0cfd22194ac6bace4780ba84ce9cdf9679404e72448d4",
+    "labels.py": "6a864cfeffba43c5e552c9b08eeb386216ae29823fd2f9dbf22c525c140002ff",
+    "references.py": "809f389d60b3ef17349643418df923b97b6ed6824822e8700cad3e8c2c958b3b",
+    "rules.json": "a8c3e84638ada1eac51c722eede2c8a470b6bd739dcd711cd7eb8520d4ca6d1a",
+    "run.py": "f3c704640e31060609f3f340434622f3b164048791a49bb7424c42227610f372",
+    "tests/test_rules.py": "c1923e554ec9d49f690c8af60bbe796ceada850de6b30c0c59b37ebcb1a234e1",
+    "verify.py": "38ec11f33fbb1ca2be5104110ecea9fab5c12913add92a005b1a6bf6ec1579f2"
+  },
+  "public_summary_sha256": "e725ce2d6ce6fd9302c309eacf12f44e3e84c2c904f8c14cc35707270103dcdf",
+  "report_sha256": "55b07473c0eb451478eaf21b054110a552752dc2fbc152b1ebce3ce62db567d1",
+  "validation_receipt_sha256": "8d95e3bba72eab18dfa3bb197b7189cfeea93a46d2851d4a134f7a8e64ad9176",
+  "test_receipt_sha256": "3c19bd37750e1b6aeb0c037c5735c82b6ae55f270db1fe7d5f733d5fb7891178",
+  "patient_states": {
+    "INCLUDE_V3": 2690,
+    "REVIEW_V3": 17
+  },
+  "p2_gate": false,
+  "clinical_validation_completed": false
+}

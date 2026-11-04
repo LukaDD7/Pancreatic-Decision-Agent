@@ -1,0 +1,76 @@
+{
+  "real_model_calls": 0,
+  "legacy_chains_verified": 11,
+  "results": [
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-01",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-02",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-03",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true,
+      "new_contract_rejection": "GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID"
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-04",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true,
+      "new_contract_rejection": "GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID"
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-06",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true,
+      "new_contract_rejection": "GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID"
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-07",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-08",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-09",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    },
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "case_id": "SCALE-10",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true,
+      "new_contract_rejection": "GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID"
+    },
+    {
+      "batch": "ready_pipeline_real_validation_retry_provider5_auto_closure_r2_20261103",
+      "case_id": "SCALE-07",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    },
+    {
+      "batch": "ready_pipeline_real_validation_retry_provider5_auto_closure_r2_20261103",
+      "case_id": "SCALE-08",
+      "legacy_chain_replay_verified": true,
+      "original_unchanged": true
+    }
+  ]
+}

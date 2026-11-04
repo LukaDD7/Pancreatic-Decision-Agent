@@ -1,0 +1,34 @@
+{
+  "version": "p2-four-pattern-probe-v0.1-20261021",
+  "status": "exploratory_retrieval_not_clinically_validated",
+  "base_commit": "28495bf",
+  "scope_change": "New all-P0 four-pattern probe only; existing P1/P2 code, cohorts and manuscript unchanged.",
+  "test_runs": [
+    {
+      "command": "/opt/anaconda3/bin/python3.12 -m unittest discover -s scripts/cohort_construction/p2_four_pattern_probe/tests -v",
+      "tests": 7,
+      "exit_code": 0
+    },
+    {
+      "command": "/opt/anaconda3/bin/python3.12 -m unittest discover -s scripts/cohort_construction/p2_decision_localization/tests -v",
+      "tests": 15,
+      "exit_code": 0
+    }
+  ],
+  "source_files_sha256": {
+    "scripts/cohort_construction/p2_four_pattern_probe/README.md": "848f1634537371053a66dea7fe16e25901b642614ade05b7704e3b4deb34f5a4",
+    "scripts/cohort_construction/p2_four_pattern_probe/__init__.py": "f88e1a6759895fd334697b57bff514a9cfa15ff2e1a928e61efe92aff04428c4",
+    "scripts/cohort_construction/p2_four_pattern_probe/probe.py": "efd8580b14f2a3aa23db6124d8f4b7d21b770b323e940fbb091e27fe6f3518be",
+    "scripts/cohort_construction/p2_four_pattern_probe/rules.json": "c8907b9ac7a013067b8cf2502acce5a2a559276618a203e5268b89408eb6df0f",
+    "scripts/cohort_construction/p2_four_pattern_probe/tests/test_probe.py": "e8beb46e6fc303b692d11901654fcd4d8a3d4ef3c8e750a1e7be94d46e4ea0a7"
+  },
+  "aggregate_sha256": "49560f868f182b6929d74a011e045918c85e57ce5c953b7a2e04e0a5a5bc3035",
+  "private_run_manifest_sha256": "558b633f2915f1ec372b96b11106ca0132c192c72fe7774ed5df5b9f10ee3d59",
+  "private_review_notes_sha256": "ab094c6537fb25a6891fdd77c1b79095d334ac18b9c8b780fd6abdf49724875e",
+  "validation": {
+    "source_file_hashes": 265,
+    "patient_source_counts_verified": 2707,
+    "original_development_seeds_retrieved": 4,
+    "clinical_reference_validation": false
+  }
+}

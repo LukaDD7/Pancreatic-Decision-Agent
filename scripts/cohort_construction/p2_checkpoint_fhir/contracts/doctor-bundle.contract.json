@@ -1,0 +1,61 @@
+{
+  "contract_version": "0.1.0-draft",
+  "fhir_version": "4.0.1",
+  "status": "local-draft-not-a-published-FHIR-profile",
+  "canonical_base": "https://checkpoint-research.invalid/fhir",
+  "bundle": {
+    "resourceType": "Bundle",
+    "type": "collection",
+    "allowed_resource_counts": {
+      "Basic": 1,
+      "DocumentReference": "one-per-permitted-material",
+      "Questionnaire": 1
+    }
+  },
+  "fullUrl": "urn:uuid:UUIDv5(NAMESPACE_URL, canonical_base + '/' + resource_kind + '/' + content_binding)",
+  "basic_code": {
+    "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+    "code": "research-checkpoint"
+  },
+  "extension_base": "https://checkpoint-research.invalid/fhir/StructureDefinition/",
+  "basic_extensions": {
+    "packet-binding": {
+      "value_type": "extension",
+      "children_value_type": "valueString",
+      "children": [
+        "schema-version",
+        "packet-id",
+        "packet-version",
+        "state",
+        "fhir-version",
+        "checkpoint-id",
+        "decision-task-id",
+        "visibility-policy-version",
+        "clinical-content-sha256",
+        "packet-sha256",
+        "compiler-version",
+        "compiled-partition-sha256",
+        "semantic-audit-id"
+      ]
+    },
+    "questionnaire": "valueReference.reference to local Questionnaire fullUrl",
+    "questionnaire-sha256": "valueString",
+    "questionnaire-frozen": "valueBoolean true",
+    "material": "repeated valueReference.reference in original materials order",
+    "episode-id": "optional opaque valueString; no other Episode data",
+    "questionnaire-canonical-json": "valueString: json.dumps(resource,ensure_ascii=False,sort_keys=True,separators=(comma,colon),allow_nan=False), exact UTF8 hash serialization helper. Parse and semantic-compare with visible Questionnaire, preserve original number lexemes for packet hash; contains only the same permitted Questionnaire."
+  },
+  "document_reference": {
+    "status": "current",
+    "identifier": "one identifier: system canonical_base + '/identifier/material', value material_id",
+    "extensions": {
+      "source-id": "valueString",
+      "source-version": "valueString",
+      "content-sha256": "valueString"
+    },
+    "content": "one attachment with exactly contentType text/plain;charset=utf-8 and canonical base64 data for nonempty permitted UTF-8 text; for empty text exactly contentType and size:0 without data (FHIR forbids empty primitives). No URL or Attachment.hash."
+  },
+  "questionnaire": "Original frozen Questionnaire resource, unchanged; validate form supported-subset and hash",
+  "integrity": "Reconstruct FrozenCheckpointPacket; validate all packet, material, clinical-content and questionnaire bindings; encode again and require exact JSON-object equality including entry/extension order. Unknown properties, resources, extensions, duplicate refs and external content are rejected.",
+  "limits": "Content hashes are binding/integrity checks, not signatures or proof of clinical correctness. Import requires independently trusted packet manifest to establish assignment authenticity."
+}

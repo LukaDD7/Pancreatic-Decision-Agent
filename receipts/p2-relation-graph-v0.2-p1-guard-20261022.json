@@ -1,0 +1,7 @@
+{
+  "chunk_id": "4678d2",
+  "wall_time_seconds": 0.000030583,
+  "exit_code": 0,
+  "original_token_count": 147,
+  "output": "......................................\n----------------------------------------------------------------------\nRan 54 tests in 6.271s\n\nOK\n...................................................\n----------------------------------------------------------------------\nRan 51 tests in 0.012s\n\nOK\n{\"version\": \"p1-relevance-usability-v0.3.1\", \"known_case_count\": 31, \"required_test_methods\": 37, \"active_tests\": 54, \"legacy_tests\": 51, \"total_tests\": 105, \"required_tests_skipped\": [], \"success\": true, \"scope\": \"Synthetic tests, CLI fixture and frozen legacy baseline; not clinical validation.\"}\n"
+}

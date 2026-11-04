@@ -1,0 +1,49 @@
+{
+  "version": "final-graph-issue-map-v1",
+  "issues": [
+    {
+      "id": "CE-AUD-001",
+      "problem": "LLM reviews reference discovery-stage event identities, but final classification and dependency graph were not re-audited before Episode assembly. Missing, scope=no or generic targets could remain in otherwise supported comparisons/relations and bridge valid groups.",
+      "origin": "2026-10-27 pipeline audit and fictional final-classification counterexamples",
+      "change_type": "episode_dependency_validation_not_clinical_reference",
+      "implementation": "scripts/cohort_construction/p2_auto_checkpoint_v04/final_graph.py",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_final_graph.py",
+      "required_tests": [
+        "test_CE_AUD001_missing_comparison_demotes_without_inventing_first_anchor",
+        "test_CE_AUD001_absent_comparison_id_demotes_new_information_candidate",
+        "test_CE_AUD001_final_generic_target_blocks_comparison_and_process",
+        "test_CE_AUD001_final_scope_no_target_blocks_comparison_and_process",
+        "test_CE_AUD001_semantic_review_final_classification_has_authority",
+        "test_CE_AUD001_repeat_execution_and_noncheckpoint_can_carry_prior_judgment",
+        "test_CE_AUD001_verified_same_event_resolves_repeat_carrier_preserving_original_id",
+        "test_CE_AUD001_resolved_canonical_must_also_be_a_permitted_historical_reference",
+        "test_CE_AUD001_resolved_canonical_must_have_an_earlier_explicit_clinical_time",
+        "test_CE_AUD001_final_semantic_rejection_cannot_be_used_as_explicit_canonical",
+        "test_CE_AUD001_resolved_identity_aliases_do_not_hide_a_dependency_cycle",
+        "test_CE_AUD001_unverified_same_event_does_not_authenticate_canonical",
+        "test_CE_AUD001_multiple_identity_judgments_remain_explicitly_unresolved",
+        "test_CE_AUD001_generic_or_scope_no_cannot_bridge_valid_identity_groups",
+        "test_CE_AUD001_generic_or_scope_no_cannot_bridge_management_processes",
+        "test_CE_AUD001_directed_comparison_cycle_is_blocked",
+        "test_CE_AUD001_identity_cycles_are_valid_equivalence_and_do_not_imply_temporal_cycle",
+        "test_CE_AUD001_process_cycle_does_not_demote_valid_comparison_indiscriminately",
+        "test_CE_AUD001_noncyclic_edge_between_cycles_not_marked_cyclic",
+        "test_CE_AUD001_provided_temporal_id_set_is_honored",
+        "test_CE_AUD001_identity_id_permission_is_distinct_from_predecessor_permission",
+        "test_CE_AUD001_explicit_future_time_is_blocked_but_proxy_time_is_not_invented",
+        "test_CE_AUD001_no_order_is_inferred_from_id_or_input_order",
+        "test_CE_AUD001_relation_guard_does_not_permit_an_undeclared_edge",
+        "test_CE_AUD001_input_and_semantic_review_are_preserved_and_audit_is_idempotent",
+        "test_CE_AUD001_duplicate_event_id_fails_explicitly"
+      ],
+      "policy": [
+        "Preserve semantic_review and original relation identifiers.",
+        "Hard comparison contradictions make candidate Checkpoints program-uncertain; bad process or identity relations do not union.",
+        "Repeat/execution/noncandidate/uncertain target status alone is audited but does not invalidate historical judgment.",
+        "Resolve canonical identity only using verified same-event relations; do not infer nearest predecessor or first anchor.",
+        "Revalidate canonical historical-reference permission, explicit clinical chronology and final classification; identity equivalence alone is not a dependency license."
+      ],
+      "status": "implemented_counterexample_verified_archived_output_diff_completed_20261028"
+    }
+  ]
+}

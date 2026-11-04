@@ -1,0 +1,28 @@
+{
+  "actual_provider_requests": 0,
+  "synthetic_only": true,
+  "output_root": "/private/tmp/p2-review3-probes-wuqobbao",
+  "production_client_full_batch_replay_verified": true,
+  "mocked_http_attempts": 11,
+  "execution_receipt_created": true,
+  "generations": [],
+  "missing_single_file_rejected": "REAL_BATCH_RECONSTRUCTION_LEDGER_CHAIN_INVENTORY_MISMATCH",
+  "restored_chain_replay_verified": true,
+  "missing_entire_revision_directory_replay_verified": true,
+  "reconstruction_ledger_records": 2,
+  "returned_reconstruction_chain_replays": null,
+  "review_conclusion": "HASH_DOMAIN_FIXED_FAILED_CHAIN_INVENTORY_PARTIAL",
+  "baseline_tests": {
+    "passed": 431,
+    "subtests_passed": 34,
+    "exit_code": 0,
+    "junit_xml": "/private/tmp/p2-fix-review3-ss44wsse/baseline.xml"
+  },
+  "implementation_receipt": {
+    "sha256": "d72f12cf870cc9f7be175ab072f529e47e82d1ca345f2fbc68dfa947f4f736b1",
+    "passed": 911,
+    "subtests_passed": 449,
+    "current_source_hashes_matched": 239
+  },
+  "probe_script_sha256": "b6909f7a9a09a759fa57e14ec95fb797d16c4368960c99aec49fef6329e464a6"
+}

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>临床决策独立评审</title><style>/*__REVIEWER_CSS__*/</style></head>
+<body><header class="top"><div class="brand"><span class="mark">＋</span><div><strong>临床决策独立评审</strong><small>请依据当前可见资料作答</small></div></div><div id="assignment-label" class="assignment">正在核验资料</div></header>
+<main id="main" hidden><section class="intro"><div><span class="eyebrow">当前评审任务</span><h1 id="task-title"></h1><p id="task-description"></p></div><span id="demo-badge" class="badge" hidden>虚构资料演示</span></section>
+<div class="workspace"><section class="source-panel" aria-label="当前可见原文"><div class="panel-heading"><div><h2>当前可见资料</h2><p>以原文记载的时间为准。</p></div><span id="source-count" class="count"></span></div><nav id="source-nav" aria-label="原文目录"></nav><div id="source-materials"></div></section>
+<section class="response-panel" aria-label="独立评审意见"><div class="panel-heading"><div><h2>您的评审意见</h2><p>带星号的条目须填写；可多选的题目会注明。</p></div></div><form id="review-form" novalidate><div id="questions"></div><div id="answer-error" role="alert" hidden></div><div class="form-footer"><p>导出后请将意见文件交回研究协调者。</p><button type="submit" id="export-button">导出评审意见 <span>↗</span></button><span id="export-status" role="status"></span></div></form></section></div></main>
+<section id="load-error" class="load-error" role="alert" hidden><h1>当前资料无法打开</h1><p>资料或表单未通过核验，请联系研究协调者重新提供文件。</p><code id="load-error-code"></code></section>
+<footer class="page-footer">意见保存在您导出的本地文件中。</footer>
+<script type="application/json" id="assigned-data">__ASSIGNED_DOCTOR_DATA__</script><script>/*__REVIEWER_JS__*/</script></body></html>

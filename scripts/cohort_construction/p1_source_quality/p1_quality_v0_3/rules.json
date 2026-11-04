@@ -1,0 +1,30 @@
+{
+  "version": "p1-relevance-usability-v0.3",
+  "P0_n": 2707,
+  "study_window_annotation_only": ["2021-01-01", "2026-10-18"],
+  "patient_rule": "P0 member AND identity index cleared AND at least one traceable substantive target-related record -> INCLUDE; otherwise REVIEW. Zero algorithm hits never automatically exclude a patient.",
+  "p2_gate": false,
+  "required_ABC_dimensions": [],
+  "required_vessels": [],
+  "missing_fields_policy": "annotate only; no complete-report requirement",
+  "difference_policy": "keep per-statement time/object/source; do not adjudicate truth or veto patient",
+  "postoperative_policy": "context clue only, no P1 veto",
+  "clinical_document_pattern": "病程|查房|入院|出院|会诊|术前|术后|手术记录|胰腺肿瘤手术|MDT|多学科|诊疗|门诊|就诊|讨论|小结|随访|转入|转出|治疗记录",
+  "nonphysician_title_pattern": "护理|教育|同意书|交接|核查|物品|告知|申请单|报告卡",
+  "target_pattern": "胰腺癌|PDAC|pancreatic.{0,16}(?:cancer|adenocarcinoma)|胰(?:腺|头|体尾|体|尾|颈|十二指肠)[^。；;\\n]{0,45}(?:肿块|肿瘤|占位|病灶|癌|切除|根治)|(?:肿块|肿瘤|占位|病灶)[^。；;\\n]{0,25}胰(?:腺|头|体|尾|颈)",
+  "pancreatic_anatomy_pattern": "胰(?:腺|头|体尾|体|尾|颈|十二指肠)|钩突|残胰",
+  "substantive_plan_pattern": "手术指征|可切除|不可切除|不宜手术|不适合手术|无法手术|无手术机会|再评估|重新评估|手术评估|(?:拟|建议|计划|考虑行)[^。；;\\n]{0,35}(?:切除|根治|CT|MRI|磁共振|穿刺|活检|新辅助)|(?:待|完善)[^。；;\\n]{0,30}(?:检查|CT|MRI|结果|手术)|已行[^。；;\\n]{0,35}(?:切除|根治)",
+  "conditional_pattern": "ECOG\\s*(?:评分)?\\s*[:：为]?\\s*[0-4]|(?:PS|KPS)\\s*(?:评分)?\\s*[:：为]?\\s*\\d{1,3}|(?:体能|体力|一般情况|手术耐受|营养状况)[^。；;\\n]{0,18}(?:良好|尚可|较差|差|不佳|不能|下降|不耐受)|(?:肺部感染|肺炎|心功能不全|呼吸衰竭|感染|肾功能不全)[^。；;\\n]{0,30}(?:不宜|手术|暂缓)|(?:不宜|不适合|暂缓)[^。；;\\n]{0,20}手术",
+  "biological_pattern": "CA\\s*19[-－]?9\\s*(?:[:：=]|为|约|大于|小于|>|<|≥|≤)?\\s*\\d+(?:\\.\\d+)?|(?:远处转移|肝转移|腹膜转移|腹膜播散|转移灶|转移瘤|种植灶|转移待排|转移不能除外)",
+  "vessels": {
+    "SMA": ["肠系膜上动脉", "SMA"],
+    "CA": ["腹腔干动脉", "腹腔干", "腹腔动脉"],
+    "CHA": ["肝总动脉", "CHA"],
+    "PV": ["门静脉", "MPV", "PV"],
+    "SMV": ["肠系膜上静脉", "SMV"],
+    "SA": ["脾动脉"],
+    "SV": ["脾静脉"]
+  },
+  "other_object_boundary_pattern": "腹主动脉|主动脉|下腔静脉|肝固有动脉|肝动脉|肠系膜下动脉|肠系膜下静脉|肝脏|肝内|肝实质|淋巴结|胆总管|胆管|胰管|腹膜|网膜|脾脏|肾脏",
+  "scope_note": "ABC are nonexclusive coverage labels across supplied history, not a contemporaneous clinical state; source and quote coordinates remain available"
+}

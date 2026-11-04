@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "W01",
+      "title": "部分ABC/血管不能因不全被阻断",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_W01_partial_ABC_and_vessel_coverage_is_substantive"
+      ]
+    },
+    {
+      "id": "W02",
+      "title": "前置否定不能丢失",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_front_negation",
+        "test_rules.ScopeRegressionTests.test_qualified_front_negation",
+        "test_rules.ScopeRegressionTests.test_positive_control"
+      ]
+    },
+    {
+      "id": "W03",
+      "title": "局部阴性不能覆盖远段阳性",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_segment_local_positive_not_erased",
+        "test_rules.ScopeRegressionTests.test_same_unit_mixed_preserved"
+      ]
+    },
+    {
+      "id": "W04",
+      "title": "其他器官的不确定性不得串入血管",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_other_organ_uncertainty",
+        "test_rules.ScopeRegressionTests.test_other_organ_without_comma"
+      ]
+    },
+    {
+      "id": "W05",
+      "title": "脾血管角度不得串入SMA",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_splenic_angle_is_scoped"
+      ]
+    },
+    {
+      "id": "W06",
+      "title": "既往/本次不能整句丢弃",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_history_current_both_kept"
+      ]
+    },
+    {
+      "id": "W07",
+      "title": "正常尺寸比较不应阻断记录",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_W07_normal_size_comparison_remains_available"
+      ]
+    },
+    {
+      "id": "W08",
+      "title": "胆管尺寸不得借给肿瘤",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_duct_measurement_not_tumor"
+      ]
+    },
+    {
+      "id": "W09",
+      "title": "未见变化不等于未见转移",
+      "required_tests": [
+        "test_rules.ScopeRegressionTests.test_stability_not_negative_metastasis"
+      ]
+    },
+    {
+      "id": "W10",
+      "title": "叙述性转移域应保留及计入覆盖",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_W10_narrative_metastatic_domain_is_represented"
+      ]
+    },
+    {
+      "id": "W11",
+      "title": "术后语境不得遮住来源标记",
+      "required_tests": [
+        "test_pipeline_regressions.PipelineRegressionTests.test_W11_W12_D8_actual_pipeline_and_order_invariance"
+      ]
+    },
+    {
+      "id": "W12",
+      "title": "局部解码失败不得否决其他有效记录",
+      "required_tests": [
+        "test_pipeline_regressions.PipelineRegressionTests.test_W11_W12_D8_actual_pipeline_and_order_invariance"
+      ]
+    },
+    {
+      "id": "D8",
+      "title": "读取顺序不得改变聚合标签与纳入",
+      "required_tests": [
+        "test_pipeline_regressions.PipelineRegressionTests.test_W11_W12_D8_actual_pipeline_and_order_invariance"
+      ]
+    },
+    {
+      "id": "R01",
+      "title": "重复空栏不得覆盖有效值或掩盖分歧",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R01_blank_fields_never_replace_existing_values",
+        "test_known_regressions.KnownDefectContracts.test_R01_blank_never_erases_opposing_descriptions"
+      ]
+    },
+    {
+      "id": "R02",
+      "title": "空肠分支不得误填或否定SMV主干",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R02_parent_state_survives_jejunal_branch_negation",
+        "test_known_regressions.KnownDefectContracts.test_R02_branch_only_in_contact_summary_never_fills_parent"
+      ]
+    },
+    {
+      "id": "R03",
+      "title": "模板简写无与通畅/无狭窄要区分",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R03_template_bare_no_and_patency_are_distinct"
+      ]
+    },
+    {
+      "id": "R04",
+      "title": "角度单位/零值/非法值及未量化接触",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R04_angle_forms_and_contact_without_angle"
+      ]
+    },
+    {
+      "id": "R05",
+      "title": "CA19-9不得识别为腹腔干",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R05_CA19_is_not_celiac_axis"
+      ]
+    },
+    {
+      "id": "R06",
+      "title": "淋巴结接触不得填入原发灶关系",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R06_nodal_contact_does_not_fill_primary_vessel"
+      ]
+    },
+    {
+      "id": "R07",
+      "title": "非目标器官/标本尺寸不能混用",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R07_other_object_measurements_never_become_tumor",
+        "test_rules.ScopeRegressionTests.test_pathology_is_separate"
+      ]
+    },
+    {
+      "id": "R08",
+      "title": "模板省略重复病灶名仍可识别且不跨节借用",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R08_structured_lesion_can_omit_repeated_noun"
+      ]
+    },
+    {
+      "id": "R09",
+      "title": "单位混写与无法测量仍保留原文",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R09_measurement_units_and_nonmeasurable_are_kept"
+      ]
+    },
+    {
+      "id": "R10",
+      "title": "脾血管关系不得成为新完整性门槛",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R10_splenic_contact_is_not_a_required_vessel_gate"
+      ]
+    },
+    {
+      "id": "R11",
+      "title": "配置JSON转义必须可实际匹配",
+      "required_tests": [
+        "test_known_regressions.KnownDefectContracts.test_R11_config_regex_roundtrip_uses_whitespace_and_digits"
+      ]
+    },
+    {
+      "id": "L01",
+      "title": "未来检查计划不得算缺报告",
+      "required_tests": [
+        "test_rules.PatientAndReferenceTests.test_future_plan_not_missing"
+      ]
+    },
+    {
+      "id": "L02",
+      "title": "线索不足不得选最近报告冒充",
+      "required_tests": [
+        "test_rules.PatientAndReferenceTests.test_no_nearest_exam_guess"
+      ]
+    },
+    {
+      "id": "L03",
+      "title": "日期候选/未找到/来源未核验分开",
+      "required_tests": [
+        "test_rules.PatientAndReferenceTests.test_date_only_candidate",
+        "test_rules.PatientAndReferenceTests.test_unverified_not_missing"
+      ]
+    },
+    {
+      "id": "L04",
+      "title": "同日未知检查身份保留多义",
+      "required_tests": [
+        "test_rules.PatientAndReferenceTests.test_same_day_unknown_identity_ambiguous"
+      ]
+    },
+    {
+      "id": "L05",
+      "title": "检查号浮点导出格式及前导零",
+      "required_tests": [
+        "test_rules.PatientAndReferenceTests.test_exam_number_numeric_artifact"
+      ]
+    },
+    {
+      "id": "S01",
+      "title": "源哈希不符应停止发布",
+      "required_tests": [
+        "test_pipeline_regressions.PipelineRegressionTests.test_source_hash_mismatch_aborts_instead_of_publishing"
+      ]
+    },
+    {
+      "id": "S02",
+      "title": "源行覆盖不齐应停止发布",
+      "required_tests": [
+        "test_pipeline_regressions.PipelineRegressionTests.test_incomplete_source_row_coverage_aborts"
+      ]
+    },
+    {
+      "id": "S03",
+      "title": "旧存储迁移须保持私有根门禁、字节核验、私有权限和不可覆盖续跑",
+      "required_tests": [
+        "test_pipeline_regressions.PipelineRegressionTests.test_S03_migrated_storage_is_private_and_legacy_cache_is_not_required",
+        "test_pipeline_regressions.PipelineRegressionTests.test_W11_W12_D8_actual_pipeline_and_order_invariance"
+      ]
+    }
+  ]
+}

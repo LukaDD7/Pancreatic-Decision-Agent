@@ -1,0 +1,241 @@
+{
+  "audit_version": "p1-adversarial-audit-v0.1-20261021",
+  "audited_runtime": "p1-source-quality-v0.2",
+  "P0_n": 2707,
+  "patient_states_unchanged": {
+    "PASS_V2": 2004,
+    "REVIEW_V2": 620,
+    "NOT_MET_V2": 83
+  },
+  "report_versions": 31236,
+  "synthetic_witnesses": [
+    {
+      "id": "W01_PARTIAL_A_BLOCKED",
+      "synthetic_input": "肿块评估：胰头可见肿块，大小约15×18mm。\n动脉评估：肠系膜上动脉无接触。\n静脉评估：门静脉无接触。肠系膜上静脉无接触。\n其它评估：肝脏病变：无。腹膜或网膜结节：无。",
+      "observed": [
+        "VESSEL_CA_MISSING",
+        "VESSEL_CHA_MISSING"
+      ],
+      "concern": "有实质解剖信息，仍因两条血管未述而阻断报告自动通过；是设计不匹配。",
+      "reproduced": true
+    },
+    {
+      "id": "W02_PREFIX_NEGATION_LOST",
+      "synthetic_input": "未见肠系膜上动脉受侵。",
+      "observed": "CONTACT_OR_INVASION",
+      "concern": "否定在血管名称之前，被截掉，错误识别为受侵。",
+      "reproduced": true
+    },
+    {
+      "id": "W03_LOCAL_POSITIVE_HIDDEN",
+      "synthetic_input": "肠系膜上动脉近段无接触，远段局部包绕。",
+      "observed": "NO_CONTACT_OR_INVASION",
+      "concern": "同一片段NEG先于POS返回，局部接触信息被阴性覆盖。",
+      "reproduced": true
+    },
+    {
+      "id": "W04_UNCERTAINTY_SCOPE_LEAK",
+      "synthetic_input": "肠系膜上动脉无接触，肝内结节可疑转移。",
+      "observed": "EXPLICIT_INDETERMINATE",
+      "concern": "肝病变的不确定性串入SMA关系，明确阴性变为无法确定。",
+      "reproduced": true
+    },
+    {
+      "id": "W05_OTHER_VESSEL_ANGLE_LEAK",
+      "synthetic_input": "肠系膜上动脉无接触，脾动脉包绕270°。",
+      "observed": {
+        "state": "NO_CONTACT_OR_INVASION",
+        "angles": [
+          {
+            "op": "=",
+            "lo": 270,
+            "hi": null,
+            "raw": "270°"
+          }
+        ]
+      },
+      "concern": "脾动脉不在定位词表，270度错误附着于SMA，可进一步制造角度冲突。",
+      "reproduced": true
+    },
+    {
+      "id": "W06_CURRENT_AFTER_HISTORY_LOST",
+      "synthetic_input": "既往肠系膜上动脉接触180°，本次肠系膜上动脉无接触。",
+      "observed": "MISSING",
+      "concern": "全句前缀含既往，连本次结果也被跳过，变成缺失。",
+      "reproduced": true
+    },
+    {
+      "id": "W07_VALID_COMPARISON_BLOCKED",
+      "synthetic_input": "肿块评估：胰头可见肿块，本次20×18mm，较前25×22mm缩小。\n动脉评估：肠系膜上动脉无接触。腹腔干无接触。肝总动脉无接触。\n静脉评估：门静脉无接触。肠系膜上静脉无接触。\n其它评估：肝脏病变：无。腹膜或网膜结节：无。",
+      "observed": [
+        "MULTIPLE_LESION_MEASUREMENTS_REVIEW"
+      ],
+      "concern": "正常的本次/既往比较被多尺寸计数规则阻断。",
+      "reproduced": true
+    },
+    {
+      "id": "W08_DUCT_SIZE_BORROWED",
+      "synthetic_input": "肿块评估：胰头可见肿块，胆总管直径12mm。\n动脉评估：肠系膜上动脉无接触。腹腔干无接触。肝总动脉无接触。\n静脉评估：门静脉无接触。肠系膜上静脉无接触。\n其它评估：肝脏病变：无。腹膜或网膜结节：无。",
+      "observed": {
+        "size": {
+          "state": "NUMERIC",
+          "represented": true,
+          "values_mm": [
+            12.0
+          ],
+          "quote": "直径12mm"
+        },
+        "state": "PASS"
+      },
+      "concern": "胆总管直径被当作肿瘤尺寸，完整性被高估。",
+      "reproduced": true
+    },
+    {
+      "id": "W09_STABLE_METASTASIS_NEGATED",
+      "synthetic_input": "肝脏病变：转移灶未见明显变化。",
+      "observed": {
+        "state": "NEGATIVE",
+        "represented": true,
+        "quote": "肝脏病变：转移灶未见明显变化",
+        "value": "转移灶未见明显变化"
+      },
+      "concern": "未见变化被当作未见病变，转移灶误标阴性。",
+      "reproduced": true
+    },
+    {
+      "id": "W10_NARRATIVE_METASTASIS_MISSED",
+      "synthetic_input": "肿块评估：胰头可见肿块，大小约15×18mm。\n动脉评估：肠系膜上动脉无接触。腹腔干无接触。肝总动脉无接触。\n静脉评估：门静脉无接触。肠系膜上静脉无接触。\n肝脏及腹膜未见转移。",
+      "observed": [
+        "METASTATIC_DOMAIN_NOT_REPRESENTED"
+      ],
+      "concern": "有明确叙述但未用冒号模板，转移域被算未表征。",
+      "reproduced": true
+    },
+    {
+      "id": "W11_POSTOP_HIDES_PROVENANCE_ALERT",
+      "synthetic_input": "肿块评估：胰头可见肿块，大小约15×18mm。\n动脉评估：肠系膜上动脉无接触。腹腔干无接触。肝总动脉无接触。\n静脉评估：门静脉无接触。肠系膜上静脉无接触。\n其它评估：肝脏病变：无。腹膜或网膜结节：无。胰十二指肠切除术后。",
+      "observed": [
+        "POSTOPERATIVE_OR_RECURRENCE_CONTEXT"
+      ],
+      "concern": "术后早返回掩盖独立的来源未核验标记，且把阶段当报告质量门槛。",
+      "reproduced": true
+    },
+    {
+      "id": "W12_READ_ERROR_PATIENT_VETO",
+      "synthetic_input": "1条临床文书+1份合格报告+另1文件读取错误",
+      "observed": "REVIEW_V2",
+      "concern": "局部读取故障成为全患者通过否决；应独立记录运行覆盖与可用记录。",
+      "reproduced": true
+    }
+  ],
+  "aggregate_rule_exposure": {
+    "AUDIT_ALL_REPORT_PASS": {
+      "report_versions": 7870,
+      "patients_with_signal": 2030,
+      "patient_current_states": {
+        "PASS_V2": 2004,
+        "REVIEW_V2": 26
+      }
+    },
+    "AUDIT_PASS_WITH_TEMPLATE": {
+      "report_versions": 7856,
+      "patients_with_signal": 2029,
+      "patient_current_states": {
+        "PASS_V2": 2003,
+        "REVIEW_V2": 26
+      }
+    },
+    "AUDIT_PARTIAL_1_TO_4_VESSELS": {
+      "report_versions": 950,
+      "patients_with_signal": 379,
+      "patient_current_states": {
+        "PASS_V2": 298,
+        "REVIEW_V2": 80,
+        "NOT_MET_V2": 1
+      }
+    },
+    "AUDIT_ANY_VESSEL_MISSING_GATE": {
+      "report_versions": 4659,
+      "patients_with_signal": 1156,
+      "patient_current_states": {
+        "PASS_V2": 659,
+        "REVIEW_V2": 497
+      }
+    },
+    "POSTOPERATIVE_OR_RECURRENCE_CONTEXT": {
+      "report_versions": 8346,
+      "patients_with_signal": 1621,
+      "patient_current_states": {
+        "PASS_V2": 1199,
+        "REVIEW_V2": 422
+      }
+    },
+    "MULTIPLE_LESION_MEASUREMENTS_REVIEW": {
+      "report_versions": 174,
+      "patients_with_signal": 72,
+      "patient_current_states": {
+        "REVIEW_V2": 30,
+        "PASS_V2": 42
+      }
+    },
+    "SAME_REPORT_UID_DIFFERENT_CONTENT": {
+      "report_versions": 0,
+      "patients_with_signal": 0,
+      "patient_current_states": {}
+    },
+    "METASTATIC_DOMAIN_NOT_REPRESENTED": {
+      "report_versions": 4651,
+      "patients_with_signal": 1157,
+      "patient_current_states": {
+        "PASS_V2": 660,
+        "REVIEW_V2": 497
+      }
+    },
+    "LESION_SIZE_NOT_REPRESENTED": {
+      "report_versions": 2935,
+      "patients_with_signal": 880,
+      "patient_current_states": {
+        "PASS_V2": 513,
+        "REVIEW_V2": 367
+      }
+    },
+    "METASTASIS_FIELD_CONFLICT": {
+      "report_versions": 8,
+      "patients_with_signal": 4,
+      "patient_current_states": {
+        "PASS_V2": 4
+      }
+    },
+    "RAW_CLUSTER_NOT_RECONCILED": {
+      "report_versions": 1798,
+      "patients_with_signal": 558,
+      "patient_current_states": {
+        "PASS_V2": 412,
+        "REVIEW_V2": 146
+      }
+    },
+    "CONTRAST_PROTOCOL_UNVERIFIED": {
+      "report_versions": 1125,
+      "patients_with_signal": 446,
+      "patient_current_states": {
+        "PASS_V2": 309,
+        "REVIEW_V2": 137
+      }
+    }
+  },
+  "limitations": [
+    "Counts measure rule exposure, not proven clinical errors or revised eligibility.",
+    "Signals overlap; cannot sum or infer an updated P1 cohort.",
+    "No new ABC extractor or cited-report linkage was implemented.",
+    "Original text and frozen membership were not modified."
+  ],
+  "input_sha256": {
+    "local_artifacts/p1_quality_v0.2/results/patient_quality.jsonl": "8aa7d9ff79c268d4e6e15e02c948bf7f22f6ba0ce4fee20edb61ffc667dea585",
+    "local_artifacts/p1_quality_v0.2/results/report_quality.jsonl": "7db605354905b86f5551281111e38c4dddf193eb5f5c7fa1302971496477cb56",
+    "local_artifacts/p1_quality_v0.2/results/summary.json": "e3b06368f4e9e72dc528937a096f28596299aeaf769a25a95f2838365a4bfe9e",
+    "scripts/cohort_construction/p1_source_quality/p1_quality_v0.2/report_parser.py": "5f5533dbba64b2ec7550006ef7050a9004f4945b5e6de55fbfd47e7a56bf172b",
+    "scripts/cohort_construction/p1_source_quality/p1_quality_v0.2/run_quality.py": "783e61493dacd4f9d1ba5b380aa325c8a978506d51f743e9e101874acbdd0ef9",
+    "scripts/cohort_construction/p1_source_quality/p1_quality_v0.2/quality_rules.json": "a934439dba2516a66e8c19853cfed46eb47ab380e948d685e818afd8df740c3f",
+    "scripts/cohort_construction/p1_source_quality/adversarial_audit_20261021/audit.py": "bb0289b5b5a0fea6a2b78eaf226408383c97abad3c056adaa66c793e74cc3043"
+  }
+}

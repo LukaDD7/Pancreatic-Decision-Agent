@@ -1,0 +1,186 @@
+{
+  "version": "0.3",
+  "inherited_catalog": "regression_catalog.json",
+  "cases": [
+    {
+      "id": "EV001",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV001_representative_mention_does_not_change_event_edge",
+      "counterexample_and_control": "representative_mention_does_not_change_event_edge"
+    },
+    {
+      "id": "EV002",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV002_spurious_edges_enter_precision_denominator",
+      "counterexample_and_control": "spurious_edges_enter_precision_denominator"
+    },
+    {
+      "id": "EV003",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV003_selective_curve_includes_all_accepted_edges",
+      "counterexample_and_control": "selective_curve_includes_all_accepted_edges"
+    },
+    {
+      "id": "EV004",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV004_outside_scope_reported_separately",
+      "counterexample_and_control": "outside_scope_reported_separately"
+    },
+    {
+      "id": "EV005",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV005_unknown_gold_is_not_assumed_negative",
+      "counterexample_and_control": "unknown_gold_is_not_assumed_negative"
+    },
+    {
+      "id": "EV006",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV006_alignment_is_global_one_to_one_not_greedy",
+      "counterexample_and_control": "alignment_is_global_one_to_one_not_greedy"
+    },
+    {
+      "id": "EV007",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV007_duplicate_event_edge_counted_once",
+      "counterexample_and_control": "duplicate_event_edge_counted_once"
+    },
+    {
+      "id": "EV008",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV008_wrong_direction_and_self_loop_are_errors",
+      "counterexample_and_control": "wrong_direction_and_self_loop_are_errors"
+    },
+    {
+      "id": "EV009",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV009_decision_and_process_metrics_are_separate",
+      "counterexample_and_control": "decision_and_process_metrics_are_separate"
+    },
+    {
+      "id": "EV010",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV010_missing_gold_nodes_and_edges_remain_in_denominator",
+      "counterexample_and_control": "missing_gold_nodes_and_edges_remain_in_denominator"
+    },
+    {
+      "id": "EV011",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV011_source_identity_not_signature_ids_controls_alignment",
+      "counterexample_and_control": "source_identity_not_signature_ids_controls_alignment"
+    },
+    {
+      "id": "EV012",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV012_auxiliary_clustering_part_of_graph_completeness",
+      "counterexample_and_control": "auxiliary_clustering_part_of_graph_completeness"
+    },
+    {
+      "id": "EV013",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV013_invalid_gold_types_not_scored_as_valid_graph",
+      "counterexample_and_control": "invalid_gold_types_not_scored_as_valid_graph"
+    },
+    {
+      "id": "RP001",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP001_bypass_makes_identical_fresh_requests",
+      "counterexample_and_control": "bypass_makes_identical_fresh_requests"
+    },
+    {
+      "id": "RP002",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP002_read_only_never_calls_network",
+      "counterexample_and_control": "read_only_never_calls_network"
+    },
+    {
+      "id": "RP003",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP003_refresh_keeps_prior_response",
+      "counterexample_and_control": "refresh_keeps_prior_response"
+    },
+    {
+      "id": "RP004",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP004_invalid_response_preserved_without_resampling",
+      "counterexample_and_control": "invalid_response_preserved_without_resampling"
+    },
+    {
+      "id": "RP005",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP005_cache_response_mutation_detected",
+      "counterexample_and_control": "cache_response_mutation_detected"
+    },
+    {
+      "id": "WF001",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF001_invalid_gate_blocks_clinical_reference",
+      "counterexample_and_control": "invalid_gate_blocks_clinical_reference"
+    },
+    {
+      "id": "WF002",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF002_valid_gate_allows_version_bound_reference",
+      "counterexample_and_control": "valid_gate_allows_version_bound_reference"
+    },
+    {
+      "id": "WF003",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF003_repair_requires_another_blinded_reviewer",
+      "counterexample_and_control": "repair_requires_another_blinded_reviewer"
+    },
+    {
+      "id": "WF004",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF004_initial_version_and_root_lineage_immutable",
+      "counterexample_and_control": "initial_version_and_root_lineage_immutable"
+    },
+    {
+      "id": "WF005",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF005_later_state_exposure_blocks_earlier_review",
+      "counterexample_and_control": "later_state_exposure_blocks_earlier_review"
+    },
+    {
+      "id": "WF006",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF006_later_flag_quarantines_previous_reference",
+      "counterexample_and_control": "later_flag_quarantines_previous_reference"
+    },
+    {
+      "id": "WF007",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF007_pending_and_flagged_denominators_distinct",
+      "counterexample_and_control": "pending_and_flagged_denominators_distinct"
+    },
+    {
+      "id": "WF008",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF008_ledger_tampering_detected",
+      "counterexample_and_control": "ledger_tampering_detected"
+    },
+    {
+      "id": "WF009",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF009_schema_and_exposure_cannot_be_bypassed",
+      "counterexample_and_control": "schema_and_exposure_cannot_be_bypassed"
+    },
+    {
+      "id": "WF010",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF010_unprepared_packet_and_clinical_answer_in_gate_rejected",
+      "counterexample_and_control": "unprepared_packet_and_clinical_answer_in_gate_rejected"
+    },
+    {
+      "id": "WF011",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF011_new_version_cannot_discard_parent_lineage",
+      "counterexample_and_control": "new_version_cannot_discard_parent_lineage"
+    },
+    {
+      "id": "WF012",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF012_merge_can_include_valid_parent_without_labeling_both_wrong",
+      "counterexample_and_control": "merge_can_include_valid_parent_without_labeling_both_wrong"
+    },
+    {
+      "id": "WF013",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF013_later_exposure_does_not_rewrite_sealed_prior_rating",
+      "counterexample_and_control": "later_exposure_does_not_rewrite_sealed_prior_rating"
+    },
+    {
+      "id": "AN001",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN001_quotes_compile_without_creating_adjudication",
+      "counterexample_and_control": "quotes_compile_without_creating_adjudication"
+    },
+    {
+      "id": "AN002",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN002_repeated_quote_cannot_be_guessed",
+      "counterexample_and_control": "repeated_quote_cannot_be_guessed"
+    },
+    {
+      "id": "AN003",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN003_independent_materials_identical_without_model_labels",
+      "counterexample_and_control": "independent_materials_identical_without_model_labels"
+    },
+    {
+      "id": "AN004",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN004_iaa_does_not_require_fabricated_adjudicated_gold",
+      "counterexample_and_control": "iaa_does_not_require_fabricated_adjudicated_gold"
+    },
+    {
+      "id": "AN005",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN005_iaa_requires_separate_independent_people",
+      "counterexample_and_control": "iaa_requires_separate_independent_people"
+    }
+  ]
+}

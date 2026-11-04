@@ -1,0 +1,424 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-packet:0.2.0:SemanticAudit",
+  "title": "SemanticAudit",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "0.2.0"
+    },
+    "assessment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compiled_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "PENDING"
+      ]
+    },
+    "reviewer_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_type": {
+      "enum": [
+        "human",
+        "independent_review_process",
+        "research_preparation"
+      ]
+    },
+    "independence_attested": {
+      "type": "boolean"
+    },
+    "assessed_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit_protocol_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_scope": {
+      "$ref": "#/$defs/reviewScope"
+    },
+    "decision_time_boundary": {
+      "$ref": "#/$defs/decisionTimeBoundary"
+    },
+    "checks": {
+      "$ref": "#/$defs/checks"
+    },
+    "segment_assessments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/segmentAssessment"
+      }
+    },
+    "issue_records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issueRecord"
+      }
+    },
+    "source_coverage_assessments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceCoverageAssessment"
+      }
+    },
+    "required_actions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "assessment_id",
+    "compiled_sha256",
+    "target",
+    "status",
+    "reviewer_id",
+    "reviewer_type",
+    "independence_attested",
+    "assessed_at",
+    "audit_protocol_version",
+    "review_scope",
+    "decision_time_boundary",
+    "checks",
+    "segment_assessments",
+    "issue_records",
+    "source_coverage_assessments",
+    "required_actions"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "target": {
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visibility_policy_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "decision_task_id",
+        "visibility_policy_version"
+      ],
+      "additionalProperties": false
+    },
+    "reviewScope": {
+      "type": "object",
+      "properties": {
+        "scope_status": {
+          "enum": [
+            "COMPLETE",
+            "INCOMPLETE"
+          ]
+        },
+        "included_source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "excluded_source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "scope_basis": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "scope_status",
+        "included_source_ids",
+        "excluded_source_ids",
+        "scope_basis"
+      ],
+      "additionalProperties": false
+    },
+    "decisionTimeBoundary": {
+      "type": "object",
+      "properties": {
+        "basis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "precision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exact_time_known": {
+          "type": "boolean"
+        },
+        "retrospective_reconstruction": {
+          "const": true
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "basis",
+        "precision",
+        "exact_time_known",
+        "retrospective_reconstruction",
+        "uncertainties"
+      ],
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "segmentation_semantics_reviewed": {
+          "type": "boolean"
+        },
+        "permitted_information_scope_reviewed": {
+          "type": "boolean"
+        },
+        "cross_document_restatements_reviewed": {
+          "type": "boolean"
+        },
+        "required_source_coverage_reviewed": {
+          "type": "boolean"
+        },
+        "decision_time_boundary_reviewed": {
+          "type": "boolean"
+        },
+        "all_segments_explicitly_assessed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "segmentation_semantics_reviewed",
+        "permitted_information_scope_reviewed",
+        "cross_document_restatements_reviewed",
+        "required_source_coverage_reviewed",
+        "decision_time_boundary_reviewed",
+        "all_segments_explicitly_assessed"
+      ],
+      "additionalProperties": false
+    },
+    "segmentAssessment": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "exact_quote": {
+          "type": "string",
+          "minLength": 1
+        },
+        "original_disposition": {
+          "enum": [
+            "KEEP",
+            "MASK",
+            "REVIEW"
+          ]
+        },
+        "assessment": {
+          "enum": [
+            "ACCEPT",
+            "REVISE",
+            "UNRESOLVED"
+          ]
+        },
+        "revised_disposition": {
+          "enum": [
+            "KEEP",
+            "MASK"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "source_id",
+        "start",
+        "end",
+        "source_sha256",
+        "exact_quote",
+        "original_disposition",
+        "assessment",
+        "rationale",
+        "issue_codes"
+      ],
+      "additionalProperties": false
+    },
+    "issueRecord": {
+      "type": "object",
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attribution": {
+          "enum": [
+            "model_proposal",
+            "source_processing",
+            "material_assembly",
+            "source_availability",
+            "independent_review_unresolved",
+            "other"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "BLOCKING",
+            "NON_BLOCKING"
+          ]
+        },
+        "status": {
+          "enum": [
+            "OPEN",
+            "RESOLVED"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "supporting_quotes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/supportingQuote"
+          }
+        }
+      },
+      "required": [
+        "issue_id",
+        "code",
+        "attribution",
+        "severity",
+        "status",
+        "description",
+        "source_ids",
+        "supporting_quotes"
+      ],
+      "additionalProperties": false
+    },
+    "supportingQuote": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exact_quote": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "source_id",
+        "start",
+        "end",
+        "exact_quote"
+      ],
+      "additionalProperties": false
+    },
+    "sourceCoverageAssessment": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disposition": {
+          "enum": [
+            "REVIEWED_INCLUDED",
+            "REVIEWED_EXCLUDED",
+            "REQUIRED_MISSING",
+            "DELIVERY_NOT_FOUND",
+            "UNRESOLVED"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability_basis": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "source_id",
+        "disposition",
+        "rationale",
+        "availability_basis"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

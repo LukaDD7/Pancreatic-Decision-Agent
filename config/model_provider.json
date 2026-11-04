@@ -1,0 +1,10 @@
+{
+  "provider": "boyu",
+  "model": "kimi-k3",
+  "thinking": "disabled",
+  "protocol": "openai-compatible-chat-completions",
+  "credential_environment": "BOYU_API_KEY",
+  "endpoint_environment": "BOYU_API_BASE",
+  "clinical_reference": false,
+  "purpose": "P2 semantic normalization and relation proposals; shared default for future automation"
+}

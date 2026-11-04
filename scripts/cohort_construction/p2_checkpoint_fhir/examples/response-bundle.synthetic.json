@@ -1,0 +1,131 @@
+{
+  "resourceType": "Bundle",
+  "id": "responsebundle-b1fa4cacce0f5ca023368f69bd1a7f86",
+  "type": "collection",
+  "identifier": {
+    "system": "https://checkpoint-research.invalid/fhir/identifier/response-bundle",
+    "value": "2e6f54be00e29ca80dc4cfc07b82c5bb4347465dca1d224f023264f8ed3afb07"
+  },
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:707dd895-04eb-59c6-93f5-0b5b8fee1783",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "submission-b1fa4cacce0f5ca023368f69bd1a7f86",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/submission",
+            "value": "fictional-submission-1"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-review-submission"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/submission-binding",
+            "extension": [
+              {
+                "url": "schema-version",
+                "valueString": "0.1.0"
+              },
+              {
+                "url": "submission-id",
+                "valueString": "fictional-submission-1"
+              },
+              {
+                "url": "reviewer-assignment-id",
+                "valueString": "fictional-assignment-1"
+              },
+              {
+                "url": "submitted-at",
+                "valueString": "2026-10-28T12:01:00Z"
+              },
+              {
+                "url": "packet-id",
+                "valueString": "PK-fictional"
+              },
+              {
+                "url": "packet-version",
+                "valueString": "1"
+              },
+              {
+                "url": "packet-sha256",
+                "valueString": "2fedb16e41c58898c351909c92aaf3b3e934f72833dfcb77379c9aa08ae11653"
+              },
+              {
+                "url": "clinical-content-sha256",
+                "valueString": "a4e1ebebce8b6cccd1db18b718a313f1bbb6482054ea625a9342f2d3d224fcd4"
+              },
+              {
+                "url": "checkpoint-id",
+                "valueString": "CP-fictional-1"
+              },
+              {
+                "url": "decision-task-id",
+                "valueString": "fictional-task"
+              },
+              {
+                "url": "visibility-policy-version",
+                "valueString": "synthetic-policy-1"
+              },
+              {
+                "url": "questionnaire-canonical",
+                "valueString": "urn:fictional:form"
+              },
+              {
+                "url": "questionnaire-version",
+                "valueString": "1"
+              },
+              {
+                "url": "questionnaire-sha256",
+                "valueString": "0232f2913a8d70fd3d691ce7acf503330225eb11487832a242a35a4b4e891d55"
+              }
+            ]
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/response",
+            "valueReference": {
+              "reference": "urn:uuid:7e9b972f-47ec-5817-923b-88e658fb9d98"
+            }
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-canonical-json",
+            "valueString": "{\"authored\":\"2026-10-28T12:00:00Z\",\"item\":[{\"answer\":[{\"valueCoding\":{\"code\":\"a\",\"system\":\"urn:fictional\"}}],\"linkId\":\"fictional-item\"}],\"questionnaire\":\"urn:fictional:form|1\",\"resourceType\":\"QuestionnaireResponse\",\"status\":\"completed\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-content-sha256",
+            "valueString": "2e6f54be00e29ca80dc4cfc07b82c5bb4347465dca1d224f023264f8ed3afb07"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:7e9b972f-47ec-5817-923b-88e658fb9d98",
+      "resource": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:fictional:form|1",
+        "status": "completed",
+        "authored": "2026-10-28T12:00:00Z",
+        "item": [
+          {
+            "linkId": "fictional-item",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:fictional",
+                  "code": "a"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

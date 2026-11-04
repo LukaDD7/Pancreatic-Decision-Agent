@@ -1,0 +1,2030 @@
+--- a/scripts/cohort_construction/p2_relation_graph/README.md
++++ b/scripts/cohort_construction/p2_relation_graph/README.md
+@@ -1,4 +1,6 @@
+ # Decision Graph v0.2：mention、潜在事件与关系提议
++
++2026-10-23更新：算法骨架保留v0.2，验证基础设施升级v0.3。当前评估、独立重复、标注材料和评审台账使用 [VALIDATION.md](VALIDATION.md)；下文原评估段落属于初版说明，不能覆盖v0.3对source_windows、事件对齐和FP的要求。旧release仍是冻结v0.2记录，新版本回执另存。
+ 
+ 本模块接在冻结 Decision-IR v0.1/run07 之后，不扩展其词法、不改变P0/P1、不生成正式episode或医生Reference。run07是冻结候选生成器，其高召回尚未被验证。
+ 
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/VALIDATION.md
+@@ -0,0 +1,85 @@
++# 验证与评审工作流 v0.3
++
++本版落实2026-10-23流程调整。算法和关系类别仍为v0.2；变更是评估口径、独立调用、独立标注材料及医生有效性/临床评价的登记隔离。v0.2的release、测试回执及历史运行保留；新结果使用新文件和目录。
++
++## 入口
++
++| 文件 | 职责 |
++|---|---|
++| evaluate.py | 完整scope下节点/共指、事件一对一匹配、分类型关系及FP/曲线分母 |
++| model.py | 四种cache模式、每次新请求/响应独立保存、hash与replicate绑定 |
++| repeatability.py | 固定规范化任务及固定节点关系任务的独立重复实验；不是临床准确率 |
++| annotation_pilot.py | 开发集分层选择局部范围，输出双人独立完整原文与空白标注表 |
++| annotation_compile.py | 将人工逐字引用编译为坐标，不产生标签或裁定 |
++| inter_annotator.py | 在裁定前比较两份独立完成的标注，不指定任何一方为gold |
++| review_workflow.py | 追加式有效性、结构裁定、修订、重盲评与Clinical Reference登记 |
++| run_validation_checks.py | 检查稳定问题编号及必需测试，运行继承95项与当前全部测试 |
++
++## 评估器
++
++真实gold必须有 `origin=independent_human`、双人独立与裁定记录、`annotation_status=ADJUDICATED`、`complete_within_declared_scope=true`，以及可执行source_windows范围。编译器检查双人及裁定人声明，评估器检查结构和scope；任何字段声明本身都不是实际完成标注的证明。合成测试允许aligned_mentions范围，真实gold不允许用候选ID清单代替全文范围。
++
++先按同患者/源ID/全文hash/精确跨度/类型对齐mention；不直接用包含signature的预测ID。人工跨度对齐须单独记录责任人，只能在同一来源版本的相交范围。随后按mention集合Jaccard作正重叠的一对一全局最大匹配；关系标签不参与。并列按排序ID固定处理，低重叠匹配仍可能发生，须结合共指和节点指标解释，不能把matched_events当临床事件检出正确率。
++
++关系按对齐后的事件端点、任务与label去重；方向相反、额外边、错误label和自环会产生FP/FN。scope内完整标注后缺失的正边按无关系处理；明确uncertain的pair单列unassessed，曲线显示precision上下界，不把它们当阴性。scope外预测单独计数，不用于scope内指标。组合指标保留兼容字段，但Decision–Decision与process-link必须分别报告。
++
++`candidate_edge_recall`目前通过同一预测事件对齐后的候选对计数，是端到端条件下的候选覆盖；若要单独评价检索器，使用人工节点/event构成的oracle输入，另记 `evaluation_mode=oracle_nodes`。只改mode字符串不会自动形成oracle实验，必须实际替换输入并保存来源。B³仅针对共同对齐的Decision mentions，同时报告漏检/增检，不能据此忽略前面的节点遗漏。
++
++```sh
++python -m scripts.cohort_construction.p2_relation_graph.annotation_compile \
++  --sources private/pilot/annotator_A/LOCAL-01/sources.json \
++  --annotation private/adjudicated_annotation.json --output private/compiled_gold.json
++python -m scripts.cohort_construction.p2_relation_graph.evaluate \
++  --graph private/frozen_graph.json --gold private/compiled_gold.json --output private/event_metrics.json
++```
++
++跨度变化与规范化变动仍需审核对齐；本版没有自动计算自由文本signature的医学语义正确率，也未做统计加权或可靠性校准。
++
++裁定前的两份标注使用 `annotation_status=INDEPENDENT_COMPLETE`，两人的annotator_ids必须不同，scope必须相同。先分别用编译器定位原文引用，再运行：
++
++```sh
++python -m scripts.cohort_construction.p2_relation_graph.inter_annotator \
++  --a private/compiled_A.json --b private/compiled_B.json --output private/pre_adjudication_agreement.json
++```
++
++该入口报告原文跨度/类型一致、共同mention上的共指B³、事件对齐后的正关系一致及字段字面一致；两人角色对称，不将独立标注伪标成ADJUDICATED。未定义负pair总体，因此不自动输出kappa。分歧须另行裁定，真实IAA目前仍未产生。
++
++## 独立调用
++
++- read_write：命中则读；新响应另存后更新cache。
++- read_only：只读已有cache，缺失立即失败，零外部请求。
++- refresh：不读cache；每次新请求和旧响应均保留，再更新cache指向。
++- bypass：不读、不写公共cache入口；每次新响应单独留存。
++
++replicate_id与invocation_id只在本地记录，不进prompt。request_semantic_hash相同用于确认请求一致；每个HTTP 200响应的原始回答（包括不合格输出）、schema结果、usage、response hash和状态分别保存。发生中断时保留IN_FLIGHT尝试。重复性实验禁用传输重试，失败不补抽直到成功。
++
++```sh
++python -m scripts.cohort_construction.p2_relation_graph.repeatability \
++  --demo --repeats 3 --execute --output private/fresh_semantic_trial
++```
++
++生产参数保持kimi-k3、temperature=1、thinking disabled。本轮没有为提高一致率调整温度。输出同时保留失败数量、mention集合Jaccard、共享mention上字段字面一致率及关系label一致率。它们不是对人工gold的准确率，缺少有效重复时返回null。
++
++## 标注准备
++
++```sh
++python -m scripts.cohort_construction.p2_relation_graph.annotation_pilot \
++  --sources private/p2_dynamic_pathway_probe_v0.1_20261021/review_patient_context.jsonl \
++  --units private/p2_decision_ir_v0.1_20261022_run07/nodes.jsonl --output private/independent_pilot
++```
++
++只向每人提供其annotator_A/B目录与标注手册；researcher_only清单含开发分层，不能一并分发。病例均来自已使用的49人开发材料，不属于锁定验证。固定范围为anchor前后3天代理时钟内全部交付文书，另包含该患者精确时间未明文书；anchor无精确时间时提供该患者全部交付文书。原文不摘要、不高亮候选，未知时间不填零点，不定义episode。需要额外范围时由研究者同步更新两套材料与scope版本。
++
++## 评审台账
++
++每条输入是 `{"kind":"PACKET|GATE|ADJUDICATION|EXPOSURE|REFERENCE","payload":{...}}`。先注册已独立核验的packet元数据，再登记医生gate，达到建账时预设人数且无人标记问题后，才能登记该版临床评分。临床form schema/hash必须与packet预注册一致。台账不制造盲评原文，不验证人员身份或文件访问权限，不替代正式临床protocol。
++
++```sh
++python -m scripts.cohort_construction.p2_relation_graph.review_workflow \
++  --ledger private/study/review.jsonl --event private/study/one_event.json \
++  --required-valid-reviewers 2 --summary private/study/status_001.json
++```
++
++数据只追加，版本、评审响应和Reference不覆盖；新版本须保留父版本与原proposal根。结构裁定会自动记录该患者对裁定者的暴露；修订版禁止原评审者或接触过结构/未来资料者临床评分。合并可以包含正确父包与被标记父包；confirmed_error须明确具体错误根，不能把所有受影响父包都计作错误。被结构裁定的父版本及后来被标记问题的Reference保留并隔离。
++
++SHA链和文件锁检查意外改动、串行并发写入；它不是对恶意本机管理员的防篡改安全系统。实际盲法仍需要材料分发、人员分工和接触史登记。当前提供本地工具和模板，尚无医生线上UI，也没有实际医生评分。
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/annotation_compile.py
+@@ -0,0 +1,56 @@
++"""Resolve independently supplied annotation quotes; never generate labels or adjudicate."""
++import argparse
++import copy
++import hashlib
++import json
++from pathlib import Path
++
++
++def compile_annotation(bundle, annotation):
++    result = copy.deepcopy(annotation)
++    docs = {(d['patient_uid'], d['source_id']): d for d in bundle['documents']}
++    if len(docs) != len(bundle['documents']): raise ValueError('duplicate source documents')
++    if not result.get('annotator_ids'): raise ValueError('independent annotator identity required')
++    if result.get('origin') != 'independent_human': raise ValueError('model outputs cannot be human annotation')
++    if result.get('annotation_status') == 'ADJUDICATED':
++        if len(set(result['annotator_ids'])) < 2 or not result.get('adjudicator_id'):
++            raise ValueError('adjudicated gold requires independent annotators and adjudication provenance')
++    seen = set()
++    for mention in result['mentions']:
++        if mention['id'] in seen: raise ValueError('duplicate annotation mention')
++        seen.add(mention['id'])
++        ref = mention.get('anchor', {})
++        patient = ref.get('patient_uid')
++        choices = [d for (p,s),d in docs.items() if s == ref.get('source_id') and (patient is None or patient == p)]
++        if len(choices) != 1: raise ValueError('annotation source ambiguous or missing')
++        doc = choices[0]; text = doc['text']; quote = ref.get('quote')
++        if hashlib.sha256(text.encode()).hexdigest() != doc['source_sha256']:
++            raise ValueError('annotation source hash mismatch')
++        if not quote: raise ValueError('verbatim annotation quote required')
++        positions = [i for i in range(len(text)) if text.startswith(quote,i)]
++        if len(positions) != 1: raise ValueError('annotation quote absent or ambiguous; expand original quote')
++        lo = positions[0]
++        mention['anchor'] = {'patient_uid':doc['patient_uid'],'source_id':doc['source_id'],
++            'source_sha256':doc['source_sha256'],'span':[lo,lo+len(quote)],'quote':quote}
++        if mention.get('kind') not in {'DecisionMention','EvidenceMention','ActionMention','FeedbackMention'}:
++            raise ValueError('unknown annotation role')
++    if seen != set(result['mention_to_event']): raise ValueError('each human mention needs event membership')
++    if any(e['from'] not in seen or e['to'] not in seen for e in result['relations']):
++        raise ValueError('annotation relation endpoint not labeled')
++    # Scope completeness is a human attestation, not inferred from a filled form.
++    if result.get('annotation_status') == 'ADJUDICATED' and not result.get('complete_within_declared_scope'):
++        raise ValueError('incomplete scope cannot be evaluated as closed-world gold')
++    return result
++
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--sources',type=Path,required=True);p.add_argument('--annotation',type=Path,required=True)
++    p.add_argument('--output',type=Path,required=True);a=p.parse_args()
++    repo=Path(__file__).resolve().parents[3]
++    if not any(a.output.resolve().is_relative_to(repo/d) for d in ['private','outputs']):p.error('human annotation must remain private')
++    result=compile_annotation(json.loads(a.sources.read_text()),json.loads(a.annotation.read_text()))
++    with a.output.open('x') as f:json.dump(result,f,ensure_ascii=False,indent=2)
++
++
++if __name__=='__main__':main()
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/annotation_pilot.py
+@@ -0,0 +1,103 @@
++"""Prepare independent full-document local reconstruction tasks, never auto-gold."""
++import argparse
++from collections import defaultdict
++from datetime import timedelta
++import hashlib
++import json
++import os
++from pathlib import Path
++import random
++
++from scripts.cohort_construction.p2_fhir_replay.core import instant
++from .core import SourceStore
++
++
++def sha(text): return hashlib.sha256(text.encode()).hexdigest()
++
++
++def prepare(notes, units, output, *, seed=20261023, count=6):
++    if count < 1: raise ValueError("positive case count required")
++    store = SourceStore(notes)
++    for unit in units: store.verify_unit(unit)
++    rng = random.Random(seed); by_patient = defaultdict(list)
++    for note in notes: by_patient[note["patient_uid"]].append(note)
++    hit = {(u["patient_uid"], u["source_id"]) for u in units}
++    buckets = [
++        ("random_full_source", notes, 2),
++        ("zero_hit_full_source", [n for n in notes if (n["patient_uid"], n["record_key"]) not in hit], 2),
++        ("feedback_cue_challenge", [store.notes[u["patient_uid"],u["source_id"]] for u in units if u["feedback_cues"]], 1),
++        ("multiple_action_challenge", [store.notes[u["patient_uid"],u["source_id"]] for u in units if len({a['concept'] for a in u['action_mentions']}) > 1], 1),
++    ]
++    selected, seen = [], set()
++    def sample(label, rows, n):
++        groups = defaultdict(dict)
++        for row in rows: groups[row["patient_uid"]][row["record_key"]] = row
++        patients = sorted(set(groups)-seen); rng.shuffle(patients)
++        for patient in patients[:min(n, count-len(selected))]:
++            options = [groups[patient][k] for k in sorted(groups[patient])]
++            anchor = rng.choice(options)
++            selected.append((label, anchor)); seen.add(patient)
++    for label, rows, n in buckets: sample(label, rows, n)
++    if len(selected) < count: sample("random_fill", notes, count-len(selected))
++    output.mkdir(parents=True, exist_ok=False)
++    for role in ["annotator_A", "annotator_B", "researcher_only"]: (output/role).mkdir(mode=0o700)
++    manifest = {"version": "reconstruction-pilot-v0.1", "seed": seed, "development_only": True,
++                "requested_cases": count, "cases": [], "human_gold_created": False,
++                "clinical_blind_packets_created": False,
++                "sampling": "patient-uniform within predeclared development/challenge strata; no population accuracy estimate"}
++    for i, (stratum, anchor) in enumerate(selected, 1):
++        case_id = f"LOCAL-{i:02d}"; patient = anchor["patient_uid"]
++        at = instant(anchor.get("body_time")) or instant(anchor.get("system_time"))
++        if at:
++            low, high = at-timedelta(days=3), at+timedelta(days=3)
++            chosen = [n for n in by_patient[patient] if
++                      (t := (instant(n.get("body_time")) or instant(n.get("system_time")))) is None or low <= t <= high]
++            scope_description = "All delivered source documents within +/-3 proxy-clock days of anchor, plus all patient documents with unresolved precise time. Not an episode definition."
++        else:
++            chosen = by_patient[patient]
++            scope_description = "Anchor has unresolved precise time; all delivered patient source documents included. Not an episode definition."
++        chosen.sort(key=lambda n: (n.get("body_time") or n.get("system_time") or "", n["record_key"]))
++        windows = [{"patient_uid": patient, "source_id": n["record_key"], "source_sha256": sha(n["text"]),
++                    "start": 0, "end": len(n["text"])} for n in chosen if n["text"]]
++        documents = [{"patient_uid": patient, "source_id": n["record_key"], "source_sha256": sha(n["text"]),
++                      "document_type": n["document_type"], "body_time": n.get("body_time"),
++                      "recorded_time": n.get("system_time"), "text": n["text"]} for n in chosen]
++        bundle = {"case_id": case_id, "scope_description": scope_description, "documents": documents,
++                  "instruction": "Read all supplied original documents independently. Label all target judgments, evidence, actions and feedback; may mark uncertainty. No algorithm outputs supplied. This is reconstruction annotation, not clinical acceptable-action Reference."}
++        template = {"annotation_version": "reconstruction-gold-v0.1", "annotation_status": "INDEPENDENT_DRAFT",
++                    "origin": "independent_human", "annotator_ids": [], "complete_within_declared_scope": False,
++                    "scope": {"kind": "source_windows", "windows": windows}, "scope_description": scope_description,
++                    "mentions": [], "mention_to_event": {}, "relations": [], "atomicity_notes": [],
++                    "outside_scope_reference_requests": []}
++        markdown = [f"# {case_id} 独立原文重建标注\n", scope_description,
++                    "\n本材料可含后续轨迹，仅用于重建标注；不能用于临床动作盲评。\n"]
++        for n in documents:
++            markdown += [f"\n## {n['source_id']} | {n['document_type']}\n",
++                         f"正文时间 {n['body_time']}；记录时间 {n['recorded_time']}；SHA256 {n['source_sha256']}\n", n["text"]]
++        for role in ["annotator_A", "annotator_B"]:
++            dest = output/role/case_id; dest.mkdir(mode=0o700)
++            for name, value in [("sources.json", bundle), ("annotation.json", template)]:
++                (dest/name).write_text(json.dumps(value, ensure_ascii=False, indent=2)+"\n")
++            (dest/"原文材料.md").write_text("\n".join(markdown)+"\n")
++        manifest["cases"].append({"case_id": case_id, "patient_uid": patient, "anchor_source": anchor["record_key"],
++            "stratum": stratum, "source_documents": len(documents),
++            "source_bundle_sha256": sha(json.dumps(bundle, ensure_ascii=False, indent=2)+"\n"),
++            "annotation_status": "AWAITING_TWO_INDEPENDENT_ANNOTATORS"})
++    (output/"researcher_only/selection_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+"\n")
++    return {"prepared_cases": len(selected), "source_documents": sum(c['source_documents'] for c in manifest['cases']),
++            "human_gold_created": False, "clinical_blind_packets_created": False, "development_only": True}
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument("--sources", required=True, type=Path); p.add_argument("--units", required=True, type=Path)
++    p.add_argument("--output", required=True, type=Path); p.add_argument("--count", type=int, default=6)
++    args = p.parse_args(); repo = Path(__file__).resolve().parents[3]
++    if not any(args.output.resolve().is_relative_to(repo/d) for d in ["private", "outputs"]):
++        p.error("annotation material must remain in private/ or outputs/")
++    os.umask(0o077)
++    load = lambda path: [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
++    print(json.dumps(prepare(load(args.sources), load(args.units), args.output, count=args.count), ensure_ascii=False))
++
++
++if __name__ == "__main__": main()
+--- a/scripts/cohort_construction/p2_relation_graph/evaluate.py
++++ b/scripts/cohort_construction/p2_relation_graph/evaluate.py
+@@ -1,87 +1,270 @@
+-"""Descriptive metrics for independently annotated, identity-aligned gold graphs.
+-
+-This does not train a confidence model, select a deployment threshold or enable
+-AUTO. Synthetic fixtures may exercise metrics, but cannot calibrate deployment.
+-"""
++"""Event-aligned validation v0.3: explicit scope, FP accounting, no calibration."""
+ import argparse
+-from collections import Counter
++from collections import Counter, defaultdict
+ from itertools import combinations
+ import json
+ from pathlib import Path
+ 
++DD = {"reaffirm", "revise", "supersede"}
++PROCESS = {"informs", "implemented_by", "evaluated_by", "triggers_reassessment"}
++POSITIVE = DD | PROCESS
++
+ 
+ def rates(tp, predicted, gold):
+-    precision = tp/predicted if predicted else None
+-    recall = tp/gold if gold else None
+-    return {"true_positive": tp, "predicted": predicted, "gold": gold,
+-            "precision": precision, "recall": recall,
+-            "f1": 2*tp/(predicted+gold) if predicted+gold else None}
+-
+-
+-def key(edge):
+-    return edge["stage"], edge["from"], edge["to"]
++    return {"true_positive": tp, "false_positive": predicted-tp, "false_negative": gold-tp,
++            "predicted": predicted, "gold": gold, "precision": tp/predicted if predicted else None,
++            "recall": tp/gold if gold else None, "f1": 2*tp/(predicted+gold) if predicted+gold else None}
+ 
+ 
+ def coref_pairs(mapping):
+     return {frozenset([a, b]) for a, b in combinations(sorted(mapping), 2) if mapping[a] == mapping[b]}
+ 
+ 
++def maximum_assignment(weights):
++    """Deterministic Hungarian maximum-weight assignment; no scipy dependency."""
++    if not weights or not weights[0]: return []
++    nr, nc = len(weights), len(weights[0]); n = max(nr, nc)
++    cost = [[-(weights[i][j] if i < nr and j < nc else 0.0) for j in range(n)] for i in range(n)]
++    u, v, p, way = [0.0]*(n+1), [0.0]*(n+1), [0]*(n+1), [0]*(n+1)
++    for i in range(1, n+1):
++        p[0] = i; j0 = 0; mins = [float("inf") ]*(n+1); used = [False]*(n+1)
++        while True:
++            used[j0] = True; i0 = p[j0]; delta = float("inf"); j1 = 0
++            for j in range(1, n+1):
++                if not used[j]:
++                    cur = cost[i0-1][j-1]-u[i0]-v[j]
++                    if cur < mins[j]: mins[j], way[j] = cur, j0
++                    if mins[j] < delta: delta, j1 = mins[j], j
++            for j in range(n+1):
++                if used[j]: u[p[j]] += delta; v[j] -= delta
++                else: mins[j] -= delta
++            j0 = j1
++            if p[j0] == 0: break
++        while True:
++            j1 = way[j0]; p[j0] = p[j1]; j0 = j1
++            if j0 == 0: break
++    return sorted((p[j]-1, j-1) for j in range(1, n+1) if 0 < p[j] <= nr and j <= nc)
++
++
++def _identity(m):
++    a = m.get("anchor", {})
++    return (a.get("patient_uid", m.get("patient_uid")), a.get("source_id"),
++            a.get("source_sha256"), tuple(a.get("span", [])), m["kind"])
++
++
++def _in_scope(m, scope):
++    if scope["kind"] == "aligned_mentions": return m["id"] in scope["mention_ids"]
++    a = m.get("anchor", {})
++    if not all(k in a for k in ["patient_uid", "source_id", "source_sha256", "span"]):
++        raise ValueError("source-window evaluation needs source-grounded anchors")
++    lo, hi = a["span"]
++    return any(a["patient_uid"] == w["patient_uid"] and a["source_id"] == w["source_id"]
++               and a["source_sha256"] == w["source_sha256"]
++               and w["start"] <= lo < hi <= w["end"] for w in scope["windows"])
++
++
++def _validate_gold(gold):
++    if gold.get("annotation_status") != "ADJUDICATED" or not gold.get("complete_within_declared_scope"):
++        raise ValueError("complete adjudicated reconstruction gold required")
++    if gold.get("origin") not in {"independent_human", "synthetic_fixture"} or not gold.get("annotator_ids"):
++        raise ValueError("gold annotation provenance required")
++    if gold['origin'] == 'independent_human' and (len(set(gold['annotator_ids'])) < 2 or not gold.get('adjudicator_id')):
++        raise ValueError('real gold needs independent annotators and adjudicator provenance')
++    scope = gold.get("scope")
++    if not isinstance(scope, dict) or scope.get("kind") not in {"source_windows", "aligned_mentions"}:
++        raise ValueError("machine-readable evaluation scope required")
++    if scope["kind"] == "aligned_mentions" and gold["origin"] != "synthetic_fixture":
++        raise ValueError("real gold requires independent source-window scope")
++    if scope["kind"] == "source_windows":
++        if not scope.get("windows"): raise ValueError("source windows required")
++        for w in scope["windows"]:
++            if not all(k in w for k in ["patient_uid", "source_id", "source_sha256", "start", "end"]) or not 0 <= w["start"] < w["end"]:
++                raise ValueError("invalid evaluation window")
++    elif not scope.get("mention_ids"): raise ValueError("fixture scope cannot be empty")
++    mentions = {m["id"]: m for m in gold["mentions"]}
++    if len(mentions) != len(gold["mentions"]) or set(mentions) != set(gold["mention_to_event"]):
++        raise ValueError("gold mentions and event membership must be complete and unique")
++    if not all(_in_scope(m, scope) for m in mentions.values()): raise ValueError("gold mention outside scope")
++    if any(m['kind'] not in {'DecisionMention','EvidenceMention','ActionMention','FeedbackMention'} for m in mentions.values()):
++        raise ValueError("unknown gold mention type")
++    return mentions, scope
++
++
++def _mention_alignment(pred, truth, gold):
++    if gold["scope"]["kind"] == "aligned_mentions":
++        mapping = {i: i for i in pred.keys() & truth.keys() if pred[i]["kind"] == truth[i]["kind"]}
++    else:
++        index = defaultdict(list)
++        for mid, m in truth.items(): index[_identity(m)].append(mid)
++        mapping = {}
++        for mid, m in sorted(pred.items()):
++            ids = index[_identity(m)]
++            if len(ids) == 1 and ids[0] not in mapping.values(): mapping[mid] = ids[0]
++    manual = gold.get("manual_mention_alignment", [])
++    if manual and not gold.get("alignment_adjudicator_id"): raise ValueError("manual alignment needs provenance")
++    for entry in manual:
++        p, g = entry["predicted"], entry["gold"]
++        if p not in pred or g not in truth or pred[p]["kind"] != truth[g]["kind"]:
++            raise ValueError("invalid manual mention alignment")
++        if gold["scope"]["kind"] == "source_windows":
++            pa, ga = pred[p]["anchor"], truth[g]["anchor"]
++            if any(pa[k] != ga[k] for k in ["patient_uid", "source_id", "source_sha256"]) or not (pa["span"][0] < ga["span"][1] and ga["span"][0] < pa["span"][1]):
++                raise ValueError("manual alignment must overlap in same patient/source/version")
++        if (p in mapping and mapping[p] != g) or (g in mapping.values() and mapping.get(p) != g):
++            raise ValueError("mention alignment must be one-to-one")
++        mapping[p] = g
++    return mapping
++
++
++def _clusters(mentions, membership, tokens):
++    groups, meta = defaultdict(set), {}
++    for mid, m in mentions.items():
++        eid = membership.get(mid, "singleton:"+mid)
++        patient = m.get("patient_uid", m.get("anchor", {}).get("patient_uid", "fixture"))
++        pair = (patient, m["kind"])
++        if eid in meta and meta[eid] != pair: raise ValueError("event cluster mixes patients or types")
++        meta[eid] = pair; groups[eid].add(tokens[mid])
++    return groups, meta
++
++
++def _b3(pred_mapping, gold_mapping):
++    common = sorted(pred_mapping.keys() & gold_mapping.keys())
++    if not common: return {"precision": None, "recall": None, "f1": None, "common_mentions": 0}
++    ps, gs = defaultdict(set), defaultdict(set)
++    for m in common: ps[pred_mapping[m]].add(m); gs[gold_mapping[m]].add(m)
++    p = sum(len(ps[pred_mapping[m]] & gs[gold_mapping[m]])/len(ps[pred_mapping[m]]) for m in common)/len(common)
++    r = sum(len(ps[pred_mapping[m]] & gs[gold_mapping[m]])/len(gs[gold_mapping[m]]) for m in common)/len(common)
++    return {"precision": p, "recall": r, "f1": 2*p*r/(p+r) if p+r else 0.0,
++            "common_mentions": len(common), "scope": "common aligned mentions only; detection reported separately"}
++
++
+ def evaluate(graph, gold):
+-    if gold.get("annotation_status") != "ADJUDICATED" or not gold.get("complete_within_declared_scope"):
+-        raise ValueError("complete adjudicated gold is required; predictions are not gold")
+-    if gold.get("origin") not in {"independent_human", "synthetic_fixture"}:
+-        raise ValueError("gold origin must be explicit")
+-    if not gold.get("scope") or not gold.get("annotator_ids"):
+-        raise ValueError("gold scope and annotation provenance required")
+-    gold_mentions = set(gold["mention_to_event"])
+-    predicted_mentions = {m["id"] for m in graph["mentions"] if m["kind"] == "DecisionMention"}
+-    gp, pp = coref_pairs(gold["mention_to_event"]), coref_pairs(graph["membership"])
+-    positives = {"reaffirm", "revise", "supersede", "informs", "implemented_by", "evaluated_by", "triggers_reassessment"}
+-    truth = {key(e): e["relation"] for e in gold["relations"]}
+-    if len(truth) != len(gold["relations"]):
+-        raise ValueError("duplicate gold pair")
+-    predictions = {key(e): e for e in graph["edges"]}
+-    matched_keys = set(truth) & set(predictions)
+-    confusion = Counter((truth[k], predictions[k]["relation"] if k in predictions else "NOT_PROPOSED") for k in truth)
+-    per_class = {}
+-    for label in sorted(set(truth.values()) - {"uncertain"}):
+-        tp = sum(truth[k] == label and predictions[k]["relation"] == label for k in matched_keys)
+-        pred_count = sum(e["relation"] == label for k, e in predictions.items() if k in truth)
+-        per_class[label] = rates(tp, pred_count, sum(v == label for v in truth.values()))
+-    g_edges = {k for k, v in truth.items() if v in positives}
+-    p_edges = {k for k, v in predictions.items() if v["relation"] in positives and k in truth}
+-    correct = {k for k in p_edges & g_edges if predictions[k]["relation"] == truth[k]}
+-    curve = []
+-    for threshold in [0, 0.25, 0.5, 0.75, 1.0]:
+-        selected = [k for k in matched_keys if predictions[k]["relation"] not in {"uncertain", "different_event"}
+-                    and predictions[k]["score"] >= threshold]
+-        curve.append({"threshold": threshold, "selected": len(selected),
+-                      "coverage_of_annotated_pairs": len(selected)/len(truth) if truth else None,
+-                      "precision": sum(predictions[k]["relation"] == truth[k] for k in selected)/len(selected) if selected else None})
+-    return {"decision_mention_identity_recall": rates(len(predicted_mentions & gold_mentions), len(predicted_mentions), len(gold_mentions)),
+-        "coreference_pairwise": rates(len(gp & pp), len(pp), len(gp)),
+-        "typed_relation_edges": rates(len(correct), len(p_edges), len(g_edges)),
+-        "candidate_edge_recall": len(g_edges & set(predictions))/len(g_edges) if g_edges else None,
+-        "relation_macro_f1": sum(v["f1"] or 0 for v in per_class.values())/len(per_class) if per_class else None,
+-        "per_class": per_class, "confusion": [{"gold": a, "predicted": b, "count": n} for (a, b), n in sorted(confusion.items())],
+-        "scope_graph_complete": gold_mentions <= predicted_mentions and g_edges <= correct,
+-        "unannotated_prediction_pairs": len(set(predictions)-set(truth)),
+-        "coverage_precision_curve": curve,
+-        "review_rate": sum(e["status"] == "REVIEW" for e in graph["edges"])/len(graph["edges"]) if graph["edges"] else None,
++    truth, scope = _validate_gold(gold)
++    all_pred = {m["id"]: m for m in graph["mentions"]}
++    if len(all_pred) != len(graph["mentions"]): raise ValueError("duplicate prediction mention identity")
++    pred = {i: m for i, m in all_pred.items() if _in_scope(m, scope)}
++    if any(m['kind'] not in {'DecisionMention','EvidenceMention','ActionMention','FeedbackMention'} for m in pred.values()):
++        raise ValueError("unknown prediction mention type")
++    alignment = _mention_alignment(pred, truth, gold)
++    p_tokens = {m: "G:"+alignment[m] if m in alignment else "P:"+m for m in pred}
++    g_tokens = {m: "G:"+m for m in truth}
++    p_member = {**graph.get("event_endpoint_map", {}), **graph.get("membership", {})}
++    pc, pm = _clusters(pred, p_member, p_tokens)
++    gc, gm = _clusters(truth, gold["mention_to_event"], g_tokens)
++    pids, gids = sorted(pc), sorted(gc)
++    weights = [[len(pc[p] & gc[g])/len(pc[p] | gc[g]) if pm[p] == gm[g] else 0.0 for g in gids] for p in pids]
++    event_match = {pids[i]: gids[j] for i, j in maximum_assignment(weights) if weights[i][j] > 0}
++    p_canonical = {m: "G:"+event_match[e] if e in event_match else "P:"+e
++                   for m in pred for e in [p_member.get(m, "singleton:"+m)]}
++    g_canonical = {m: "G:"+gold["mention_to_event"][m] for m in truth}
++
++    def edge_key(e, mapping):
++        if e["from"] not in mapping or e["to"] not in mapping: return None
++        return e["stage"], mapping[e["from"]], mapping[e["to"]]
++
++    gold_rows, gold_edges, unresolved = {}, set(), set()
++    for e in gold["relations"]:
++        if e["stage"] == "coreference": continue
++        k = edge_key(e, g_canonical)
++        if k is None: raise ValueError("gold relation has missing endpoint")
++        label = e["relation"]
++        if label not in POSITIVE | {"unrelated", "uncertain"}: raise ValueError("invalid gold relation")
++        kinds = (truth[e['from']]['kind'], truth[e['to']]['kind'])
++        allowed = {'informs':('EvidenceMention','DecisionMention'), 'implemented_by':('DecisionMention','ActionMention'),
++                   'evaluated_by':('ActionMention','FeedbackMention'), 'triggers_reassessment':('FeedbackMention','DecisionMention')}
++        if label in DD and (e['stage'] != 'decision_relation' or kinds != ('DecisionMention','DecisionMention') or k[1] == k[2]):
++            raise ValueError('invalid gold decision-event relation')
++        if label in PROCESS and (e['stage'] != 'typed_relation' or kinds != allowed[label]):
++            raise ValueError('invalid gold process relation')
++        if k in gold_rows and gold_rows[k] != label: raise ValueError("conflicting gold event relation labels")
++        gold_rows[k] = label
++        if label in POSITIVE: gold_edges.add((*k, label))
++        if label == "uncertain": unresolved.add(k)
++    predicted, outside = {}, 0
++    for e in graph["edges"]:
++        if e["stage"] == "coreference": continue
++        if e["from"] not in all_pred or e["to"] not in all_pred: raise ValueError("dangling prediction edge")
++        k = edge_key(e, p_canonical)
++        if k is None: outside += 1; continue
++        if e["relation"] in POSITIVE:
++            triple = (*k, e["relation"])
++            predicted[triple] = max(predicted.get(triple, float("-inf")), e.get("score", 0.0))
++    unassessed = {t for t in predicted if t[:3] in unresolved}
++    assessed = set(predicted)-unassessed
++
++    def family(labels):
++        gp = {t for t in gold_edges if t[3] in labels}; pp = {t for t in assessed if t[3] in labels}
++        per_class = {l: rates(sum(t[3] == l for t in pp & gp), sum(t[3] == l for t in pp), sum(t[3] == l for t in gp)) for l in sorted(labels)}
++        fs = [x["f1"] for x in per_class.values() if x["f1"] is not None]
++        return {**rates(len(pp & gp), len(pp), len(gp)), "per_class": per_class,
++                "macro_f1": sum(fs)/len(fs) if fs else None,
++                "macro_labels_with_support": [l for l in sorted(labels) if per_class[l]["f1"] is not None]}
++
++    curves = []
++    for threshold in [0, .25, .5, .75, 1.0]:
++        selected = {t for t, score in predicted.items() if score >= threshold}
++        known, unknown = selected-unassessed, selected & unassessed; tp = len(known & gold_edges)
++        curves.append({"threshold": threshold, "accepted_edges": len(selected), "assessed_edges": len(known),
++            "unassessed_edges": len(unknown), "correct_edges": tp,
++            "precision": tp/len(selected) if selected and not unknown else None,
++            "precision_on_assessed": tp/len(known) if known else None,
++            "precision_lower_bound": tp/len(selected) if selected else None,
++            "precision_upper_bound": (tp+len(unknown))/len(selected) if selected else None,
++            "accepted_fraction_of_predicted_positive_edges": len(selected)/len(predicted) if predicted else None,
++            "gold_positive_recall": tp/len(gold_edges) if gold_edges else None})
++    p_dec = {p_tokens[m]: p_member.get(m, "singleton:"+m) for m in pred if pred[m]["kind"] == "DecisionMention"}
++    g_dec = {g_tokens[m]: gold["mention_to_event"][m] for m in truth if truth[m]["kind"] == "DecisionMention"}
++    gpairs, ppairs = coref_pairs(g_dec), coref_pairs(p_dec)
++    g_dec_ids = {i for i, m in truth.items() if m["kind"] == "DecisionMention"}
++    p_dec_ids = {i for i, m in pred.items() if m["kind"] == "DecisionMention"}
++    matched_dec = sum(p in p_dec_ids and g in g_dec_ids for p, g in alignment.items())
++    candidate_pairs = set()
++    for e in graph.get("candidate_ledger", graph["edges"]):
++        if e["stage"] != "coreference":
++            k = edge_key(e, p_canonical)
++            if k: candidate_pairs.add(k)
++    confusion, pred_labels = Counter(), defaultdict(set)
++    for t in assessed: pred_labels[t[:3]].add(t[3])
++    for k in set(gold_rows) | set(pred_labels):
++        gl = gold_rows.get(k, "NO_RELATION")
++        pl = "MULTIPLE_RELATIONS" if len(pred_labels[k]) > 1 else next(iter(pred_labels[k]), "NO_POSITIVE_PREDICTION")
++        confusion[gl, pl] += 1
++    combined = family(POSITIVE)
++    return {"evaluation_version": "0.3", "evaluation_mode": gold.get("evaluation_mode", "end_to_end"),
++        "mention_detection_and_typing": rates(len(alignment), len(pred), len(truth)),
++        "decision_mention_identity_recall": rates(matched_dec, len(p_dec_ids), len(g_dec_ids)),
++        "coreference_pairwise": rates(len(ppairs & gpairs), len(ppairs), len(gpairs)),
++        "coreference_b3_common_mentions": _b3(p_dec, g_dec),
++        "event_alignment": {"policy": "positive-overlap one-to-one maximum Jaccard; relation-blind; sorted-ID ties",
++            "predicted_events": len(pc), "gold_events": len(gc), "matched_events": len(event_match), "mapping": event_match},
++        "decision_relation_edges": family(DD), "process_link_edges": family(PROCESS),
++        "typed_relation_edges": combined, "relation_macro_f1": combined["macro_f1"],
++        "candidate_edge_recall": sum(t[:3] in candidate_pairs for t in gold_edges)/len(gold_edges) if gold_edges else None,
++        "confusion": [{"gold": a, "predicted": b, "count": n} for (a, b), n in sorted(confusion.items())],
++        "scope_graph_complete": len(alignment) == len(pred) == len(truth) and assessed == gold_edges
++            and {frozenset(c) for c in pc.values()} == {frozenset(c) for c in gc.values()} and not unassessed,
++        "unassessed_prediction_edges": len(unassessed), "out_of_scope_prediction_mentions": len(all_pred)-len(pred),
++        "out_of_scope_prediction_edges": outside,
++        "unannotated_prediction_pairs": len({t[:3] for t in assessed}-set(gold_rows)),
++        "coverage_precision_curve": curves,
++        "review_rate": sum(e.get("status") == "REVIEW" for e in graph["edges"])/len(graph["edges"]) if graph["edges"] else None,
+         "auto_accept_enabled": False, "gold_origin": gold["origin"],
+-        "limitation": "identity alignment required; descriptive unweighted metrics within declared scope; no population estimate or deployment calibration"}
++        "limitations": ["Exact source-span/type or audited manual mention alignment required",
++            "B3 conditional on common aligned mentions; detection scored separately",
++            "Unknown gold edges unassessed with precision bounds; absent complete-scope edges are negatives",
++            "Report decision and process metrics separately; combined fields retained for compatibility",
++            "Scope-level unweighted metrics; no confidence calibration or clinical Reference"]}
+ 
+ 
+ def main():
+     p = argparse.ArgumentParser(description=__doc__)
+-    p.add_argument("--graph", type=Path, required=True)
+-    p.add_argument("--gold", type=Path, required=True)
+-    p.add_argument("--output", type=Path, required=True)
+-    args = p.parse_args()
++    p.add_argument("--graph", type=Path, required=True); p.add_argument("--gold", type=Path, required=True)
++    p.add_argument("--output", type=Path, required=True); args = p.parse_args()
++    repo = Path(__file__).resolve().parents[3]
++    if not any(args.output.resolve().is_relative_to(repo/d) for d in ["private", "outputs"]):
++        p.error("identity-bearing evaluation output must stay in private/ or outputs/")
+     result = evaluate(json.loads(args.graph.read_text()), json.loads(args.gold.read_text()))
+-    with args.output.open("x") as f:
+-        json.dump(result, f, ensure_ascii=False, indent=2)
+-
+-
+-if __name__ == "__main__":
+-    main()
++    with args.output.open("x") as f: json.dump(result, f, ensure_ascii=False, indent=2)
++
++
++if __name__ == "__main__": main()
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/inter_annotator.py
+@@ -0,0 +1,77 @@
++"""Symmetric pre-adjudication agreement; neither annotator is treated as gold."""
++import argparse
++from collections import defaultdict
++import json
++from pathlib import Path
++
++from .core import digest
++from .evaluate import _identity, _in_scope, _clusters, _b3, coref_pairs, maximum_assignment, DD, PROCESS
++
++
++def compare(a, b):
++    for x in [a,b]:
++        if x.get('annotation_status') != 'INDEPENDENT_COMPLETE' or not x.get('complete_within_declared_scope'):
++            raise ValueError('IAA requires completed independent annotations before adjudication')
++        if x.get('origin') != 'independent_human' or not x.get('annotator_ids'):
++            raise ValueError('independent annotation provenance required')
++        if x.get('scope',{}).get('kind') != 'source_windows':raise ValueError('explicit source scope required')
++        if any(not all(k in w for k in ['patient_uid','source_id','source_sha256','start','end'])
++               or not 0 <= w['start'] < w['end'] for w in x['scope'].get('windows',[])):
++            raise ValueError('invalid independent annotation scope window')
++        if not x['scope'].get('windows') or not all(_in_scope(m,x['scope']) for m in x['mentions']):
++            raise ValueError('annotation mentions must fall within nonempty declared source scope')
++    if set(a['annotator_ids']) & set(b['annotator_ids']):raise ValueError('independent annotators must differ')
++    if digest(a['scope']) != digest(b['scope']):raise ValueError('IAA requires identical source scope')
++    am,bm=({m['id']:m for m in x['mentions']} for x in [a,b])
++    at={m:digest(_identity(v)) for m,v in am.items()};bt={m:digest(_identity(v)) for m,v in bm.items()}
++    if len(set(at.values())) != len(at) or len(set(bt.values())) != len(bt):raise ValueError('ambiguous duplicate annotation span/type')
++    if set(am)!=set(a['mention_to_event']) or set(bm)!=set(b['mention_to_event']):raise ValueError('incomplete human event membership')
++    ac,ax=_clusters(am,a['mention_to_event'],at);bc,bx=_clusters(bm,b['mention_to_event'],bt)
++    ais,bis=sorted(ac),sorted(bc)
++    w=[[len(ac[i]&bc[j])/len(ac[i]|bc[j]) if ax[i]==bx[j] else 0 for j in bis] for i in ais]
++    match={ais[i]:bis[j] for i,j in maximum_assignment(w) if w[i][j]>0}
++    amap={m:'B:'+match[e] if e in match else 'A:'+e for m,e in a['mention_to_event'].items()}
++    bmap={m:'B:'+e for m,e in b['mention_to_event'].items()}
++    def rels(x,mapping,labels):
++        return {(e['stage'],mapping[e['from']],mapping[e['to']],e['relation']) for e in x['relations'] if e['relation'] in labels}
++    def agree(labels):
++        aa,bb=rels(a,amap,labels),rels(b,bmap,labels)
++        return {'A_positive_edges':len(aa),'B_positive_edges':len(bb),'shared_positive_edges':len(aa&bb),
++                'symmetric_f1':2*len(aa&bb)/(len(aa)+len(bb)) if aa or bb else None}
++    ad={at[m]:a['mention_to_event'][m] for m in am if am[m]['kind']=='DecisionMention'}
++    bd={bt[m]:b['mention_to_event'][m] for m in bm if bm[m]['kind']=='DecisionMention'}
++    ap,bp=coref_pairs(ad),coref_pairs(bd)
++    common=set(at.values())&set(bt.values());field_results={}
++    ai={v:k for k,v in at.items()};bi={v:k for k,v in bt.items()}
++    for field in ['management_question','assessment','intended_action','condition','temporality']:
++        values=[]
++        for token in common:
++            av=am[ai[token]].get(field) if field=='temporality' else am[ai[token]].get('signature',{}).get(field)
++            bv=bm[bi[token]].get(field) if field=='temporality' else bm[bi[token]].get('signature',{}).get(field)
++            if isinstance(av,dict):av={k:v for k,v in av.items() if k!='supports'}
++            if isinstance(bv,dict):bv={k:v for k,v in bv.items() if k!='supports'}
++            if av is not None and bv is not None:values.append(av==bv)
++        field_results[field]={'compared':len(values),'exact_agreement':sum(values)/len(values) if values else None}
++    return {'purpose':'pre-adjudication agreement, not accuracy or clinical Reference',
++        'mention_span_type_agreement':{'A_mentions':len(am),'B_mentions':len(bm),'shared':len(common),
++            'symmetric_f1':2*len(common)/(len(am)+len(bm)) if am or bm else None},
++        'decision_coreference_pair_agreement':{'shared_pairs':len(ap&bp),'A_pairs':len(ap),'B_pairs':len(bp),
++            'symmetric_f1':2*len(ap&bp)/(len(ap)+len(bp)) if ap or bp else None},
++        'b3_common_decision_mentions':_b3(ad,bd),
++        'decision_relation_agreement':agree(DD),'process_link_agreement':agree(PROCESS),
++        'exact_field_agreement_on_shared_mentions':field_results,
++        'uncertain_relations_A':sum(e['relation']=='uncertain' for e in a['relations']),
++        'uncertain_relations_B':sum(e['relation']=='uncertain' for e in b['relations']),
++        'limitations':'Exact span/type agreement; event alignment is one-to-one and relation-blind. No kappa over a presumed negative-pair universe. Free-text exact agreement is not semantic agreement.'}
++
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--a',type=Path,required=True);p.add_argument('--b',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
++    x=p.parse_args();repo=Path(__file__).resolve().parents[3]
++    if not any(x.output.resolve().is_relative_to(repo/d) for d in ['private','outputs']):p.error('IAA output must remain private')
++    result=compare(json.loads(x.a.read_text()),json.loads(x.b.read_text()))
++    with x.output.open('x') as f:json.dump(result,f,ensure_ascii=False,indent=2)
++
++
++if __name__=='__main__':main()
+--- a/scripts/cohort_construction/p2_relation_graph/model.py
++++ b/scripts/cohort_construction/p2_relation_graph/model.py
+@@ -3,6 +3,8 @@
+ import os
+ from pathlib import Path
+ import time
++from datetime import datetime, timezone
++from uuid import uuid4
+ 
+ import requests
+ from jsonschema import Draft202012Validator
+@@ -50,15 +52,21 @@
+ 
+ 
+ class SemanticClient:
+-    def __init__(self, cache: Path, *, settings=None, timeout=180, retries=1):
++    def __init__(self, cache: Path, *, settings=None, timeout=180, retries=1,
++                 cache_mode="read_write", replicate_id=None, temperature=1):
+         self.settings = settings or load_boyu_settings()
+         self.cache = cache
+         self.cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+         self.timeout, self.retries = timeout, retries
+         self.receipts = []
++        if cache_mode not in {"read_write", "read_only", "refresh", "bypass"}:
++            raise ValueError("invalid cache mode")
++        if not 0 <= temperature <= 2 or retries < 0 or timeout <= 0:
++            raise ValueError("invalid model parameters")
++        self.cache_mode, self.replicate_id, self.temperature = cache_mode, replicate_id, temperature
+ 
+     def ask(self, task, payload, schema):
+-        request = {"model": self.settings.model, "temperature": 1, "max_tokens": 12000,
++        request = {"model": self.settings.model, "temperature": self.temperature, "max_tokens": 12000,
+                    "response_format": {"type": "json_object"},
+                    "messages": [{"role": "system", "content": SYSTEM},
+                        {"role": "user", "content": json.dumps({"task": task, "schema": schema, "input": payload}, ensure_ascii=False)}]}
+@@ -66,20 +74,38 @@
+             request["thinking"] = {"type": self.settings.thinking}
+         key = digest([self.settings.chat_completions_url, request])
+         path = self.cache / (key + ".json")
+-        if path.exists():
++        if path.exists() and self.cache_mode in {"read_write", "read_only"}:
+             saved = json.loads(path.read_text())
+             if saved["request_sha256"] != key:
+                 raise ModelFailure("CACHE_IDENTITY_MISMATCH")
++            if saved.get('receipt', {}).get('response_hash') and saved['receipt']['response_hash'] != digest(saved['result']):
++                raise ModelFailure('CACHE_RESPONSE_HASH_MISMATCH')
+             Draft202012Validator(schema).validate(saved["result"])
+-            self.receipts.append({**saved["receipt"], "cached": True})
++            self.receipts.append({**saved["receipt"], "cached": True, "cache_mode": self.cache_mode,
++                                  "replicate_id": self.replicate_id})
+             return saved["result"]
++        if self.cache_mode == "read_only":
++            raise ModelFailure("CACHE_MISS_READ_ONLY")
+         started = time.monotonic()
++        invocation = uuid4().hex
++        attempt_dir = self.cache / "attempts"
++        attempt_dir.mkdir(exist_ok=True, mode=0o700)
++        attempt_path = attempt_dir / (invocation+".json")
++        base_receipt = {"invocation_id": invocation, "request_sha256": key, "request_semantic_hash": key,
++            "task": task, "requested_model": self.settings.model, "replicate_id": self.replicate_id,
++            "cache_mode": self.cache_mode, "temperature": self.temperature, "cached": False,
++            "started_at_utc": datetime.now(timezone.utc).isoformat(), "status": "IN_FLIGHT"}
++        attempt_path.write_text(json.dumps(base_receipt, ensure_ascii=False, indent=2))
++        os.chmod(attempt_path, 0o600)
+         def fail(code):
+-            self.receipts.append({"request_sha256": key, "task": task,
+-                "requested_model": self.settings.model, "status": "FAILED", "error_code": code,
+-                "elapsed_seconds": round(time.monotonic()-started, 3), "cached": False})
++            receipt = {**base_receipt, "status": "FAILED", "error_code": code,
++                       "elapsed_seconds": round(time.monotonic()-started, 3)}
++            attempt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2))
++            self.receipts.append(receipt)
+             return ModelFailure(code)
+         for attempt in range(self.retries + 1):
++            base_receipt["http_attempts"] = attempt+1
++            attempt_path.write_text(json.dumps(base_receipt, ensure_ascii=False, indent=2))
+             try:
+                 response = requests.post(self.settings.chat_completions_url,
+                     headers={"Authorization": "Bearer " + self.settings.api_key, "Content-Type": "application/json"},
+@@ -98,6 +124,14 @@
+         try:
+             body = response.json()
+             choice = body["choices"][0]
++            raw_path = self.cache / "responses"
++            raw_path.mkdir(exist_ok=True, mode=0o700)
++            raw_file = raw_path / (invocation+"_raw.json")
++            raw_file.write_text(json.dumps({"request_sha256": key, "replicate_id": self.replicate_id,
++                "model": body.get("model"), "usage": body.get("usage"),
++                "finish_reason": choice.get("finish_reason"), "content": choice.get("message", {}).get("content")},
++                ensure_ascii=False, indent=2))
++            os.chmod(raw_file, 0o600)
+             if choice["finish_reason"] != "stop":
+                 raise fail("PROVIDER_INCOMPLETE_OUTPUT")
+             result = json.loads(choice["message"]["content"])
+@@ -106,15 +140,26 @@
+             raise
+         except Exception:
+             raise fail("PROVIDER_INVALID_JSON_SCHEMA") from None
+-        receipt = {"request_sha256": key, "task": task, "requested_model": self.settings.model,
++        receipt = {**base_receipt,
+                    "returned_model": body.get("model"), "usage": body.get("usage"),
++                   "provider_response_id": body.get("id"), "response_hash": digest(result),
+                    "elapsed_seconds": round(time.monotonic()-started, 3), "cached": False, "status": "SUCCEEDED",
+                    "provider_identity_independently_verified": False}
++        archive = self.cache / "responses"
++        archive.mkdir(exist_ok=True, mode=0o700)
++        saved = {"request_sha256": key, "result": result, "receipt": receipt}
++        archive_path = archive / (invocation+".json")
++        with archive_path.open("x") as f: json.dump(saved, f, ensure_ascii=False, indent=2)
++        os.chmod(archive_path, 0o600)
++        attempt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2))
+         # Atomic replacement avoids partially written cache entries on interruption.
+-        temp = path.with_suffix(f".{os.getpid()}.tmp")
+-        with temp.open("x", encoding="utf-8") as f:
+-            json.dump({"request_sha256": key, "result": result, "receipt": receipt}, f, ensure_ascii=False, indent=2)
+-        os.chmod(temp, 0o600)
+-        temp.replace(path)
++        if self.cache_mode != "bypass":
++            if path.exists():
++                previous = json.loads(path.read_text())
++                previous_path = archive / ("prior_"+key+"_"+digest(previous)+".json")
++                if not previous_path.exists(): previous_path.write_text(json.dumps(previous, ensure_ascii=False, indent=2))
++            temp = path.with_suffix(f".{invocation}.tmp")
++            with temp.open("x", encoding="utf-8") as f: json.dump(saved, f, ensure_ascii=False, indent=2)
++            os.chmod(temp, 0o600); temp.replace(path)
+         self.receipts.append(receipt)
+         return result
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/repeatability.py
+@@ -0,0 +1,107 @@
++"""Fresh identical-request repeatability experiment; never a correctness gold."""
++import argparse
++from itertools import combinations
++import json
++import os
++from pathlib import Path
++
++from .core import (FIELDS, NORMALIZATION_SCHEMA, RELATION_SCHEMA, SourceStore,
++                   assess_relation, digest, normalize)
++from .demo import data
++from .model import SemanticClient, mention_payload, public_view
++from .pipeline import provisional_mentions
++
++
++def demo_tasks():
++    notes, units = data(); store = SourceStore(notes)
++    views = [store.view(u["patient_uid"], u["source_id"], alias=f"S{i}") for i, u in enumerate(units)]
++    ms = [m for m in provisional_mentions(units) if m["kind"] == "DecisionMention"]
++    for m, action in zip(ms, ["PTCD", "ERCP"]):
++        m["signature"]["intended_action"] = {"state": "stated", "value": action, "supports": [m["anchor"]]}
++    pair = {"id": "synthetic-fixed-pair", "from": ms[0]["id"], "to": ms[1]["id"], "stage": "decision_relation"}
++    return [
++        {"id": "synthetic-normalization", "task": "normalize_mentions", "schema": NORMALIZATION_SCHEMA,
++         "payload": {"unit_span": units[0]["span"], "unit_quote": units[0]["quote"],
++                     "sources": [public_view(views[0])],
++                     "instruction": "仅拆分unit_span内有原文依据的mention；周围文字只作语境。没有适合角色可返回空列表。"},
++         "unit": units[0], "views": [views[0]]},
++        {"id": "synthetic-fixed-relation", "task": "decision_relation", "schema": RELATION_SCHEMA,
++         "payload": {"previous": mention_payload(ms[0]), "current": mention_payload(ms[1]),
++                     "sources": [public_view(v) for v in views],
++                     "instruction": "只判reaffirm/revise/supersede/unrelated/uncertain；独立事件未证实则uncertain。"},
++         "pair": pair, "mentions": {m["id"]: m for m in ms}, "views": views}]
++
++
++def agreement(records):
++    out = []
++    for task_id in sorted({r["task_id"] for r in records}):
++        rows = [r for r in records if r["task_id"] == task_id]
++        good = [r for r in rows if r["status"] == "VALID_GROUNDED"]
++        pairs = list(combinations(good, 2)); scores = []; raw_labels = []; fields = {f: [] for f in FIELDS+['temporality']}
++        for a, b in pairs:
++            if a["task"] == "normalize_mentions":
++                def keyed(row): return {(m["kind"], tuple(m["anchor"]["span"])): m for m in row["normalized"]}
++                aa, bb = keyed(a), keyed(b); union = aa.keys() | bb.keys(); common = aa.keys() & bb.keys()
++                scores.append(len(common)/len(union) if union else 1.0)
++                for key in common:
++                    for f in fields:
++                        va = aa[key][f] if f == "temporality" else {k: aa[key]["signature"][f][k] for k in ['state','value']}
++                        vb = bb[key][f] if f == "temporality" else {k: bb[key]["signature"][f][k] for k in ['state','value']}
++                        fields[f].append(va == vb)
++            else:
++                scores.append(a["normalized"]["relation"] == b["normalized"]["relation"])
++                raw_labels.append(a["normalized"]["proposed_relation"] == b["normalized"]["proposed_relation"])
++        out.append({"task_id": task_id, "attempted_replicates": len(rows), "valid_grounded_replicates": len(good),
++            "failed_replicates": len(rows)-len(good), "valid_pair_comparisons": len(pairs),
++            "mention_jaccard_or_relation_label_agreement": sum(scores)/len(scores) if scores else None,
++            "raw_relation_label_agreement": sum(raw_labels)/len(raw_labels) if raw_labels else None,
++            "field_exact_agreement_on_shared_mentions": {f: sum(xs)/len(xs) if xs else None for f,xs in fields.items()},
++            "fresh_requests": sum(not c.get("cached", False) for r in rows for c in r["receipts"]),
++            "semantic_request_hashes": sorted({c["request_sha256"] for r in rows for c in r["receipts"]}),
++            "interpretation": "Stability only; exact field wording is not semantic correctness. Failures remain in denominator report."})
++    return out
++
++
++def run(tasks, output, *, repeats=3, execute=False, client_factory=SemanticClient):
++    if repeats < 2: raise ValueError("at least two independent replicates required")
++    output.mkdir(parents=True, exist_ok=False)
++    records = []
++    for task in tasks:
++        for rep in range(repeats):
++            row = {"task_id": task["id"], "task": task["task"], "replicate_id": f"rep-{rep+1}",
++                   "payload_hash": digest(task["payload"]), "status": "PREVIEW_ONLY", "receipts": []}
++            if execute:
++                client = client_factory(output/"model_records", cache_mode="bypass", replicate_id=row["replicate_id"], retries=0)
++                try:
++                    answer = client.ask(task["task"], task["payload"], task["schema"])
++                    if task["task"] == "normalize_mentions":
++                        row["normalized"] = normalize(task["unit"], answer, task["views"])
++                    else:
++                        row["normalized"] = assess_relation(task["pair"], answer, task["mentions"], task["views"])
++                    row["status"] = "VALID_GROUNDED"
++                except Exception as exc:
++                    row["status"], row["error_type"] = "FAILED", type(exc).__name__
++                row["receipts"] = client.receipts
++            records.append(row)
++            # Every independent attempt survives interruption; never rerun until valid.
++            with (output/"replicates.jsonl").open("a") as f: f.write(json.dumps(row, ensure_ascii=False)+"\n")
++    result = {"cache_mode": "bypass", "repeats": repeats, "task_count": len(tasks),
++              "summary": agreement(records), "clinical_accuracy": None, "human_gold_created": False}
++    (output/"summary.json").write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n")
++    return result
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument("--demo", action="store_true", required=True)
++    p.add_argument("--repeats", type=int, default=3); p.add_argument("--execute", action="store_true")
++    p.add_argument("--output", type=Path, required=True); args = p.parse_args()
++    repo = Path(__file__).resolve().parents[3]
++    if not any(args.output.resolve().is_relative_to(repo/d) for d in ["private", "outputs"]):
++        p.error("repeat outputs must stay in private/ or outputs/")
++    os.umask(0o077)
++    result = run(demo_tasks(), args.output, repeats=args.repeats, execute=args.execute)
++    print(json.dumps(result, ensure_ascii=False))
++
++
++if __name__ == "__main__": main()
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/review_gate_form_v0.1.json
+@@ -0,0 +1,20 @@
++{
++  "form_version": "checkpoint-validity-v0.1",
++  "purpose": "Packet and decision-question evaluability before clinical Reference; not treatment correctness",
++  "question": "按本研究定义，这个时点的决策问题及材料包是否清楚、边界合理、可供评价？资料不足以推进治疗本身不构成无效。",
++  "decision_options": ["VALID", "REPAIR_REQUIRED", "UNCERTAIN"],
++  "issue_options": ["INVALID_DUPLICATE", "INVALID_MIXED", "INVALID_BOUNDARY", "SUSPECTED_AVAILABLE_EVIDENCE_OMISSION", "FUTURE_LEAKAGE", "NOT_TARGET_DECISION", "UNCERTAIN"],
++  "required_binding": ["version_id", "packet_sha256", "reviewer_id"],
++  "required_response": ["decision", "issues"],
++  "optional_response": ["rationale", "source_refs", "duration_seconds"],
++  "conditional_requirement": "REPAIR_REQUIRED or UNCERTAIN requires rationale or source_refs",
++  "instructions": [
++    "VALID时issues为空；其余情况至少记录一项问题，并写明具体来源或疑义。",
++    "复合计划不因动作多就自动混杂；检查未做、尚未返回或原文无法判断不自动使包无效。",
++    "疑似遗漏指当时本应可见却在包中缺少的资料，不得补入后来的检查结果。",
++    "无法仅凭允许的盲资料判断是否重复时，选UNCERTAIN，不申请开放未来轨迹。",
++    "不得现场修改checkpoint后继续给修订版Clinical Reference评分。"
++  ],
++  "clinical_reference_form": "Bound separately to a pre-registered external form schema/version; Severity and physician Confidence retained",
++  "algorithm_labels_visible_to_physician": false
++}
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/review_workflow.py
+@@ -0,0 +1,235 @@
++"""Append-only checkpoint validity / structural repair / clinical reference ledger.
++
++Consumes independently prepared, versioned blind packets. It does not infer
++cutpoints, repair clinical content, define episodes or construct expert answers.
++"""
++from datetime import datetime, timezone
++import fcntl
++import json
++import math
++import os
++from pathlib import Path
++import statistics
++from uuid import uuid4
++import argparse
++
++from jsonschema import Draft202012Validator
++from .core import digest
++
++ISSUES = {"INVALID_DUPLICATE", "INVALID_MIXED", "INVALID_BOUNDARY",
++          "SUSPECTED_AVAILABLE_EVIDENCE_OMISSION", "FUTURE_LEAKAGE", "NOT_TARGET_DECISION", "UNCERTAIN"}
++
++
++def _time(value):
++    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
++    if not dt.tzinfo: raise ValueError("explicit timezone required")
++    return dt
++
++
++def state(rows):
++    packets, gates, adjudications, references, exposures = {}, [], [], [], []
++    for sequence, row in enumerate(rows):
++        p = row["payload"]
++        if row["kind"] == "PACKET": packets[p["version_id"]] = p
++        elif row["kind"] == "GATE": gates.append(p)
++        elif row["kind"] == "ADJUDICATION":
++            adjudications.append(p)
++            for v in p["parent_versions"]:
++                exposures.append({"patient_alias": packets[v]["patient_alias"],
++                                  "reviewer_id": p["adjudicator_id"], "reason": "STRUCTURAL_ADJUDICATION", '_sequence':sequence})
++        elif row["kind"] == "REFERENCE": references.append({**p,'_sequence':sequence})
++        elif row["kind"] == "EXPOSURE": exposures.append({**p,'_sequence':sequence})
++    return packets, gates, adjudications, references, exposures
++
++
++def gate_status(version, gates, required):
++    records = [g for g in gates if g["version_id"] == version]
++    if any(g["decision"] != "VALID" for g in records): return "FLAGGED"
++    return "VALID" if len(records) >= required else "PENDING"
++
++
++class ReviewLedger:
++    def __init__(self, path: Path, *, required_valid_reviewers=2):
++        self.path, self.required = path, required_valid_reviewers
++        repo = Path(__file__).resolve().parents[3]
++        # Temporary test directories can explicitly use the in-memory validator;
++        # real on-disk ledgers always remain under ignored project directories.
++        if not any(path.resolve().is_relative_to(repo/d) for d in ["private", "outputs"]):
++            raise ValueError("review ledger must remain in private/ or outputs/")
++        if required_valid_reviewers < 1: raise ValueError("invalid reviewer count")
++        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
++
++    @staticmethod
++    def verify(rows):
++        previous = None; seen = set()
++        for row in rows:
++            unsigned = {k: v for k, v in row.items() if k != "hash"}
++            if row["hash"] != digest(unsigned) or row["previous_hash"] != previous or row["event_id"] in seen:
++                raise ValueError("review ledger integrity failure")
++            previous = row["hash"]; seen.add(row["event_id"])
++
++    @staticmethod
++    def validate(kind, p, rows, required):
++        packets, gates, adjudications, refs, exposures = state(rows)
++        if kind == "PACKET":
++            if p["version_id"] in packets: raise ValueError("packet version is immutable")
++            if p.get("preparation_status") != "SOURCE_AND_BOUNDARY_REVIEWED":
++                raise ValueError("blind packet needs independent source/boundary preparation review")
++            if not p.get("preparation_reviewer_id") or not p.get("protocol_version") or not p.get("packet_sha256"):
++                raise ValueError("packet provenance incomplete")
++            if not p.get("reference_form_version") or not p.get("reference_form_sha256"):
++                raise ValueError("clinical form must be fixed before packet registration")
++            _time(p["as_of"])
++            parents = p.get("parent_versions", [])
++            if parents:
++                if any(v not in packets for v in parents): raise ValueError("unknown parent version")
++                relevant = [a for a in adjudications if set(parents) <= set(a["parent_versions"])]
++                if not relevant: raise ValueError("repair needs prior structural adjudication")
++                if relevant[-1]["action"] in {"UNRESOLVED", "OFF_SCOPE"}:
++                    raise ValueError("unresolved/off-scope adjudication cannot generate a clinical re-review packet")
++                roots = set().union(*(set(packets[v]["root_proposals"]) for v in parents))
++                if roots != set(p["root_proposals"]): raise ValueError("original proposal lineage must be retained")
++                if any(packets[v]["patient_alias"] != p["patient_alias"] for v in parents): raise ValueError("cross-patient repair")
++            elif p["root_proposals"] != [p["proposal_id"]]:
++                raise ValueError("initial proposal must identify its original root")
++            elif any(not old.get('parent_versions') and old['proposal_id'] == p['proposal_id'] for old in packets.values()):
++                raise ValueError('new version of existing proposal requires explicit parent lineage')
++            if any(k in p for k in ["agent_output", "model_confidence", "historical_action", "future_outcome"]):
++                raise ValueError("research-only fields cannot enter blind packet registry")
++            return
++        if kind == "EXPOSURE":
++            if not p.get("reviewer_id") or not p.get("patient_alias") or not p.get("reason"):
++                raise ValueError("exposure provenance required")
++            return
++        if kind == "ADJUDICATION":
++            parents = p["parent_versions"]
++            if not parents or any(v not in packets for v in parents): raise ValueError("unknown adjudication parents")
++            if not any(gate_status(v, gates, required) == "FLAGGED" for v in parents):
++                raise ValueError("structural adjudication requires a flagged version")
++            if len({packets[v]['patient_alias'] for v in parents}) != 1:
++                raise ValueError('cross-patient structural adjudication')
++            if not p.get("rule_version") or not p.get("adjudicator_id") or not p.get("rationale"):
++                raise ValueError("adjudication audit fields required")
++            if p["action"] not in {"MERGE", "SPLIT", "MOVE_BOUNDARY", "REBUILD_EVIDENCE", "OFF_SCOPE", "NO_CHANGE", "UNRESOLVED"}:
++                raise ValueError("unknown structural action")
++            if not isinstance(p.get("confirmed_error"), bool): raise ValueError("confirmed error must be explicit")
++            roots = set().union(*(set(packets[v]['root_proposals']) for v in parents))
++            errors = set(p.get('error_root_proposals', []))
++            if not errors <= roots or bool(errors) != p['confirmed_error']:
++                raise ValueError('confirmed errors must identify specific original proposals')
++            if "clinical_reference" in p: raise ValueError("structural adjudication cannot supply clinical Reference")
++            return
++        if kind not in {"GATE", "REFERENCE"}: raise ValueError("unknown workflow event")
++        version = p["version_id"]
++        if version not in packets: raise ValueError("unknown packet version")
++        packet = packets[version]; reviewer = p["reviewer_id"]
++        if p["packet_sha256"] != packet["packet_sha256"]: raise ValueError("review bound to wrong packet")
++        if any(e["patient_alias"] == packet["patient_alias"] and e["reviewer_id"] == reviewer for e in exposures):
++            raise ValueError("reviewer exposed to research/structural material")
++        ancestors, todo = set(), list(packet.get("parent_versions", []))
++        while todo:
++            v = todo.pop()
++            if v not in ancestors:
++                ancestors.add(v); todo.extend(packets[v].get("parent_versions", []))
++        if any(g["reviewer_id"] == reviewer and g["version_id"] in ancestors for g in gates):
++            raise ValueError("repaired packet requires another blinded reviewer")
++        for g in gates:
++            prior = packets[g["version_id"]]
++            if g["reviewer_id"] == reviewer and prior["patient_alias"] == packet["patient_alias"] and _time(prior["as_of"]) > _time(packet["as_of"]):
++                raise ValueError("reviewer already saw later patient state")
++        if kind == "GATE":
++            if any(g["version_id"] == version and g["reviewer_id"] == reviewer for g in gates):
++                raise ValueError("gate response is immutable")
++            if p["decision"] not in {"VALID", "REPAIR_REQUIRED", "UNCERTAIN"}: raise ValueError("invalid gate decision")
++            if not set(p.get("issues", [])) <= ISSUES: raise ValueError("unknown gate issue")
++            if (p["decision"] == "VALID") != (not p.get("issues")): raise ValueError("gate decision and issues disagree")
++            if p['decision'] != 'VALID' and not (p.get('rationale') or p.get('source_refs')):
++                raise ValueError('flagged gate needs an auditable explanation or source reference')
++            if "clinical_reference" in p: raise ValueError("validity gate cannot include clinical answers")
++        else:
++            if any(version in a['parent_versions'] for a in adjudications):
++                raise ValueError('structurally adjudicated parent version cannot receive new clinical scores')
++            if gate_status(version, gates, required) != "VALID": raise ValueError("clinical form blocked by validity gate")
++            if not any(g["version_id"] == version and g["reviewer_id"] == reviewer and g["decision"] == "VALID" for g in gates):
++                raise ValueError("clinical reviewer must first complete validity gate")
++            if any(r["version_id"] == version and r["reviewer_id"] == reviewer for r in refs):
++                raise ValueError("clinical response is immutable")
++            Draft202012Validator(p["form_schema"]).validate(p["clinical_reference"])
++            if not p.get("form_version") or not p.get("form_sha256") or digest(p["form_schema"]) != p["form_sha256"]:
++                raise ValueError("clinical form must be versioned and hash-bound")
++            if p["form_version"] != packet["reference_form_version"] or p["form_sha256"] != packet["reference_form_sha256"]:
++                raise ValueError("clinical form differs from pre-registered packet form")
++
++    def append(self, kind, payload):
++        json.dumps(payload, allow_nan=False)
++        if "duration_seconds" in payload and (not isinstance(payload["duration_seconds"], (int, float))
++                or not math.isfinite(payload["duration_seconds"]) or payload["duration_seconds"] < 0):
++            raise ValueError("invalid human effort duration")
++        with self.path.open("a+", encoding="utf-8") as f:
++            os.chmod(self.path, 0o600); fcntl.flock(f, fcntl.LOCK_EX); f.seek(0)
++            rows = [json.loads(line) for line in f if line.strip()]; self.verify(rows)
++            if rows and rows[0].get("required_valid_reviewers") != self.required:
++                raise ValueError("review policy cannot change within ledger")
++            self.validate(kind, payload, rows, self.required)
++            row = {"event_id": uuid4().hex, "kind": kind, "payload": payload,
++                   "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
++                   "required_valid_reviewers": self.required, "previous_hash": rows[-1]["hash"] if rows else None}
++            row["hash"] = digest(row)
++            f.seek(0, 2); f.write(json.dumps(row, ensure_ascii=False)+"\n"); f.flush(); os.fsync(f.fileno())
++            return row
++
++    def read(self):
++        if not self.path.exists(): return []
++        with self.path.open() as f:
++            fcntl.flock(f, fcntl.LOCK_SH); rows = [json.loads(line) for line in f if line.strip()]
++        self.verify(rows); return rows
++
++
++def summarize(rows, required=None):
++    policy = rows[0]['required_valid_reviewers'] if rows else 2
++    if required is not None and required != policy: raise ValueError('summary policy differs from registered review policy')
++    required = policy
++    packets, gates, adjudications, refs, exposures = state(rows)
++    initial = [p for p in packets.values() if not p.get("parent_versions")]
++    valid = sum(gate_status(p["version_id"], gates, required) == "VALID" for p in initial)
++    flagged = sum(gate_status(p["version_id"], gates, required) == "FLAGGED" for p in initial)
++    reviewed = valid+flagged; roots = {r for p in initial for r in p["root_proposals"]}
++    corrected = set().union(*(set(a['error_root_proposals']) for a in adjudications if a['confirmed_error'])) if adjudications else set()
++    affected = set().union(*(set(packets[v]['root_proposals']) for a in adjudications for v in a['parent_versions'])) if adjudications else set()
++    retired = {v for a in adjudications for v in a['parent_versions']}
++    durations = [g["duration_seconds"] for g in gates if "duration_seconds" in g]
++    active = [r for r in refs if r['version_id'] not in retired and gate_status(r["version_id"], gates, required) == "VALID"
++              and not any(e['_sequence'] < r['_sequence'] and e["reviewer_id"] == r["reviewer_id"]
++                          and e["patient_alias"] == packets[r["version_id"]]["patient_alias"] for e in exposures)]
++    return {"initial_proposals": len(initial), "initial_valid": valid, "initial_flagged": flagged,
++            "initial_pending": len(initial)-reviewed,
++            "first_pass_valid_over_all_proposed": valid/len(initial) if initial else None,
++            "first_pass_valid_over_reviewed": valid/reviewed if reviewed else None,
++            "confirmed_error_original_proposals": len(corrected & roots),
++            "structurally_affected_original_proposals": len(affected & roots),
++            "confirmed_error_rate": len(corrected & roots)/len(roots) if roots else None,
++            "packet_versions": len(packets), "structural_actions": len(adjudications),
++            "median_reported_gate_seconds": statistics.median(durations) if durations else None,
++            "timed_gate_responses": len(durations), "gate_responses": len(gates),
++            "clinical_responses_recorded": len(refs), "clinical_responses_currently_active": len(active),
++            "clinical_responses_quarantined": len(refs)-len(active)}
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--ledger',type=Path,required=True)
++    p.add_argument('--event',type=Path,help='one JSON object with kind and payload; no file is rewritten')
++    p.add_argument('--required-valid-reviewers',type=int,default=2)
++    p.add_argument('--summary',type=Path)
++    a=p.parse_args(); ledger=ReviewLedger(a.ledger,required_valid_reviewers=a.required_valid_reviewers)
++    if a.event:
++        event=json.loads(a.event.read_text());ledger.append(event['kind'],event['payload'])
++    result=summarize(ledger.read())
++    if a.summary:
++        repo=Path(__file__).resolve().parents[3]
++        if not any(a.summary.resolve().is_relative_to(repo/d) for d in ['private','outputs']):p.error('summary must remain private')
++        with a.summary.open('x') as f:json.dump(result,f,ensure_ascii=False,indent=2)
++    print(json.dumps(result,ensure_ascii=False))
++
++
++if __name__=='__main__':main()
+--- a/scripts/cohort_construction/p2_relation_graph/run.py
++++ b/scripts/cohort_construction/p2_relation_graph/run.py
+@@ -32,6 +32,7 @@
+     parser.add_argument("--execute", action="store_true", help="send selected source context to configured Boyu endpoint")
+     parser.add_argument("--output", required=True, type=Path)
+     parser.add_argument("--cache", type=Path)
++    parser.add_argument("--cache-mode", choices=["read_write", "read_only", "refresh", "bypass"], default="read_write")
+     parser.add_argument("--top-k", type=int, default=4)
+     parser.add_argument("--max-units", type=int)
+     parser.add_argument("--max-pairs", type=int)
+@@ -61,7 +62,7 @@
+     all_count = len(units)
+     if args.max_units:
+         units = units[:args.max_units]
+-    client = SemanticClient(args.cache or args.output/"model_cache") if args.execute else None
++    client = SemanticClient(args.cache or args.output/"model_cache", cache_mode=args.cache_mode) if args.execute else None
+     graph = reconstruct(units, notes, client=client, top_k=args.top_k, max_pairs=args.max_pairs)
+     graph["summary"]["unprocessed_input_units"] = all_count-len(units)
+     graph["summary"]["synthetic_only"] = args.demo
+@@ -72,6 +73,7 @@
+           "code_sha256": code, "graph_sha256": sha(args.output/"graph.json"),
+           "top_k": args.top_k, "max_units": args.max_units, "max_pairs": args.max_pairs,
+           "mode": graph["mode"], "model": None if client is None else client.settings.model,
++          "cache_mode": args.cache_mode,
+           "synthetic_only": args.demo, "baseline_extractor_modified": False,
+           "code_changed_during_run": changed,
+           "source_or_cohort_membership_changed": False,
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/run_validation_checks.py
+@@ -0,0 +1,48 @@
++"""Require registered counterexamples plus migrated v0.1/v0.2 regression coverage."""
++import argparse
++import hashlib
++import io
++import json
++from pathlib import Path
++import sys
++import unittest
++
++
++def flatten(suite):
++    for item in suite:
++        if isinstance(item, unittest.TestSuite): yield from flatten(item)
++        else: yield item
++
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--receipt',type=Path);a=p.parse_args()
++    root=Path(__file__).resolve().parents[3];sys.path.insert(0,str(root))
++    module=Path(__file__).parent
++    legacy=json.loads((module.parent/'p2_decision_ir/test_receipt.json').read_text())
++    names=[s for s in legacy['command'][3:] if not s.startswith('-')]
++    names += ['scripts.cohort_construction.p2_relation_graph.tests.test_graph','scripts.cohort_construction.p2_relation_graph.tests.test_validation']
++    registry=json.loads((module/'validation_regression_catalog_v0.3.json').read_text())
++    inherited=json.loads((module/'regression_catalog.json').read_text())
++    required=[r['required_test'] for r in inherited['cases']+registry['cases']]
++    if len(required)!=len(set(required)):raise RuntimeError('duplicate registered test')
++    suite=unittest.defaultTestLoader.loadTestsFromNames(names)
++    tests=list(flatten(suite));ids={t.id() for t in tests}
++    missing=set(required)-ids
++    current={i for i in ids if '.p2_relation_graph.' in i}
++    if missing or current-set(required):raise RuntimeError('required test missing or current test unregistered')
++    log=io.StringIO();result=unittest.TextTestRunner(stream=log,verbosity=2).run(suite)
++    skipped=[t.id() for t,_ in result.skipped if t.id() in required]
++    receipt={'version':'p2-validation-0.3','success':result.wasSuccessful() and not skipped,
++             'tests_run':result.testsRun,'required_tests':len(required),'required_skipped':skipped,
++             'modules':names,'log':log.getvalue(),
++             'code_sha256':{str(x.relative_to(root)):hashlib.sha256(x.read_bytes()).hexdigest()
++                 for x in module.rglob('*.py')},'scope':'synthetic regression tests; not clinical validation'}
++    if a.receipt:
++        a.receipt.parent.mkdir(parents=True,exist_ok=True)
++        with a.receipt.open('x') as f:json.dump(receipt,f,ensure_ascii=False,indent=2)
++    print(json.dumps({k:v for k,v in receipt.items() if k not in {'log','code_sha256','modules'}},ensure_ascii=False))
++    if not receipt['success']:print(log.getvalue())
++    return 0 if receipt['success'] else 1
++
++
++if __name__=='__main__':sys.exit(main())
+--- a/scripts/cohort_construction/p2_relation_graph/tests/test_graph.py
++++ b/scripts/cohort_construction/p2_relation_graph/tests/test_graph.py
+@@ -178,7 +178,8 @@
+         g = reconstruct(self.units, self.notes)
+         decision = [m["id"] for m in g["mentions"] if m["kind"] == "DecisionMention"]
+         gold = {"annotation_status": "ADJUDICATED", "complete_within_declared_scope": True,
+-                "origin": "synthetic_fixture", "scope": "fictional documents", "annotator_ids": ["fixture-author"],
++                "origin": "synthetic_fixture", "scope": {"kind": "aligned_mentions", "mention_ids": [m['id'] for m in g['mentions']]+['missed']}, "annotator_ids": ["fixture-author"],
++                "mentions": [{"id": i, "kind": "DecisionMention"} for i in decision+['missed']],
+                 "mention_to_event": {decision[0]: "e1", decision[1]: "e2", "missed": "e3"},
+                 "relations": [{"stage": "decision_relation", "from": decision[0], "to": "missed", "relation": "revise"}]}
+         score = evaluate(g, gold)
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/tests/test_validation.py
+@@ -0,0 +1,328 @@
++"""Validation infrastructure counterexamples; entirely fictional, never human gold."""
++import copy
++import json
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import Mock, patch
++
++from scripts.cohort_construction.model_api import ModelAPISettings
++from scripts.cohort_construction.p2_relation_graph.core import digest
++from scripts.cohort_construction.p2_relation_graph.evaluate import evaluate, maximum_assignment
++from scripts.cohort_construction.p2_relation_graph.model import SemanticClient, ModelFailure
++from scripts.cohort_construction.p2_relation_graph.review_workflow import ReviewLedger, summarize
++
++
++def fixture():
++    ids = ['m1','m2','m3','m4']
++    mentions = [{'id': i, 'kind': 'DecisionMention'} for i in ids]
++    membership = {i: 'E'+i[1:] for i in ids}
++    graph = {'mentions': copy.deepcopy(mentions), 'membership': membership, 'edges': []}
++    gold = {'annotation_status': 'ADJUDICATED', 'complete_within_declared_scope': True,
++            'origin': 'synthetic_fixture', 'annotator_ids': ['fixture'],
++            'scope': {'kind':'aligned_mentions','mention_ids':ids}, 'mentions': mentions,
++            'mention_to_event': copy.deepcopy(membership), 'relations': []}
++    return graph, gold
++
++
++def edge(a='m1', b='m2', label='revise', score=.75):
++    return {'stage':'typed_relation' if label in {'informs','implemented_by','evaluated_by','triggers_reassessment'} else 'decision_relation',
++            'from':a, 'to':b, 'relation':label,'score':score,'status':'REVIEW'}
++
++
++class EvaluationTests(unittest.TestCase):
++    def test_EV001_representative_mention_does_not_change_event_edge(self):
++        g,t=fixture();g['membership']['m2']='E1';t['mention_to_event']['m2']='E1'
++        g['edges']=[edge('m2','m3')];t['relations']=[edge('m1','m3')]
++        r=evaluate(g,t)
++        self.assertEqual(r['typed_relation_edges']['true_positive'],1)
++        self.assertEqual(r['candidate_edge_recall'],1)
++
++    def test_EV002_spurious_edges_enter_precision_denominator(self):
++        g,t=fixture();t['relations']=[edge()];g['edges']=[edge(),edge('m1','m3'),edge('m4','m2')]
++        r=evaluate(g,t)['decision_relation_edges']
++        self.assertEqual(r['false_positive'],2);self.assertAlmostEqual(r['precision'],1/3)
++
++    def test_EV003_selective_curve_includes_all_accepted_edges(self):
++        g,t=fixture();t['relations']=[edge()];g['edges']=[edge(),edge('m1','m3'),edge('m4','m2')]
++        curve=next(c for c in evaluate(g,t)['coverage_precision_curve'] if c['threshold']==.75)
++        self.assertEqual(curve['accepted_edges'],3);self.assertAlmostEqual(curve['precision'],1/3)
++
++    def test_EV004_outside_scope_reported_separately(self):
++        g,t=fixture();t['scope']['mention_ids']=['m1','m2','m3'];t['mentions']=t['mentions'][:3];t['mention_to_event'].pop('m4')
++        t['relations']=[edge()];g['edges']=[edge(),edge('m4','m2')]
++        r=evaluate(g,t);self.assertEqual(r['typed_relation_edges']['precision'],1)
++        self.assertEqual(r['out_of_scope_prediction_edges'],1)
++        t['scope']='unverifiable free text'
++        with self.assertRaises(ValueError):evaluate(g,t)
++
++    def test_EV005_unknown_gold_is_not_assumed_negative(self):
++        g,t=fixture();g['edges']=[edge(),edge('m1','m3')];t['relations']=[edge(),edge('m1','m3','uncertain')]
++        r=evaluate(g,t);c=r['coverage_precision_curve'][0]
++        self.assertEqual(r['unassessed_prediction_edges'],1);self.assertIsNone(c['precision'])
++        self.assertEqual(c['precision_lower_bound'],.5);self.assertEqual(c['precision_upper_bound'],1)
++
++    def test_EV006_alignment_is_global_one_to_one_not_greedy(self):
++        self.assertEqual(maximum_assignment([[.9,.8],[.85,.1]]),[(0,1),(1,0)])
++        self.assertEqual(maximum_assignment([]),[])
++        g,t=fixture();g['membership']={i:'merged' for i in g['membership']}
++        r=evaluate(g,t);self.assertEqual(r['event_alignment']['matched_events'],1)
++        self.assertLess(r['coreference_b3_common_mentions']['f1'],1)
++
++    def test_EV007_duplicate_event_edge_counted_once(self):
++        g,t=fixture();g['membership']['m2']='E1';t['mention_to_event']['m2']='E1'
++        t['relations']=[edge('m1','m3')];g['edges']=[edge('m1','m3'),edge('m2','m3')]
++        self.assertEqual(evaluate(g,t)['typed_relation_edges']['predicted'],1)
++
++    def test_EV008_wrong_direction_and_self_loop_are_errors(self):
++        g,t=fixture();t['relations']=[edge()];g['edges']=[edge('m2','m1'),edge('m1','m1')]
++        r=evaluate(g,t)['typed_relation_edges'];self.assertEqual(r['false_positive'],2);self.assertEqual(r['false_negative'],1)
++
++    def test_EV009_decision_and_process_metrics_are_separate(self):
++        g,t=fixture();g['mentions'][2]['kind']=t['mentions'][2]['kind']='EvidenceMention'
++        g['edges']=[edge('m1','m2','supersede'),edge('m3','m1','informs')]
++        t['relations']=[edge(),edge('m3','m1','informs')]
++        r=evaluate(g,t);self.assertEqual(r['decision_relation_edges']['f1'],0);self.assertEqual(r['process_link_edges']['f1'],1)
++
++    def test_EV010_missing_gold_nodes_and_edges_remain_in_denominator(self):
++        g,t=fixture();g['mentions']=g['mentions'][:2];g['membership']={k:v for k,v in g['membership'].items() if k in {'m1','m2'}}
++        t['relations']=[edge('m1','m3')];r=evaluate(g,t)
++        self.assertEqual(r['mention_detection_and_typing']['recall'],.5)
++        self.assertEqual(r['candidate_edge_recall'],0);self.assertFalse(r['scope_graph_complete'])
++
++    def test_EV011_source_identity_not_signature_ids_controls_alignment(self):
++        g,t=fixture();g['mentions']=g['mentions'][:2];t['mentions']=t['mentions'][:2]
++        t['mention_to_event']={k:v for k,v in t['mention_to_event'].items() if k in {'m1','m2'}}
++        window={'patient_uid':'synthetic','source_id':'doc','source_sha256':'a'*64,'start':0,'end':100}
++        t['scope']={'kind':'source_windows','windows':[window]};t['origin']='independent_human'
++        t['annotator_ids']=['fixture-A','fixture-B'];t['adjudicator_id']='fixture-adjudicator'
++        for i,(pm,gm) in enumerate(zip(g['mentions'],t['mentions'])):
++            pm['anchor']=gm['anchor']={k:v for k,v in window.items() if k not in {'start','end'}}|{'span':[i*10,i*10+5]}
++            pm['id']='new-'+pm['id']
++        g['membership']={'new-m1':'P1','new-m2':'P2'};g['edges']=[edge('new-m1','new-m2')];t['relations']=[edge()]
++        self.assertEqual(evaluate(g,t)['typed_relation_edges']['true_positive'],1)
++        g['mentions'][1]['anchor']={**g['mentions'][1]['anchor'],'source_sha256':'b'*64}
++        self.assertEqual(evaluate(g,t)['out_of_scope_prediction_mentions'],1)
++
++    def test_EV012_auxiliary_clustering_part_of_graph_completeness(self):
++        g,t=fixture()
++        for m in g['mentions'][2:]+t['mentions'][2:]:m['kind']='EvidenceMention'
++        t['mention_to_event']['m4']='E3'
++        self.assertFalse(evaluate(g,t)['scope_graph_complete'])
++
++    def test_EV013_invalid_gold_types_not_scored_as_valid_graph(self):
++        g,t=fixture();t['relations']=[edge('m1','m2','informs')]
++        with self.assertRaises(ValueError):evaluate(g,t)
++
++
++class CacheTests(unittest.TestCase):
++    def setUp(self):
++        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
++        self.settings=ModelAPISettings('synthetic-key','https://example.invalid/v1','kimi-k3')
++    def tearDown(self):self.tmp.cleanup()
++    def client(self,mode):return SemanticClient(self.root,settings=self.settings,cache_mode=mode,replicate_id='test',retries=0)
++    def mock(self,value=True):
++        m=Mock(status_code=200);m.json.return_value={'id':'fake-id','model':'kimi-k3','choices':[{'finish_reason':'stop','message':{'content':json.dumps({'ok':value})}}]};return m
++
++    def test_RP001_bypass_makes_identical_fresh_requests(self):
++        with patch('requests.post',return_value=self.mock()) as post:
++            for _ in range(3):self.client('bypass').ask('same',{}, {'type':'object'})
++            self.assertEqual(post.call_count,3)
++            bodies=[c.kwargs['json'] for c in post.call_args_list];self.assertEqual(bodies[0],bodies[1]);self.assertEqual(bodies[1],bodies[2])
++        self.assertEqual(len(list((self.root/'responses').glob('*_raw.json'))),3)
++        self.assertFalse(list(self.root.glob('*.json')))
++
++    def test_RP002_read_only_never_calls_network(self):
++        with patch('requests.post',return_value=self.mock()) as post:
++            with self.assertRaises(ModelFailure):self.client('read_only').ask('same',{}, {'type':'object'})
++            self.assertEqual(post.call_count,0)
++            self.client('read_write').ask('same',{}, {'type':'object'})
++            self.client('read_only').ask('same',{}, {'type':'object'})
++            self.assertEqual(post.call_count,1)
++
++    def test_RP003_refresh_keeps_prior_response(self):
++        with patch('requests.post',return_value=self.mock(True)):
++            self.client('read_write').ask('same',{}, {'type':'object'})
++        with patch('requests.post',return_value=self.mock(False)):
++            self.client('refresh').ask('same',{}, {'type':'object'})
++        self.assertTrue(list((self.root/'responses').glob('prior_*.json')))
++        with patch('requests.post') as post:
++            self.assertEqual(self.client('read_only').ask('same',{}, {'type':'object'}),{'ok':False});post.assert_not_called()
++
++    def test_RP004_invalid_response_preserved_without_resampling(self):
++        mock=self.mock();mock.json.return_value['choices'][0]['message']['content']='not-json'
++        with patch('requests.post',return_value=mock) as post:
++            with self.assertRaises(ModelFailure):self.client('bypass').ask('same',{}, {'type':'object'})
++            self.assertEqual(post.call_count,1)
++        raw=json.loads(next((self.root/'responses').glob('*_raw.json')).read_text());self.assertEqual(raw['content'],'not-json')
++        attempt=json.loads(next((self.root/'attempts').glob('*.json')).read_text());self.assertEqual(attempt['status'],'FAILED')
++
++    def test_RP005_cache_response_mutation_detected(self):
++        with patch('requests.post',return_value=self.mock()):self.client('read_write').ask('same',{}, {'type':'object'})
++        path=next(self.root.glob('*.json'));saved=json.loads(path.read_text());saved['result']={'ok':'changed'};path.write_text(json.dumps(saved))
++        with patch('requests.post') as post:
++            with self.assertRaises(ModelFailure):self.client('read_only').ask('same',{}, {'type':'object'})
++            post.assert_not_called()
++
++
++FORM={'type':'object','required':['acceptable_mode_set','severity','confidence'],'properties':{'acceptable_mode_set':{'type':'array'},'severity':{'type':'string'},'confidence':{'type':'number'}}}
++
++
++def packet(v='v1',parents=None):
++    return {'proposal_id':'C1','version_id':v,'patient_alias':'synthetic-patient',
++            'parent_versions':parents or [],'root_proposals':['C1'],'packet_sha256':digest(v),
++            'as_of':'2025-01-02T10:00:00+08:00','protocol_version':'fictional-protocol',
++            'preparation_status':'SOURCE_AND_BOUNDARY_REVIEWED','preparation_reviewer_id':'preparer',
++            'reference_form_version':'fictional-form','reference_form_sha256':digest(FORM)}
++
++
++def gate(p,reviewer='A',valid=True):
++    return {'version_id':p['version_id'],'packet_sha256':p['packet_sha256'],'reviewer_id':reviewer,
++            'decision':'VALID' if valid else 'REPAIR_REQUIRED','issues':[] if valid else ['INVALID_DUPLICATE'],
++            'rationale':'' if valid else 'Fictional suspected duplicate; source review requested',
++            'duration_seconds':10}
++
++
++def reference(p,reviewer='A'):
++    return {'version_id':p['version_id'],'packet_sha256':p['packet_sha256'],'reviewer_id':reviewer,
++            'form_version':'fictional-form','form_sha256':digest(FORM),'form_schema':FORM,
++            'clinical_reference':{'acceptable_mode_set':['FICTIONAL_MODE'],'severity':'FICTIONAL_GRADE','confidence':.7}}
++
++
++class WorkflowTests(unittest.TestCase):
++    def setUp(self):
++        root=Path(__file__).resolve().parents[4]/'private';root.mkdir(exist_ok=True)
++        self.tmp=tempfile.TemporaryDirectory(dir=root);self.ledger=ReviewLedger(Path(self.tmp.name)/'review.jsonl',required_valid_reviewers=1)
++        self.p=packet();self.ledger.append('PACKET',self.p)
++    def tearDown(self):self.tmp.cleanup()
++
++    def adjudicate(self):
++        self.ledger.append('ADJUDICATION',{'parent_versions':['v1'],'action':'MERGE','confirmed_error':True,
++            'error_root_proposals':['C1'],
++            'rule_version':'atomicity-v0.1','adjudicator_id':'S','rationale':'synthetic duplicate finding'})
++
++    def test_WF001_invalid_gate_blocks_clinical_reference(self):
++        self.ledger.append('GATE',gate(self.p,valid=False))
++        with self.assertRaises(ValueError):self.ledger.append('REFERENCE',reference(self.p))
++
++    def test_WF002_valid_gate_allows_version_bound_reference(self):
++        self.ledger.append('GATE',gate(self.p));self.ledger.append('REFERENCE',reference(self.p))
++        r=summarize(self.ledger.read(),1);self.assertEqual(r['clinical_responses_currently_active'],1)
++        bad=reference(self.p,'B');bad['packet_sha256']='wrong'
++        with self.assertRaises(ValueError):self.ledger.append('REFERENCE',bad)
++
++    def test_WF003_repair_requires_another_blinded_reviewer(self):
++        self.ledger.append('GATE',gate(self.p,valid=False));self.adjudicate();p=packet('v2',['v1']);self.ledger.append('PACKET',p)
++        with self.assertRaises(ValueError):self.ledger.append('GATE',gate(p,'A'))
++        with self.assertRaises(ValueError):self.ledger.append('GATE',gate(p,'S'))
++        self.ledger.append('GATE',gate(p,'B'));self.ledger.append('REFERENCE',reference(p,'B'))
++        self.assertEqual(summarize(self.ledger.read(),1)['confirmed_error_original_proposals'],1)
++
++    def test_WF004_initial_version_and_root_lineage_immutable(self):
++        with self.assertRaises(ValueError):self.ledger.append('PACKET',self.p)
++        self.ledger.append('GATE',gate(self.p,valid=False));self.adjudicate();p=packet('v2',['v1']);p['root_proposals']=['other']
++        with self.assertRaises(ValueError):self.ledger.append('PACKET',p)
++
++    def test_WF005_later_state_exposure_blocks_earlier_review(self):
++        self.ledger.append('GATE',gate(self.p));p=packet('early');p['proposal_id']='C2';p['root_proposals']=['C2'];p['as_of']='2025-01-01T10:00:00+08:00'
++        self.ledger.append('PACKET',p)
++        with self.assertRaises(ValueError):self.ledger.append('GATE',gate(p))
++
++    def test_WF006_later_flag_quarantines_previous_reference(self):
++        self.ledger.append('GATE',gate(self.p));self.ledger.append('REFERENCE',reference(self.p));self.ledger.append('GATE',gate(self.p,'B',False))
++        r=summarize(self.ledger.read(),1);self.assertEqual(r['clinical_responses_quarantined'],1);self.assertEqual(r['clinical_responses_recorded'],1)
++
++    def test_WF007_pending_and_flagged_denominators_distinct(self):
++        self.ledger.append('GATE',gate(self.p));p=packet('pending');p['proposal_id']='C2';p['root_proposals']=['C2'];self.ledger.append('PACKET',p)
++        r=summarize(self.ledger.read(),1);self.assertEqual(r['first_pass_valid_over_all_proposed'],.5);self.assertEqual(r['first_pass_valid_over_reviewed'],1)
++
++    def test_WF008_ledger_tampering_detected(self):
++        rows=self.ledger.read();rows[0]['payload']['packet_sha256']='edited'
++        with self.assertRaises(ValueError):ReviewLedger.verify(rows)
++
++    def test_WF009_schema_and_exposure_cannot_be_bypassed(self):
++        self.ledger.append('GATE',gate(self.p));r=reference(self.p);r['form_schema']={'type':'object'};r['form_sha256']=digest(r['form_schema'])
++        with self.assertRaises(ValueError):self.ledger.append('REFERENCE',r)
++        self.ledger.append('EXPOSURE',{'patient_alias':self.p['patient_alias'],'reviewer_id':'A','reason':'FUTURE_OUTCOME'})
++        with self.assertRaises(ValueError):self.ledger.append('REFERENCE',reference(self.p))
++
++    def test_WF010_unprepared_packet_and_clinical_answer_in_gate_rejected(self):
++        p=packet('unprepared');p['preparation_status']='ALGORITHM_ONLY'
++        with self.assertRaises(ValueError):self.ledger.append('PACKET',p)
++        g=gate(self.p);g['clinical_reference']={}
++        with self.assertRaises(ValueError):self.ledger.append('GATE',g)
++        g=gate(self.p,valid=False);g.pop('rationale')
++        with self.assertRaises(ValueError):self.ledger.append('GATE',g)
++
++    def test_WF011_new_version_cannot_discard_parent_lineage(self):
++        with self.assertRaises(ValueError):self.ledger.append('PACKET',packet('hidden-new-version'))
++
++    def test_WF012_merge_can_include_valid_parent_without_labeling_both_wrong(self):
++        self.ledger.append('GATE',gate(self.p));self.ledger.append('REFERENCE',reference(self.p))
++        p=packet('v2');p['proposal_id']='C2';p['root_proposals']=['C2'];self.ledger.append('PACKET',p);self.ledger.append('GATE',gate(p,'B',False))
++        self.ledger.append('ADJUDICATION',{'parent_versions':['v1','v2'],'action':'MERGE','confirmed_error':True,
++            'error_root_proposals':['C2'],'rule_version':'fixture','adjudicator_id':'S','rationale':'one duplicate of valid parent'})
++        r=summarize(self.ledger.read());self.assertEqual(r['confirmed_error_original_proposals'],1)
++        self.assertEqual(r['structurally_affected_original_proposals'],2);self.assertEqual(r['clinical_responses_quarantined'],1)
++
++    def test_WF013_later_exposure_does_not_rewrite_sealed_prior_rating(self):
++        self.ledger.append('GATE',gate(self.p));self.ledger.append('REFERENCE',reference(self.p))
++        self.ledger.append('EXPOSURE',{'patient_alias':self.p['patient_alias'],'reviewer_id':'A','reason':'LATER_RESEARCH_ACCESS'})
++        self.assertEqual(summarize(self.ledger.read())['clinical_responses_currently_active'],1)
++        p=packet('another');p['proposal_id']='C2';p['root_proposals']=['C2'];self.ledger.append('PACKET',p)
++        with self.assertRaises(ValueError):self.ledger.append('GATE',gate(p))
++
++
++class AnnotationTests(unittest.TestCase):
++    def bundle(self,text='尚待复查。'):
++        from hashlib import sha256
++        return {'documents':[{'patient_uid':'p','source_id':'s','source_sha256':sha256(text.encode()).hexdigest(),'text':text}]}
++    def annotation(self):
++        return {'origin':'independent_human','annotator_ids':['A'],'annotation_status':'INDEPENDENT_DRAFT',
++            'complete_within_declared_scope':False,'mentions':[{'id':'a','kind':'DecisionMention','anchor':{'source_id':'s','quote':'尚待复查'}}],
++            'mention_to_event':{'a':'E1'},'relations':[]}
++
++    def test_AN001_quotes_compile_without_creating_adjudication(self):
++        from scripts.cohort_construction.p2_relation_graph.annotation_compile import compile_annotation
++        bundle=self.bundle();a=self.annotation();r=compile_annotation(bundle,a)
++        self.assertEqual(r['mentions'][0]['anchor']['span'],[0,4]);self.assertEqual(r['annotation_status'],'INDEPENDENT_DRAFT')
++        a['annotation_status']='ADJUDICATED'
++        with self.assertRaises(ValueError):compile_annotation(bundle,a)
++
++    def test_AN002_repeated_quote_cannot_be_guessed(self):
++        from scripts.cohort_construction.p2_relation_graph.annotation_compile import compile_annotation
++        with self.assertRaises(ValueError):compile_annotation(self.bundle('尚待复查。尚待复查。'),self.annotation())
++
++    def test_AN003_independent_materials_identical_without_model_labels(self):
++        from scripts.cohort_construction.p2_relation_graph.annotation_pilot import prepare
++        from scripts.cohort_construction.p2_relation_graph.demo import data
++        notes,units=data()
++        with tempfile.TemporaryDirectory() as tmp:
++            output=Path(tmp)/'pilot';r=prepare(notes,units,output,count=1)
++            a=output/'annotator_A/LOCAL-01';b=output/'annotator_B/LOCAL-01'
++            self.assertEqual((a/'sources.json').read_bytes(),(b/'sources.json').read_bytes())
++            self.assertFalse(r['human_gold_created']);draft=json.loads((a/'annotation.json').read_text())
++            self.assertFalse(draft['complete_within_declared_scope']);self.assertFalse(draft['mentions'])
++            self.assertNotIn('stratum',json.loads((a/'sources.json').read_text()))
++
++    def test_AN004_iaa_does_not_require_fabricated_adjudicated_gold(self):
++        from scripts.cohort_construction.p2_relation_graph.inter_annotator import compare
++        a=self.annotation();a['annotation_status']='INDEPENDENT_COMPLETE';a['complete_within_declared_scope']=True
++        a['scope']={'kind':'source_windows','windows':[{'patient_uid':'p','source_id':'s','source_sha256':'a'*64,'start':0,'end':10}]}
++        a['mentions'][0]['anchor']={'patient_uid':'p','source_id':'s','source_sha256':'a'*64,'span':[0,4],'quote':'尚待复查'}
++        b=copy.deepcopy(a);b['annotator_ids']=['B'];b['mentions'][0]['id']='b';b['mention_to_event']={'b':'B1'}
++        r=compare(a,b);self.assertEqual(r['mention_span_type_agreement']['symmetric_f1'],1)
++        self.assertNotIn('gold',r['decision_coreference_pair_agreement'])
++        self.assertEqual(a['annotation_status'],'INDEPENDENT_COMPLETE')
++        b['scope']['windows']=[{'changed':True}]
++        with self.assertRaises(ValueError):compare(a,b)
++
++    def test_AN005_iaa_requires_separate_independent_people(self):
++        from scripts.cohort_construction.p2_relation_graph.inter_annotator import compare
++        a=self.annotation();a['annotation_status']='INDEPENDENT_COMPLETE';a['complete_within_declared_scope']=True
++        a['scope']={'kind':'source_windows','windows':[{'patient_uid':'p','source_id':'s','source_sha256':'a'*64,'start':0,'end':10}]}
++        a['mentions'][0]['anchor']={'patient_uid':'p','source_id':'s','source_sha256':'a'*64,'span':[0,4],'quote':'尚待复查'}
++        with self.assertRaises(ValueError):compare(a,copy.deepcopy(a))
++
++
++if __name__=='__main__':unittest.main()
+--- /dev/null
++++ b/scripts/cohort_construction/p2_relation_graph/validation_regression_catalog_v0.3.json
+@@ -0,0 +1,186 @@
++{
++  "version": "0.3",
++  "inherited_catalog": "regression_catalog.json",
++  "cases": [
++    {
++      "id": "EV001",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV001_representative_mention_does_not_change_event_edge",
++      "counterexample_and_control": "representative_mention_does_not_change_event_edge"
++    },
++    {
++      "id": "EV002",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV002_spurious_edges_enter_precision_denominator",
++      "counterexample_and_control": "spurious_edges_enter_precision_denominator"
++    },
++    {
++      "id": "EV003",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV003_selective_curve_includes_all_accepted_edges",
++      "counterexample_and_control": "selective_curve_includes_all_accepted_edges"
++    },
++    {
++      "id": "EV004",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV004_outside_scope_reported_separately",
++      "counterexample_and_control": "outside_scope_reported_separately"
++    },
++    {
++      "id": "EV005",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV005_unknown_gold_is_not_assumed_negative",
++      "counterexample_and_control": "unknown_gold_is_not_assumed_negative"
++    },
++    {
++      "id": "EV006",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV006_alignment_is_global_one_to_one_not_greedy",
++      "counterexample_and_control": "alignment_is_global_one_to_one_not_greedy"
++    },
++    {
++      "id": "EV007",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV007_duplicate_event_edge_counted_once",
++      "counterexample_and_control": "duplicate_event_edge_counted_once"
++    },
++    {
++      "id": "EV008",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV008_wrong_direction_and_self_loop_are_errors",
++      "counterexample_and_control": "wrong_direction_and_self_loop_are_errors"
++    },
++    {
++      "id": "EV009",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV009_decision_and_process_metrics_are_separate",
++      "counterexample_and_control": "decision_and_process_metrics_are_separate"
++    },
++    {
++      "id": "EV010",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV010_missing_gold_nodes_and_edges_remain_in_denominator",
++      "counterexample_and_control": "missing_gold_nodes_and_edges_remain_in_denominator"
++    },
++    {
++      "id": "EV011",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV011_source_identity_not_signature_ids_controls_alignment",
++      "counterexample_and_control": "source_identity_not_signature_ids_controls_alignment"
++    },
++    {
++      "id": "EV012",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV012_auxiliary_clustering_part_of_graph_completeness",
++      "counterexample_and_control": "auxiliary_clustering_part_of_graph_completeness"
++    },
++    {
++      "id": "EV013",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.EvaluationTests.test_EV013_invalid_gold_types_not_scored_as_valid_graph",
++      "counterexample_and_control": "invalid_gold_types_not_scored_as_valid_graph"
++    },
++    {
++      "id": "RP001",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP001_bypass_makes_identical_fresh_requests",
++      "counterexample_and_control": "bypass_makes_identical_fresh_requests"
++    },
++    {
++      "id": "RP002",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP002_read_only_never_calls_network",
++      "counterexample_and_control": "read_only_never_calls_network"
++    },
++    {
++      "id": "RP003",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP003_refresh_keeps_prior_response",
++      "counterexample_and_control": "refresh_keeps_prior_response"
++    },
++    {
++      "id": "RP004",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP004_invalid_response_preserved_without_resampling",
++      "counterexample_and_control": "invalid_response_preserved_without_resampling"
++    },
++    {
++      "id": "RP005",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.CacheTests.test_RP005_cache_response_mutation_detected",
++      "counterexample_and_control": "cache_response_mutation_detected"
++    },
++    {
++      "id": "WF001",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF001_invalid_gate_blocks_clinical_reference",
++      "counterexample_and_control": "invalid_gate_blocks_clinical_reference"
++    },
++    {
++      "id": "WF002",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF002_valid_gate_allows_version_bound_reference",
++      "counterexample_and_control": "valid_gate_allows_version_bound_reference"
++    },
++    {
++      "id": "WF003",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF003_repair_requires_another_blinded_reviewer",
++      "counterexample_and_control": "repair_requires_another_blinded_reviewer"
++    },
++    {
++      "id": "WF004",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF004_initial_version_and_root_lineage_immutable",
++      "counterexample_and_control": "initial_version_and_root_lineage_immutable"
++    },
++    {
++      "id": "WF005",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF005_later_state_exposure_blocks_earlier_review",
++      "counterexample_and_control": "later_state_exposure_blocks_earlier_review"
++    },
++    {
++      "id": "WF006",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF006_later_flag_quarantines_previous_reference",
++      "counterexample_and_control": "later_flag_quarantines_previous_reference"
++    },
++    {
++      "id": "WF007",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF007_pending_and_flagged_denominators_distinct",
++      "counterexample_and_control": "pending_and_flagged_denominators_distinct"
++    },
++    {
++      "id": "WF008",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF008_ledger_tampering_detected",
++      "counterexample_and_control": "ledger_tampering_detected"
++    },
++    {
++      "id": "WF009",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF009_schema_and_exposure_cannot_be_bypassed",
++      "counterexample_and_control": "schema_and_exposure_cannot_be_bypassed"
++    },
++    {
++      "id": "WF010",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF010_unprepared_packet_and_clinical_answer_in_gate_rejected",
++      "counterexample_and_control": "unprepared_packet_and_clinical_answer_in_gate_rejected"
++    },
++    {
++      "id": "WF011",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF011_new_version_cannot_discard_parent_lineage",
++      "counterexample_and_control": "new_version_cannot_discard_parent_lineage"
++    },
++    {
++      "id": "WF012",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF012_merge_can_include_valid_parent_without_labeling_both_wrong",
++      "counterexample_and_control": "merge_can_include_valid_parent_without_labeling_both_wrong"
++    },
++    {
++      "id": "WF013",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.WorkflowTests.test_WF013_later_exposure_does_not_rewrite_sealed_prior_rating",
++      "counterexample_and_control": "later_exposure_does_not_rewrite_sealed_prior_rating"
++    },
++    {
++      "id": "AN001",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN001_quotes_compile_without_creating_adjudication",
++      "counterexample_and_control": "quotes_compile_without_creating_adjudication"
++    },
++    {
++      "id": "AN002",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN002_repeated_quote_cannot_be_guessed",
++      "counterexample_and_control": "repeated_quote_cannot_be_guessed"
++    },
++    {
++      "id": "AN003",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN003_independent_materials_identical_without_model_labels",
++      "counterexample_and_control": "independent_materials_identical_without_model_labels"
++    },
++    {
++      "id": "AN004",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN004_iaa_does_not_require_fabricated_adjudicated_gold",
++      "counterexample_and_control": "iaa_does_not_require_fabricated_adjudicated_gold"
++    },
++    {
++      "id": "AN005",
++      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_validation.AnnotationTests.test_AN005_iaa_requires_separate_independent_people",
++      "counterexample_and_control": "iaa_requires_separate_independent_people"
++    }
++  ]
++}
+--- a/README.md
++++ b/README.md
+@@ -2,7 +2,7 @@
+ 
+ 研究计划根治性胰腺手术路径中的证据充分性与序贯决策。
+ 
+-2026-10-22 当前推进 P2 的原文判断定位与关系重建。新增 [Decision Graph v0.2](scripts/cohort_construction/p2_relation_graph/README.md)，保留 run07 检索器，在其上建立 mention、潜在事件与带类型的关系提议。临床数据和测试结果均保存在本地忽略目录。
++2026-10-23 当前按 [P2验证与医生盲评衔接流程 v0.3](docs/P2-重建验证与医生盲评衔接流程-v0.3-20261023.md) 推进：小规模独立原文重建标注，加全量医生checkpoint有效性检查与Clinical Reference；结构问题修订后重新盲评。已修复事件评估和FP分母，提供独立调用与追加式评审台账。算法保留 [Decision Graph v0.2](scripts/cohort_construction/p2_relation_graph/README.md) 和run07候选检索。临床数据和结果均保存在本地忽略目录，人工标注及正式医生盲评尚待实际执行。
+ 
+ 后续语义模型调用与自动化默认复用 [博约 / kimi-k3 配置](docs/boyu-semantic-api.md)。密钥沿用本机配置，不进入代码。模型提议不构成医生 Reference。
+ 
+--- a/docs/P2-Episode与分次揭露-PLAN-v0.1-20261020.md
++++ b/docs/P2-Episode与分次揭露-PLAN-v0.1-20261020.md
+@@ -1,4 +1,6 @@
+ # P2 Episode、分次信息揭露与 RSI：简明 PLAN
++
++历史讨论稿。2026-10-23起当前流程见 `P2-重建验证与医生盲评衔接流程-v0.3-20261023.md`。下文P1 PASS池、episode操作定义和实施顺序均是当时提案/观察，不能作为新P2的默认纳入门槛或已冻结episode规则；新工作遵循AGENTS.md。
+ 
+ 2026-10-20｜讨论稿 v0.1｜P1 v0.2 队列保持不变，尚未正式生成 P2 队列。
+ 
+--- /dev/null
++++ b/docs/P2-重建验证与医生盲评衔接流程-v0.3-20261023.md
+@@ -0,0 +1,87 @@
++# P2 重建验证、checkpoint审计与医生盲评流程 v0.3
++
++2026-10-23。当前执行流程，接续Decision Graph v0.2。旧P1结果、旧Episode/HEWV方案和旧研究者复核卡保留为历史材料；本流程不以P1 PASS、实际手术或模型标签作为患者门槛，不据既有就诊定义episode。
++
++## 三道质量环节及两套独立标注依据
++
++```mermaid
++flowchart TD
++  A[原始资料与冻结run07候选] --> B[Decision Graph关系提议]
++  A --> C[小规模完整局部原文：双人独立重建标注]
++  B --> D[修正后的评估器：节点、共指、关系、遗漏与重复性]
++  C --> D
++  D --> E[冻结算法及候选checkpoint生成方案]
++  E --> F[研究者核验来源、版本、时间、遮蔽和材料边界]
++  F --> R{是否修订版本}
++  R -->|首次版本| G[医生：checkpoint validity gate]
++  G -->|通过| H[医生：Clinical Reference]
++  G -->|问题或不确定| I[独立结构裁定队列]
++  I --> J[保留原版本，按规则修订并重新生成材料]
++  J --> F
++  R -->|修订版本| K[修订版本由仍盲的其他医生重新评审]
++  K --> G
++```
++
++“小规模算法验证”是方法验证环节，不是要求每个患者都有人工gold才能进入候选检索的患者级门槛。具体是否达到扩大验证的条件，须按预先冻结的指标和误差容许范围决定；本轮未设自动接受阈值。
++
++**重建标注依据A**：研究者/受训标注员直接阅读规定范围内完整原文，独立标注节点、事件和边；先独立、后比较分歧、再裁定。可以查看范围内后续文书来重建记载关系，但不能用结局改写早先事实或推定临床正确。双人角色尚待实际安排，程序不替代人类标注。
++
++**临床Reference B**：医生只看该时点按方案可见、经核验的原始资料，先检查材料与决策问题是否可评价，再填写冻结表单中的Acceptable Mode Set、动作、Severity、Confidence等。历史医生选择、模型输出和后续结局均不充当答案。A与B分别存储、分别用人，不能从重建标注自动生成临床答案。
++
++## checkpoint有效性门槛
++
++“VALID”表示该版本的研究问题、时间边界及材料组织可以按方案评价，不要求资料足够推进手术、不要求只有一个可接受行动，也不自动证明它是首次真实决策或独立episode。
++
++| 医生记录 | 含义与后续 |
++|---|---|
++| VALID | 可进入临床评价；关键未知可在PAUSE/补充取证、可接受动作和Confidence中表达 |
++| REPAIR_REQUIRED | 提交一个或多个具体问题，停止该版本临床评分，进入结构裁定 |
++| UNCERTAIN | 盲材料不足以判断有效性，保留原因并进入待核；不强迫判对错 |
++
++问题代码为INVALID_DUPLICATE、INVALID_MIXED、INVALID_BOUNDARY、SUSPECTED_AVAILABLE_EVIDENCE_OMISSION、FUTURE_LEAKAGE、NOT_TARGET_DECISION、UNCERTAIN。它们首先是医生的**问题标记**，经结构核对后才成为已确认错误。
++
++问题标记作用于具体packet版本或时点，NOT_TARGET_DECISION也不自动排除该患者的其他记录或候选episode。
++
++- 复合计划不因动作多而自动INVALID_MIXED。只有包混合了需要分别评价的独立管理问题，才考虑拆分；同一次修订可含取消旧动作和选择新动作。
++- 检查未做、已计划但未返回、原文明确无法判断，均不自动使checkpoint无效。引用原报告未在交付中找到时保留二手原文与来源等级，是否影响评价另判。
++- “资料遗漏”仅指有理由认为当时已可见且本应纳入材料的来源被遗漏。医生先记疑似，结构人员核查。不得补入后来返回的结果来“修好”早期材料。
++- 盲材料不足以区分duplicate与reaffirm时选择UNCERTAIN。不得为了判重给医生开放后续完整轨迹。
++
++## 材料制作与盲法隔离
++
++算法图、关系理由、模型分歧和置信度只在研究者目录。医生只接收中性研究问题、当前原文和按方案允许的历史资料；不显示“模型认为重复/应改ERCP”等提示。结构不确定性用于后台排队，不成为医生可见的预设答案。
++
++进入医生环节前，研究者必须登记来源/版本/时间/遮蔽核验、包hash、截点、规则版本和审核者。排序代理不能充当历史可见性证明。研究者关系卡和本轮重建标注包包含当次选择及后续内容，**不能直接转成临床盲评包**。当前代码只登记已完成准备审核的包元数据，尚未自动制作正式临床包。
++
++Clinical Reference表单必须在包注册前固定版本与schema hash；本模块不重新定义临床mode、Severity或Confidence等级。现有四问接口属于历史独立测试，其CONTINUE/PAUSE/EXIT等名称不能悄悄替换正式方案中的既定动作或Mode；正式使用哪版表单需在protocol字段明确。
++
++## 结构裁定、修订和重盲评
++
++结构人员可查看必要的完整轨迹，记录merge/split/move boundary/rebuild evidence/off-scope/no-change/unresolved、具体来源依据、规则版本、责任人和时间。操作不自动等于确认算法错误；保留confirmed_error字段。
++
++原自动proposal和packet版本不得覆盖。新包保留所有父版本、原始proposal根、修订原因及hash；合并保留所有原根，拆分保留共同原根。UNRESOLVED和OFF_SCOPE不能直接进入临床评分。
++
++修订后重新进行来源和边界准备审核，由其他仍盲的医生从validity gate重新开始。参与该患者结构裁定、看过模型/未来资料、或已看过更晚患者状态的评审者，被登记为不适合相应盲评。代码只约束已登记的接触史，不能替代人员权限与实际盲法组织。
++
++若已有临床评分后另一位评审者标记结构问题，旧评分保留但隔离，不混入最终Reference。不得在同一医生现场合并/移动边界后继续给修订包评分。最终独立双评、分歧处理和表单人数按冻结方案；本地台账默认需要2份有效性通过，人数可在建账时预先指定，不能中途更改。
++
++接触史按发生顺序登记。医生在已封存评分之后才接触后来资料，不反向改变当时已盲评的事实；该接触会阻止后续不适合的评分。若评分所绑定的包后来被判为结构有误或被修订，则该版本评分仍按结构规则隔离。系统不自动抹掉真实的先前独立评价。
++
++## 指标与分母
++
++1. 算法层：完整局部范围的节点检出/类型、共指pairwise和B³、事件对齐后的Decision–Decision关系与过程边分别计分、候选边召回及完整图。Oracle-node任务与端到端任务分别标记，不能混合汇总。当前自动评估主要实现严格原文跨度/类型对齐；自然语言signature语义正确性仍需人工对照，不能把字面一致率当准确率。
++2. 数据集层：首次自动proposal版本的有效、问题、待评数量。分别报告VALID/全部proposal及VALID/已完成有效性评审proposal，公布待评数。不能只在最终修订成功的包上报告“自动可评价率”。
++3. 修订负担：医生标记率与裁定确认错误率分开；以原proposal去重计数，另报修订动作/版本数，避免同一包反复修改重复进入原始错误率分母。
++4. 人力：显式记录实际工作时长与缺测，不从程序运行时间估计医生时间。报告每包或裁定时长的中位数时同时报告有时长记录的比例。
++5. 临床层：在最终冻结且通过门槛的包上形成Reference，后续Agent按相同可见证据评价。Validity不等于临床动作正确，Reference也不能反推所有图边正确。
++
++模型之间一致、重复结果稳定或图约束通过均不构成已校准高置信度。此次仍使用博约kimi-k3；未增加第二模型、embedding、ProblemThread、episode算法或AUTO阈值。
++
++## 本轮已推进
++
++- 实际修复事件级评估与FP/曲线分母，新增分任务指标与显式scope。
++- 增加read_write/read_only/refresh/bypass，独立调用不向prompt加nonce；每次响应另存，不覆盖历史实验。
++- 准备6个开发局部范围、132份完整原文，A/B材料一致；随机来源、零命中、反馈及多动作挑战分层只在研究者清单中显示。这是开发试标材料，不代表P0分布或独立验证集。
++- 完成一组固定规范化和固定关系任务各3次新API请求。仅合成文本；真实资料未远程发送。结果与失败原样保存，尚未形成任何真实人工gold、医生Reference或临床准确率。
++
++执行代码与操作命令见 `scripts/cohort_construction/p2_relation_graph/VALIDATION.md`；标注手册见同日 `P2-重建标注手册-v0.1`。历史run与v0.2发布记录保留，新变更另记v0.3。
+--- /dev/null
++++ b/docs/P2-重建标注手册-v0.1-20261023.md
+@@ -0,0 +1,68 @@
++# P2 重建标注手册 v0.1（试用冻结版）
++
++2026-10-23。适用于首批独立重建标注；不定义正式episode、临床可接受动作或自动通过规则。首次双人试标后如需修改，另开版本并保留迁移与分歧记录。
++
++## 材料与工作顺序
++
++每名标注者仅接收自己的sources.json、原文材料.md及空白annotation.json。读取规定范围内所有文书，不看程序提议、另一位标注者结果或研究者抽样分层。范围内可出现后续轨迹，任务是重建原文记载，不评价治疗是否合理。
++
++先在全文中标节点，再组织事件，最后标边。未命中程序标签不影响标注；没有判断时也明确记录已完成全文检查。需要范围外文书时填写outside_scope_reference_requests，材料扩展后为两名标注者同步登记新范围，不能只向一方补充。
++
++## 原文节点
++
++| 角色 | 操作含义 |
++|---|---|
++| DecisionMention | 原文中可定位的临床判断、选择、推迟、拒绝、补证据或有条件安排；历史与当前分别标 |
++| EvidenceMention | 原文描述的状态、检查结果、观察或所引用证据；不因其支持某结论就自动视为充分证据 |
++| ActionMention | 原文支持已执行的行为；计划、建议和条件性操作不能当成已执行 |
++| FeedbackMention | 原文记载的治疗/操作后反应、失败、耐受或效果；先标原文表达，再单独判断是否能连接到某项动作 |
++
++同一连续片段可承担多种角色，允许分别建立节点并共享原文。原文引用须逐字连续，不拼接不同句段为新事实。每个节点使用标注者局部ID、kind、anchor.source_id和anchor.quote；无需手算Unicode坐标。程序只定位引用，不生成标签。引用重复则扩展连续原文以唯一定位，不能猜测。
++
++原文明确阳性、明确阴性、无法判断与未提及分别记录。算法未识别属于后续对照结果，不记为患者原始资料差。计划取得、已取得但原报告交付中未找到、只见二手引用，也分别保留来源状态；不能把它们推成阴性。
++
++signature记录management_question、clinical_target、assessment、intended_action、condition、goal、commitment及temporality。每个有值字段保留原文依据；允许不确定或未提及。规范化描述不能补入“为了根治”等原文没有的目标。多动作时另列action_components，记录各成分是选择、维持、取消还是条件性安排，保留各自引用。
++
++## 事件原子性和共指
++
++一次相对统一的临床判断/管理承诺可以包含多个互相依赖的动作成分。“取消旧计划并改用新方案”可能是同一次修订；两个动作不能机械生成两个checkpoint。反之，一句话可回顾上午取消、再叙述下午重新评估后的选择，可能涉及两个事件。
++
++依次核对：管理问题与对象、所针对时点、评估、动作与条件、承诺表达，以及是否有独立再次判断的依据。不要以句号、同日、24/48小时、动作相同或文字复制直接决定event身份。
++
++- same_event：有依据认为不同mention记录同一次判断，不等于“内容相似”。
++- different_event：可区分的记载事件；尚不自动具有研究checkpoint资格。
++- uncertain atomicity/coreference：原文不足以判定。填写atomicity_notes，列出可行划分与缺少的依据；不强迫合并或拆分。
++- first-visible：交付资料内首次可见的判断。不得改称临床首次判断，也不得因没有前项而不标。
++
++每个mention在当前标注方案中映射一个event ID。Decision事件可汇集多个成分或跨文书共指；不同类型节点的事件ID分别使用。无法确定的分组保留候选及说明，裁定前不强制变成完整gold。
++
++## 关系
++
++先确认端点和事件身份，再标关系，支持依据必须说明连接本身。
++
++- reaffirm：不同判断事件、同一管理问题，存在重新评估/新证据后的维持判断；不是仅又写一次相同计划。
++- revise：同一管理问题下评估、动作或条件发生修订；不要求原文解释所有新证据来源。
++- supersede：另有明确旧计划失效或被替代依据；不因日期更新就选最新为真。
++- informs：证据被用于判断。端点各自存在不足以证明此边。
++- implemented_by：实际行为落实此前判断，需动作和对象兼容；“已执行某动作”不自动证明执行的是最近计划。
++- evaluated_by：反馈针对某次已执行动作；不能仅凭先后顺序推断。
++- triggers_reassessment：反馈促成后续判断/重新评估，需相应原文依据。
++- unrelated：已核对、管理问题不相干；uncertain表示无法确定。二者与“未标注该pair”分开。
++
++“胆红素从300降至120”首先是观察变化；是否与某次PTCD相关、是否促成下一判断，各自需要依据。共用主题、同患者、相邻时间都不能单独证明因果。
++
++## 独立标注、分歧与裁定
++
++两人先独立完成同一范围，分别保存原始文件hash与版本。分歧记录包含节点遗漏/边界、类型、字段、事件划分、关系、范围不足及原文无法确定，不把所有分歧归为某人错误。
++
++在裁定前计算一致性，并同时列出漏标、增标、拆分和合并数量。实体边界对齐规则在比较前固定；不能为提高一致性而事后挑选匹配。裁定者记录规则和引用，必要时保留unresolved。
++
++只有实际完成双人标注与裁定、明确检查范围完整、记录annotator_ids和adjudicator_id后，才将annotation_status改为ADJUDICATED及complete_within_declared_scope=true。空模板、程序输出、模型一致或研究者挑选的锚点不能充当人工gold。
++
++## 机器接口
++
++编译器将anchor.quote定位到source_id及全文hash，写入patient_uid和[start,end)。输入原文不被修改。事件和边来自人工文件；编译不替人类决定事件划分。
++
++评估器对真实材料要求source_windows范围；标注用source ID和来源hash与给定材料保持一致。mention精确跨度/类型对齐后，事件按mention交集Jaccard做一对一最大匹配，关系标签不参与匹配。手工对齐另记责任人，且只能在同患者、同来源版本、相交原文范围中进行。
++
++scope内完整标注后，缺少的正边按无关系处理；明确uncertain的pair单独待核，不当阴性。跨范围边记录引用请求，不静默删除。假定完整的scope错误会直接影响FP和召回，因此完整性声明必须有实际全文复核依据。
+--- /dev/null
++++ b/docs/P2-验证修复与流程调整-实施回执-v0.3-20261023.md
+@@ -0,0 +1,56 @@
++# P2 验证修复与评审流程调整：实施回执 v0.3
++
++2026-10-23。执行用户本轮“调整整个流程，往下推”的请求。当前主流程见同日《P2-重建验证与医生盲评衔接流程-v0.3》，标注规则见《P2-重建标注手册-v0.1》。本轮已完成验证代码修复、流程登记工具与首批独立材料准备；实际人类重建标注、IAA、正式医生盲评与临床Reference尚未产生。
++
++## 从哪些问题改起
++
++v0.2评估器按mention端点比较关系，并仅在gold已有pair内计算预测分母，会漏掉范围内多余错误边。旧版本已保存在本轮私有baseline目录；v0.2 release和输出未覆盖。新评估先独立对齐mention，再做不使用关系标签的事件一对一最大匹配，按事件比较去重后的有向关系。
++
++| 合成反例 | 旧评估 | 本版 |
++|---|---:|---:|
++| m1/m2属于同一事件，gold用m1、预测用m2连接同一后继事件 | 关系recall 0 | recall 1 |
++| 1条正确预测加2条scope内多余边 | precision 1 | precision 1/3 |
++| 上述预测在相同分数阈值下 | 曲线precision 1 | precision 1/3 |
++
++这些是程序口径的反例回归，不是临床准确率。完整scope内未标正边按无关系处理；人工明确uncertain的pair另记未评估，并给曲线precision上下界。scope外预测单列，不能混入范围内FP；真实gold必须声明可执行source_windows、独立标注者和裁定记录。
++
++新增Decision–Decision和process-link分项指标；共指保留pairwise并增加共同mention上的B³。漏节点、未提议边、错方向、重复事件边、额外边和错误合并/拆分分别进入相应计数。跨算法版本的mention按来源/原文范围/类型对齐，不能假定signature参与生成的ID始终稳定。自由文本字段字面一致率不是医学语义准确率。
++
++## 已落实的新评审流程
++
++小规模完整原文独立重建标注用于验证算法；全部正式盲评包增加有效性门槛，通过后才填Clinical Reference。医生只flag结构问题，不现场修改后继续评分。独立结构裁定记录具体错误根、依据与规则，修订包重新核验来源/时间/遮蔽，并由其他仍盲的医生重评。
++
++台账保存packet hash、版本、父版本、原自动proposal根、责任人、记录时间、问题标记、结构裁定、接触史和绑定表单的临床评分。原记录不可覆盖，失败或后续结构问题使相关评分隔离；合法封存评分不因之后才接触未来资料而被反向改写。代码检查已登记的接触史，不能自行证明实际人员未见过材料。
++
++合并可涉及一个正确父包及一个重复父包，因此“受结构修订影响的原proposal”与“裁定确认出错的原proposal”分开。未评审、医生疑似问题与已确认错误分母分别保留。未知或尚未取得证据不自动使checkpoint无效；包遗漏和未来泄漏另行核查。默认2份有效性通过是本地登记策略，正式研究人数须预先按方案冻结。
++
++使用完全虚构的本地流程演示已跑通：初始包被标记→结构裁定→新版本→另外两位虚构评审者通过→记录两份虚构表单响应。演示数据只用于检验状态转换，没有真人评分或临床答案。正式评审材料尚未由程序自动生成，也没有上线医生UI。
++
++## 独立调用观察：有实际分歧和失败
++
++新增read_write/read_only/refresh/bypass。replicate编号不进入prompt；bypass的每次响应、失败和usage独立保存，原cache不被覆盖。重复实验固定kimi-k3、temperature=1、thinking disabled、无传输重试，不为成功而补抽。
++
++完成两类合成任务各3次真实API调用，6次均未读cache：
++
++- 固定规范化：2次通过结构与引用检查，1次非法JSON/schema。两个有效重复的mention集合Jaccard为2/3；共享mention字段有措辞或归属变化。
++- 固定节点与上下文的关系分类：3次通过结构与引用检查，原始及校验后的标签为supersede、revise、supersede。三个成对比较中只有一个相同，成对label一致率1/3；多数标签占2/3。
++
++这些只是两个虚构输入的稳定性观察，不能估计真实人群准确率或泛化。也不能因为其中两次相同就认定多数标签正确。第一次实验原始summary、逐次回答及失败均保留，后续summary_analysis仅重新分析同一观察，没有新增调用或删除失败。
++
++## 首批标注准备
++
++从49名开发患者的冻结资料准备6个局部范围，共132份完整源文书。包括2个随机完整来源、2个零命中来源、1个反馈线索挑战和1个多动作挑战，各范围来自不同患者。分层仅供开发打磨规则，不能推广到P0。
++
++A/B两套原文材料逐字相同，无程序高亮、图边或signature预填。抽样原因和原始映射只留研究者目录。anchor附近范围包含前后3天代理时间的所有交付文书，并保留精确时间未明的文书；这不是episode规则或临床盲材料。需要范围外资料时记录请求并同步更新两套材料。
++
++每份标注表当前为空、状态INDEPENDENT_DRAFT、范围完成声明false。独立完成后可先编译逐字引用并用inter_annotator入口测一致性，不需要伪称一方已经是gold；分歧裁定后才生成ADJUDICATED重建gold。编译器只定位引用，不代替人类标注。
++
++## 验证和版本
++
++最终P2验证保护器通过156项：继承原95项与当前61项，其中新增验证反例36项。必需测试未跳过，编号涵盖EV、RP、WF、AN及既有RG。RG018已迁移到显式scope的新输入，仍检验漏掉gold节点/边不能从分母消失。
++
++P1保护器105项通过；项目既有tests目录160项通过。它们是代码回归，不能当成新增患者、专家判断或临床语义正确率。P1代码与规则、P0/P1成员及run07词法均未改变；本轮新增标记作用于验证/评审记录。
++
++版本差异、文件哈希、原输入与私有产物哈希、新旧反例结果及最终测试回执见 `validation_release_v0.3.json` 和 `p2-validation-v0.3-change-record-20261023.json`。保留早期失败测试回执，最终通过版本另存，不覆盖原记录。
++
++接下来实际需要完成的是双人独立标注、分歧记录与裁定，随后才有真实IAA与算法指标。医生正式盲评还需核验并冻结具体时点包和Clinical Reference表单；本轮不假定这些人工步骤已经发生。

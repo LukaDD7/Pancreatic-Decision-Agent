@@ -1,0 +1,38 @@
+{
+  "version": "p2-dynamic-pathway-probe-v0.1-20261021",
+  "seed": 20261021,
+  "radius_characters": 220,
+  "surgical_anchor": "手术|切除|可切除性",
+  "patterns": {
+    "D01_BILIARY_CONDITION": {
+      "name": "减黄及条件改善与手术路径相连",
+      "why": "PANC-B includes biliary drainage when surgery is delayed or before neoadjuvant treatment; find the documented sequencing relation rather than ERCP alone.",
+      "guide_sections": ["PANC-B", "MS-16–17"],
+      "groups": ["减黄|黄疸|胆红素|胆道梗阻|ERCP|PTCD|胆管支架|胆道引流", "待|先|后|改善|下降|恢复|暂缓|暂不|再评估|重新评估|复评"]
+    },
+    "D02_MEDICAL_OPTIMIZATION": {
+      "name": "患者条件处理与暂缓或条件性手术安排",
+      "why": "PANC-2 separates anatomic resectability from medical operability; PANC-D includes patient optimization. Retrieve temporary constraints without declaring permanent inoperability.",
+      "guide_sections": ["PANC-2", "PANC-D 1/5"],
+      "groups": ["感染|肺炎|发热|营养|白蛋白|心功能|肺功能|呼吸功能|血糖|一般情况|肝功能", "暂缓|暂不|不宜|不适宜|不适合|待[^。；;\\n]{0,45}(?:改善|恢复|控制|纠正)|(?:改善|恢复|控制|纠正)[^。；;\\n]{0,35}后"]
+    },
+    "D03_TREAT_THEN_REASSESS": {
+      "name": "先治疗再评估或考虑切除的安排",
+      "why": "PANC-2/3/4 and PANC-10 allow treatment before later surgical evaluation. A future reassessment plan is a current sequencing choice, not proof of the future event.",
+      "guide_sections": ["PANC-2/3/4", "PANC-10/10A"],
+      "groups": ["新辅助|转化治疗|诱导化疗|化疗|放疗|抗肿瘤治疗", "(?:后|待)[^。；;\\n]{0,75}(?:评估|复评|考虑|争取|择期|切除)|先[^。；;\\n]{0,60}(?:治疗|化疗|放疗)|再(?:次)?评估|重新评估"]
+    },
+    "D04_RESPONSE_AND_DISPOSITION": {
+      "name": "治疗反应或复查与手术判断或安排共现",
+      "why": "PANC-4 and PANC-D require post-treatment evaluation. Keep positive, negative and pending dispositions; do not use response words or a chemotherapy cycle as a decision by themselves.",
+      "guide_sections": ["PANC-4/4A", "PANC-D 1–3/5", "PANC-10A"],
+      "groups": ["新辅助|转化|化疗|放疗|抗肿瘤", "复查|复评|重新评估|再次评估|疗效|缩小|好转|稳定|进展|缓解|反应", "手术指征|手术机会|可切除|不宜[^。；;\\n]{0,5}手术|拟[^。；;\\n]{0,35}(?:切除|根治)|考虑[^。；;\\n]{0,30}手术|评估[^。；;\\n]{0,30}(?:手术|切除)"]
+    },
+    "D05_EVIDENCE_BEFORE_DISPOSITION": {
+      "name": "待澄清证据与手术安排共现",
+      "why": "PANC-A/B and PANC-1/3 include additional investigation and tissue acquisition. This comparison family separates information acquisition from physiological optimization without requiring either to be complete.",
+      "guide_sections": ["PANC-1/3", "PANC-A 1–2/8", "PANC-B"],
+      "groups": ["性质待定|待排|不能除外|不除外|尚未明确|需明确|待[^。；;\\n]{0,25}结果|进一步[^。；;\\n]{0,15}(?:检查|评估)|完善(?:检查|CT|MRI|MR|PET)|活检|穿刺|排除[^。；;\\n]{0,15}转移", "再|先|待|后|明确|排除|评估"]
+    }
+  }
+}

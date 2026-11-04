@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-material-governance:0.2.0:AutomatedMaterialReviewChain",
+  "type": "object",
+  "properties": {
+    "initial_manifest": {
+      "type": "object"
+    },
+    "initial_compiled": {
+      "type": "object"
+    },
+    "task_context": {
+      "type": "object"
+    },
+    "manifest": {
+      "type": "object"
+    },
+    "compiled": {
+      "type": "object"
+    },
+    "doctor_view": {
+      "type": "object"
+    },
+    "final_binding": {
+      "type": "object"
+    },
+    "format": {
+      "const": "automated-material-review-chain-0.2.0"
+    },
+    "protocol_version": {
+      "const": "checkpoint-automated-material-review-0.2.0"
+    },
+    "state": {
+      "enum": [
+        "AUTO_REVIEW_PASS",
+        "AUTO_REVIEW_HOLD"
+      ]
+    },
+    "stop_reason": {
+      "enum": [
+        "AUTO_PASS",
+        "REVIEW_HOLD",
+        "REVISION_CYCLE",
+        "BUDGET_EXHAUSTED",
+        "EXECUTION_FAILED"
+      ]
+    },
+    "max_rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "type": "object"
+          },
+          "compiled": {
+            "type": "object"
+          },
+          "ledger": {
+            "type": "object"
+          },
+          "review": {
+            "type": "object"
+          },
+          "diff": {
+            "type": "object"
+          },
+          "receipt": {
+            "type": "object"
+          },
+          "input_manifest": {
+            "type": "object"
+          },
+          "input_compiled": {
+            "type": "object"
+          },
+          "request": {
+            "type": "object"
+          },
+          "application_receipt": {
+            "type": "object"
+          },
+          "input_compiled_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "input_manifest_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "request_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "request_binding_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source_registry_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "compiled_changed_requires_new_review": {
+            "type": "boolean"
+          },
+          "human_review_created": {
+            "const": false
+          },
+          "clinical_release_permitted": {
+            "const": false
+          },
+          "event_graph_modified": {
+            "const": false
+          }
+        },
+        "required": [
+          "manifest",
+          "compiled",
+          "ledger",
+          "review",
+          "diff",
+          "receipt",
+          "input_manifest",
+          "input_compiled",
+          "request",
+          "application_receipt",
+          "input_compiled_sha256",
+          "input_manifest_sha256",
+          "request_sha256",
+          "request_binding_sha256",
+          "source_registry_sha256",
+          "changed",
+          "compiled_changed_requires_new_review",
+          "human_review_created",
+          "clinical_release_permitted",
+          "event_graph_modified"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "source_registry": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "origin_scope": {
+            "enum": [
+              "INCLUDED",
+              "CANDIDATE",
+              "EXCLUDED"
+            ]
+          }
+        },
+        "required": [
+          "source_id",
+          "source_version",
+          "text",
+          "sha256",
+          "origin_scope"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "source_registry_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "human_sample_status": {
+      "const": "NOT_ASSESSED"
+    },
+    "clinical_release_permitted": {
+      "const": false
+    },
+    "event_graph_modified": {
+      "const": false
+    },
+    "clinical_reference_created": {
+      "const": false
+    },
+    "failure": {
+      "type": "object",
+      "required": [
+        "stage",
+        "error_type",
+        "reason_code",
+        "round_index",
+        "receipt",
+        "request",
+        "request_sha256"
+      ],
+      "properties": {
+        "stage": {
+          "enum": [
+            "PROVIDER_REQUEST",
+            "RESPONSE_VALIDATION"
+          ]
+        },
+        "error_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "round_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "receipt": {
+          "type": "object"
+        },
+        "request": {
+          "type": "object"
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "response": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "initial_manifest",
+    "initial_compiled",
+    "task_context",
+    "manifest",
+    "compiled",
+    "doctor_view",
+    "final_binding",
+    "format",
+    "protocol_version",
+    "state",
+    "stop_reason",
+    "max_rounds",
+    "rounds",
+    "source_registry",
+    "source_registry_sha256",
+    "human_sample_status",
+    "clinical_release_permitted",
+    "event_graph_modified",
+    "clinical_reference_created"
+  ],
+  "additionalProperties": false
+}

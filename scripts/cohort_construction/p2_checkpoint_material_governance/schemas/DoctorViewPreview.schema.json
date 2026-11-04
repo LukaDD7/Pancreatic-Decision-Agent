@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-material-governance:0.1.0:DoctorViewPreview",
+  "title": "DoctorViewPreview",
+  "type": "object",
+  "properties": {
+    "format": {"const": "checkpoint-doctor-view-preview-0.1.0"},
+    "target": {"type": "object"},
+    "compiled_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "materials": {"type": "array", "items": {"type": "object"}},
+    "researcher_original_included": {"const": false},
+    "view_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["format", "target", "compiled_sha256", "materials", "researcher_original_included", "view_sha256"],
+  "additionalProperties": false
+}

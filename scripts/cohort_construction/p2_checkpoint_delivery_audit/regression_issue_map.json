@@ -1,0 +1,162 @@
+{
+  "schema_version": "0.1.0",
+  "scope": "synthetic_v062_actual_delivery_audit_and_ready_resource_counterexamples_only",
+  "not_a_clinical_error_count": true,
+  "issues": [
+    {
+      "issue_id": "CE-DLV-001",
+      "description": "交付审计必须核对实际FrozenCheckpointPacket、FHIR Bundle和HTML的目标、Episode、材料、分配及字节身份，不能审核正确预览却放行错包",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "delivery.checkpoint_id与compiled target不一致",
+        "替换另一Checkpoint的packet",
+        "替换另一分配或Checkpoint的HTML"
+      ],
+      "controls": [
+        "从Bundle恢复packet并用外部packet hash核验",
+        "从同一Bundle、assignment和trusted hash重建HTML逐字节比较",
+        "目标、编译hash、可见材料和Episode ID均绑定"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.ReadyResourceBindingTests.test_delivery_chain_binds_artifacts_and_rejects_target_or_html_swap",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.DeliveryAuditTests.test_actual_fhir_html_bound_to_episode_and_no_release"
+      ]
+    },
+    {
+      "issue_id": "CE-DLV-002",
+      "description": "研究者扩展、附件、HTML隐藏元素及当前或未来选择进入实际交付时必须确定性阻断，不能被LLM自报PASS清除",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "Basic资源被替换为研究者扩展",
+        "HTML添加display:none的当前选择",
+        "被遮哨兵重新进入医生HTML"
+      ],
+      "controls": [
+        "确定性阻断发现进入审计请求并在PASS时拒绝未解决项",
+        "正常应用的hidden UI控件与隐藏临床内容区分",
+        "浏览器DOM再次核对被遮决定未出现"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.ReadyResourceBindingTests.test_researcher_or_hidden_fhir_html_content_is_flagged",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_browser_delivery.test_hidden_markup_cannot_be_reintroduced_into_actual_doctor_html"
+      ]
+    },
+    {
+      "issue_id": "CE-DLV-003",
+      "description": "实际浏览器读取、填写和下载的评审响应必须由Python与FHIR按冻结packet和精确assignment ID权威回收；浏览器镜像不能替代重放",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "测试使用不存在的选择器而未真正下载响应",
+        "把UI展示标签误当作精确assignment ID",
+        "只检查浏览器PASS而不回收QuestionnaireResponse"
+      ],
+      "controls": [
+        "从冻结Questionnaire读取真实答案标签并从assigned-data读取精确ID",
+        "实际Chrome下载submission后经validate_submission和FHIR往返核验",
+        "零网络请求、无预填、无页面脚本错误和移动布局同时检查"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_browser_delivery.test_actual_chrome_delivery_read_download_and_fhir_replay"
+      ]
+    },
+    {
+      "issue_id": "CE-DLV-004",
+      "description": "实际交付审计失败或链被篡改不得改名为PASS，审计层不得直接修改packet、FHIR或HTML",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "provider失败后零轮空PASS",
+        "篡改停止原因隐藏失败历史",
+        "在旧交付版本上无限反馈而不生成新版本"
+      ],
+      "controls": [
+        "重放核验实际交付输入、响应、停止原因和链hash",
+        "失败零轮仅允许HOLD",
+        "修订请求交下游renderer或材料层生成新交付版本"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.ReadyResourceBindingTests.test_delivery_failure_history_cannot_be_relabelled_pass",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.ReadyResourceBindingTests.test_delivery_chain_binds_artifacts_and_rejects_target_or_html_swap"
+      ]
+    },
+    {
+      "issue_id": "CE-RDY-001",
+      "description": "Ready Resource不得消费裸自动/人工状态或单个hash；必须重放图链和交付链并绑定同一Episode材料集",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "裸AUTO_GRAPH_AUDIT_PASS替代图审计链",
+        "裸LLM交付响应替代交付审计链",
+        "把另一Episode材料集贴到现有审计链"
+      ],
+      "controls": [
+        "重放两条版本化链并核对图快照、材料集和实际交付",
+        "自动完成最多表达READY_FOR_HUMAN_SAMPLING",
+        "自动PASS不冒充人工SemanticAudit或临床Reference"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.ReadyResourceBindingTests.test_graph_or_delivery_chain_cannot_be_replaced_by_a_status_or_hash",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.DeliveryAuditTests.test_actual_fhir_html_bound_to_episode_and_no_release"
+      ]
+    },
+    {
+      "issue_id": "CE-RDY-002",
+      "description": "自动加抽样替代放行必须绑定冻结统计设计、实际人工结果、临床协议和显式版本化外部治理授权；CLINICAL_PACKET_ELIGIBLE仍不等于实际发布",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "仅HUMAN_SAMPLE_ACCEPT字符串产生临床合格",
+        "改变实际人工结果hash后沿用原授权",
+        "外部授权绑定另一总体、协议或交付输入"
+      ],
+      "controls": [
+        "核验抽样设计hash及接受标准与结果一致",
+        "外部授权逐项绑定材料、交付、总体、设计、结果和协议",
+        "doctor_assignment_created与clinical_release_permitted始终为false"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.ReadyResourceBindingTests.test_external_authorization_is_bound_to_actual_design_result_and_protocol",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_delivery_audit.DeliveryAuditTests.test_actual_fhir_html_bound_to_episode_and_no_release"
+      ]
+    },
+    {
+      "issue_id": "CE-RDY-003",
+      "description": "统计合格必须由冻结设计、总体、seed assignment和人工响应重放计算，不能接受自报状态或结果hash",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "篡改SAMPLING_QUALIFIED而保留原响应",
+        "替换assignment的患者映射或删除总体单元",
+        "LLM类型冒充独立人工评审",
+        "重复响应或缺失回收"
+      ],
+      "controls": [
+        "按冻结层权重计算点估计而非使用原始配额样本率",
+        "按患者/Episode/Checkpoint聚类线性化方差并报告自由度",
+        "重放全部人工响应和assessment字段"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_statistical_sampling.test_stratified_estimate_clustering_and_replay_not_raw_quota_rate",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_statistical_sampling.test_missing_unresolved_zero_variance_and_tampering_fail_closed",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_statistical_sampling.test_plan_requires_full_population_and_real_human_declaration"
+      ]
+    },
+    {
+      "issue_id": "CE-RDY-004",
+      "description": "缺失、未决、修订、零方差及多Episode总体不得被静默转为单Episode Ready合格",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "complete_response_required下未决响应仍合格",
+        "HUMAN_SAMPLE_REVISE未登记缺陷却合格",
+        "零聚类方差置信上限直接判零风险",
+        "跨Episode总体统计绑定单个Episode材料集"
+      ],
+      "controls": [
+        "显式区分未决政策和修订缺陷",
+        "零方差或自由度不足时要求另行冻结解决方案",
+        "单Episode与多Episode总体采用不同绑定且Ready拒绝后者"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_statistical_sampling.test_unresolved_policy_is_explicit_and_cannot_silently_pass",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_statistical_sampling.test_single_and_multi_episode_population_bindings_are_distinct",
+        "scripts.cohort_construction.p2_checkpoint_delivery_audit.tests.test_statistical_sampling.test_plan_requires_full_population_and_real_human_declaration"
+      ]
+    }
+  ]
+}

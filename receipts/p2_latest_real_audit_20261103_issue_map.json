@@ -1,0 +1,41 @@
+{
+  "format": "independent-audit-pending-regression-checklist-0.1.0",
+  "date": "2026-11-03",
+  "scope": "Offline audit; no production implementation or formal guard registry change",
+  "formal_guard_registration_completed": false,
+  "issues": [
+    {
+      "issue_id": "CE-GRA-011",
+      "status": "CONFIRMED_REAL_ARTIFACT_AND_SYNTHETIC_COUNTEREXAMPLE_UNFIXED",
+      "problem": "Schema-valid reconstructed events can omit source_ids and fail downstream material assembly",
+      "probe": "receipts/p2_latest_real_audit_20261103_probes.py::source_contract_probe",
+      "negative_controls": ["missing_source_ids", "schema_minimum_events"],
+      "positive_controls": ["complete_event_control"],
+      "required_production_tests_pending": [
+        "Reconstruction schema minimum event response is rejected or normalized under an explicit complete event contract",
+        "Source scope preserves multiple declared and historical evidence sources without inventing facts",
+        "Unknown source, primary source mismatch and unresolved time/boundary cases remain explicit holds",
+        "Production reconstruction to fresh graph audit to material preparation succeeds with complete supported events"
+      ],
+      "target_registry": "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/regression_issue_map.json",
+      "required_tests_implemented": false
+    },
+    {
+      "issue_id": "CE-REAL-013",
+      "status": "CONFIRMED_SYNTHETIC_COUNTEREXAMPLE_UNFIXED",
+      "problem": "Without an existing batch replay receipt, progress rows can omit called cases and replay still reports verified",
+      "probe": "receipts/p2_latest_real_audit_20261103_probes.py::progress_inventory_probe",
+      "negative_controls": ["empty_progress", "omitted_called_case_with_other_row"],
+      "positive_controls": ["complete_legal_failed_batch", "restored_complete_batch", "existing_immutable_receipt_guard"],
+      "required_production_tests_pending": [
+        "First replay rejects empty or partial progress when the ledger contains called cases",
+        "Replay validates independent frozen manifest, authorized subset, actual attempts and completed case inventories",
+        "Interrupted or unsettled calls cannot be silently omitted from completion claims",
+        "Duplicate case rows and a lone outside-subset row cannot bypass chain verification",
+        "Legal subset, complete failed batch, versioned recovery and immutable existing receipt controls remain valid"
+      ],
+      "target_registry": "scripts/cohort_construction/p2_checkpoint_real_validation/regression_issue_map.json",
+      "required_tests_implemented": false
+    }
+  ]
+}

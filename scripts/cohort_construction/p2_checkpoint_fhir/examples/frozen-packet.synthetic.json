@@ -1,0 +1,62 @@
+{
+  "schema_version": "0.1.0",
+  "packet_id": "PK-fictional",
+  "packet_version": "1",
+  "state": "frozen_for_review",
+  "fhir_version": "4.0.1",
+  "target": {
+    "checkpoint_id": "CP-fictional-1",
+    "decision_task_id": "fictional-task",
+    "visibility_policy_version": "synthetic-policy-1"
+  },
+  "materials": [
+    {
+      "material_id": "DVM-f351138b9b5ed4dd0b693b6d",
+      "source_id": "S-fictional",
+      "source_version": "v1",
+      "text": "观察甲。[资料按方案遮蔽]",
+      "sha256": "c53fc1e157d861c78cc3ec159b1f8755c36cb6f1f0cadf68df02573635409859"
+    }
+  ],
+  "clinical_content_sha256": "a4e1ebebce8b6cccd1db18b718a313f1bbb6482054ea625a9342f2d3d224fcd4",
+  "questionnaire": {
+    "canonical": "urn:fictional:form",
+    "version": "1",
+    "sha256": "0232f2913a8d70fd3d691ce7acf503330225eb11487832a242a35a4b4e891d55",
+    "frozen": true,
+    "resource": {
+      "resourceType": "Questionnaire",
+      "url": "urn:fictional:form",
+      "version": "1",
+      "status": "active",
+      "item": [
+        {
+          "linkId": "fictional-item",
+          "type": "choice",
+          "repeats": true,
+          "text": "虚构测试题",
+          "answerOption": [
+            {
+              "valueCoding": {
+                "system": "urn:fictional",
+                "code": "a"
+              }
+            },
+            {
+              "valueCoding": {
+                "system": "urn:fictional",
+                "code": "b"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "compiler_version": "0.1.0",
+    "compiled_partition_sha256": "9a34b5b480cef0da87febbe28c16855d24a8988dc75c9c8389d7bd43fb0658de",
+    "semantic_audit_id": "SA-fictional"
+  },
+  "packet_sha256": "2fedb16e41c58898c351909c92aaf3b3e934f72833dfcb77379c9aa08ae11653"
+}

@@ -1,0 +1,21 @@
+{
+  "version": "p1-relevance-usability-v0.3.1",
+  "patient_count": 2707,
+  "image_content_versions": 31236,
+  "quote_coordinates_verified": 253478,
+  "quote_coordinate_failures": 0,
+  "clinical_source_rows": 210144,
+  "source_row_coverage_matches_frozen": true,
+  "development_sample_patients": 32,
+  "clinical_validation_completed": false,
+  "output_hashes": {
+    "patient_quality.jsonl": "b5fd28b86a2c8febe7576ba46b884010e6cb5538c8356e2676113b328a3614f6",
+    "image_annotations.jsonl": "112fcb0fc4bbe5c3c77ee8b437b936789469087942cb3beef00d660ace124a0d",
+    "clinical_annotations.jsonl": "63c01a0235d612450639b178d6b5e8ca1e18abe9ea495e9ce3a8f5e5ad2188d8",
+    "reference_links.jsonl": "f3c9bf4470eaa1de5954550def00b1a941ba261f73448321e613d6dcee572ba2",
+    "summary.json": "9f44b4a4b945fb97cebefbbbc0ba5ea498206f285755ce23380df5fde509fd82",
+    "run_manifest.json": "256f6ae7c599a3358f9ebac3571e877bdf2b3d7650058c0aa9212aca9a2f49a5",
+    "development_sample.json": "bc8a65c3cc744d8ed6fd81a399ea03f10e9e3bd9a3b3980249ee6fe9610eee08",
+    "development_source_cards.json": "e7408f6a2b33456f180b70315ed94e0cbedbe919a2c2daf42e55edcd25a20226"
+  }
+}

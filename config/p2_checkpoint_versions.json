@@ -1,0 +1,542 @@
+{
+  "registry_format": "p2-checkpoint-version-registry-0.1",
+  "updated_at": "2026-11-03",
+  "scope": "P2 candidate reconstruction, material governance and clinician review; not P1 cohort membership",
+  "current_implemented_reconstruction_baseline": "p2-checkpoint-0.6.0",
+  "registered_plan": null,
+  "current_engineering_material_governance_version": "p2-checkpoint-0.6.1",
+  "current_engineering_dual_audit_version": "p2-checkpoint-0.6.2",
+  "current_engineering_ready_pipeline_version": "p2-checkpoint-0.6.3",
+  "current_engineering_real_validation_adapter": "p2-checkpoint-real-development-0.1.0",
+  "storage_migration_repair": {
+    "date": "2026-11-01",
+    "scope": "Private-root path resolution, owner-only exclusive artifact creation, versioned graph-revision replay and Python 3.14 datetime receiver parity",
+    "stable_issues": [
+      "CE-MRA-008",
+      "CE-PIPE-005",
+      "CE-PIPE-006",
+      "CE-REVIEW-012",
+      "CE-REAL-007"
+    ],
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_storage_migration_v063_r4_20261101/validation_receipt.json",
+    "algorithm_or_clinical_release_version_changed": false,
+    "remote_patient_model_run_performed": true,
+    "real_fixed_ten_preflight_performed": true,
+    "real_fixed_ten_preflight_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_storage_migration_r2_20261101/preflight/batch-preflight.json",
+    "real_fixed_ten_preflight_result": {
+      "fixed_case_count": 10,
+      "graph_eligible_case_count": 10,
+      "ready_case_count": 6,
+      "material_preparation_hold_case_count": 4,
+      "hold_case_count": 0,
+      "model_call_performed": false
+    },
+    "real_fixed_ten_execution_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_storage_migration_r2_20261101/execution/batch-execution-receipt.json",
+    "real_fixed_ten_execution_result": {
+      "terminal_state_counts": {
+        "AUTO_GRAPH_AUDIT_HOLD": 10
+      },
+      "requests": 10,
+      "http_attempts": 18,
+      "provider_http_failures": 4,
+      "response_validation_failures": 1,
+      "old_state_machine_review_holds": 5,
+      "clinical_release_permitted": false
+    }
+  },
+  "retry_revision_and_citation_repair": {
+    "date": "2026-11-01",
+    "scope": "Configured ten exact-body transport attempts for a future separately authorized development contract, unique verbatim quote prompt disambiguation, and correct REVISE-with-actions reconstruction handoff classification",
+    "stable_issues": [
+      "CE-NET-003",
+      "CE-REAL-008",
+      "CE-GRA-004",
+      "CE-GRA-005"
+    ],
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_retry10_graph_revision_v063_20261101/validation_receipt.json",
+    "algorithm_or_clinical_release_version_changed": false,
+    "new_remote_execution_authorized_or_performed": false,
+    "retry_execution_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_retry10_graphfix_r1_20261101/execution/batch-execution-receipt.json",
+    "retry_execution_result": {
+      "state_counts": {
+        "AUTO_GRAPH_AUDIT_HOLD": 4,
+        "AUTO_GRAPH_AUDIT_REVISE": 5,
+        "HOLD": 1
+      },
+      "requests": 11,
+      "http_attempts": 48,
+      "persistent_http_400_cases": [
+        "SCALE-01",
+        "SCALE-05",
+        "SCALE-06",
+        "SCALE-08"
+      ],
+      "graph_revision_handoff_count": 5,
+      "graph_pass_material_hold_count": 1,
+      "clinical_release_permitted": false
+    },
+    "historical_batch_overwritten": false
+  },
+  "fixed_ten_continuation_review": {
+    "date": "2026-11-01",
+    "deepseek_continuation_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_retry10_graphfix_r2_20261101/execution/batch-execution-receipt.json",
+    "kimi_explicit_subset_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_kimi_remaining4_r1_20261101/execution/batch-execution-receipt.json",
+    "kimi_subset_validation_receipt": "private/p2_checkpoint_next_20261028/validation_explicit_kimi_subset_v063_20261101/validation_receipt.json",
+    "latest_case_outcomes": {
+      "provider_http_400_with_deepseek_and_kimi": [
+        "SCALE-01",
+        "SCALE-05",
+        "SCALE-08"
+      ],
+      "reconstruction_handoff_deepseek": [
+        "SCALE-02",
+        "SCALE-04",
+        "SCALE-07",
+        "SCALE-09",
+        "SCALE-10"
+      ],
+      "reconstruction_handoff_kimi": [
+        "SCALE-06"
+      ],
+      "graph_pass_material_response_validation_hold": [
+        "SCALE-03"
+      ]
+    },
+    "scale03_material_validation_error": "DISPOSITION_QUOTE_NOT_UNIQUE",
+    "completed_material_pass_or_delivery_gate_cases": 0,
+    "all_saved_episode_chains_replay_verified": true,
+    "different_model_results_not_pooled_for_performance": true,
+    "doctor_assignment_created": false,
+    "clinical_reference_created": false,
+    "clinical_release_permitted": false
+  },
+  "material_quote_and_paced_retry_repair": {
+    "date": "2026-11-01",
+    "scope": "Material SET_DISPOSITION repeated-quote disambiguation instructions and bounded explicit transport pacing for three already authorized development retries; not a proven cause of HTTP 400",
+    "stable_issues": [
+      "CE-AMG-025",
+      "CE-NET-004",
+      "CE-REAL-010"
+    ],
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_material_quote_rate_control_v063_r2_20261101/validation_receipt.json",
+    "validation_receipt_sha256": "473ebaf13425d29b04209a80ba62b9477e8f11bee7fbc9a888460d82b79593fa",
+    "tests_passed": 888,
+    "subtests_passed": 449,
+    "protected_files_unchanged": 1690,
+    "clinical_model_calls_in_regression": 0,
+    "material_quote_validation_relaxed": false,
+    "scale03_remote_rerun_authorized_or_performed": false,
+    "http_400_rate_cause_unproven": true,
+    "algorithm_or_clinical_release_version_changed": false
+  },
+  "lossless_graph_transport_repair": {
+    "date": "2026-11-02",
+    "scope": "CE-GRA-006 reversible provider-transport projection for repeated JSON subtrees; complete frozen request remains authoritative for chain persistence, response validation and replay",
+    "stable_issues": [
+      "CE-GRA-006"
+    ],
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_lossless_graph_transport_v063_r1_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "b21c851208447013cb6f946919e4349e9e7a67666a39a28f8d669b3e3a561bf4",
+    "tests_passed": 893,
+    "subtests_passed": 449,
+    "clinical_model_calls_in_regression": 0,
+    "frozen_request_roundtrip": {
+      "cases": [
+        "SCALE-01",
+        "SCALE-05",
+        "SCALE-08"
+      ],
+      "all_restored_objects_equal_original": true,
+      "canonical_original_bytes": {
+        "SCALE-01": 8586121,
+        "SCALE-05": 19621822,
+        "SCALE-08": 11678698
+      },
+      "compact_transport_bytes": {
+        "SCALE-01": 4386775,
+        "SCALE-05": 9916127,
+        "SCALE-08": 5931842
+      },
+      "source_event_or_clinical_field_omitted": false
+    },
+    "http_400_cause_or_resolution_proven": false,
+    "remote_compact_execution_status": "IN_FLIGHT_SEPARATE_BOUNDED_CONTRACT",
+    "remote_compact_execution_root": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_kimi_remaining3_compact_r1_20261102",
+    "automatic_graph_reconstruction_performed": false,
+    "doctor_assignment_created": false,
+    "clinical_release_permitted": false
+  },
+  "recursive_lossless_graph_transport_all_ten": {
+    "date": "2026-11-02",
+    "scope": "CE-GRA-006 recursive compact-json-0.2.0 deduplicates repeated JSON containers and strings, including dependencies inside blocks; v0.1.0 real test remained HTTP 400 and is preserved",
+    "stable_issues": [
+      "CE-GRA-006"
+    ],
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_recursive_graph_transport_v063_r1_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "1802f42ce44f3244889351bd2d16f2f37b32b2e353f13608293213600d6d9ce2",
+    "tests_passed": 893,
+    "subtests_passed": 449,
+    "clinical_model_calls_in_regression": 0,
+    "all_ten_roundtrip_receipt": "private/p2_checkpoint_next_20261028/offline_recursive_graph_transport_roundtrip_20261102/roundtrip-receipt.json",
+    "all_ten_restored_objects_equal_original": true,
+    "compact_transport_bytes": {
+      "SCALE-01": 1262971,
+      "SCALE-02": 256996,
+      "SCALE-03": 258575,
+      "SCALE-04": 272600,
+      "SCALE-05": 2259704,
+      "SCALE-06": 745213,
+      "SCALE-07": 223354,
+      "SCALE-08": 1537950,
+      "SCALE-09": 236462,
+      "SCALE-10": 216251
+    },
+    "http_400_cause_or_resolution_proven": false,
+    "all_ten_real_execution_status": "COMPLETED_ALL_TEN_REAL_TERMINAL_STATES_BATCH_AGGREGATION_EXITED_ON_IMPLEMENTATION_SNAPSHOT_AFTER_LATER_SOURCE_EDIT",
+    "all_ten_real_execution_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_all10_recursive_compact_kimi_r1_20261102/execution/batch-execution-receipt.json",
+    "all_ten_real_execution_result": {
+      "requests": 12,
+      "http_attempts": 34,
+      "terminal_state_counts": {
+        "AUTO_GRAPH_AUDIT_HOLD": 5,
+        "AUTO_GRAPH_AUDIT_REVISE": 2,
+        "HOLD": 2,
+        "ORCHESTRATION_HOLD": 1
+      },
+      "graph_audit_pass_cases": [
+        "SCALE-02",
+        "SCALE-04"
+      ],
+      "material_review_hold_cases": [
+        "SCALE-02",
+        "SCALE-04"
+      ],
+      "reconstruction_handoff_cases": [
+        "SCALE-06",
+        "SCALE-09"
+      ],
+      "provider_request_failed_cases": [
+        "SCALE-05",
+        "SCALE-08"
+      ],
+      "response_validation_source_unknown_cases": [
+        "SCALE-01"
+      ],
+      "response_validation_quote_not_unique_cases": [
+        "SCALE-03",
+        "SCALE-07",
+        "SCALE-10"
+      ],
+      "all_saved_runs_replay_verified": true,
+      "implementation_snapshot_verified_in_historical_replay": false,
+      "implementation_snapshot_mismatch_reason": "registry and version documentation edited during active run; SCALE-01 recorded ORCHESTRATION_HOLD at immediate replay",
+      "ready_resource_created": false,
+      "clinical_release_permitted": false
+    },
+    "all_ten_real_execution_root": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_all10_recursive_compact_kimi_r1_20261102",
+    "automatic_graph_reconstruction_performed": false,
+    "doctor_assignment_created": false,
+    "clinical_release_permitted": false
+  },
+  "automatic_graph_and_material_revision_closure": {
+    "date": "2026-11-02",
+    "scope": "Separate graph reconstruction and bounded full-reaudit orchestration after graph REVISE; material REVISE must be rechecked against its new compiled hash; audit evidence restricted to declared complete originals",
+    "stable_issues": [
+      "CE-GRA-007",
+      "CE-PIPE-007",
+      "CE-AMG-026"
+    ],
+    "status": "ENGINEERING_IMPLEMENTED_SYNTHETIC_VALIDATED_REAL_CLOSURE_NOT_RERUN",
+    "algorithm_or_clinical_release_version_changed": false,
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_graph_material_auto_closure_v063_r2_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "261b2b1a42c09c44f3c4be446586154eb2e66acb7922cce4037d0aef29d837e1",
+    "targeted_suite": {
+      "tests_passed": 121,
+      "status": "PASS"
+    },
+    "full_guard_status": "PASS",
+    "tests_passed": 898,
+    "subtests_passed": 449,
+    "protected_files_unchanged": 1690,
+    "clinical_model_calls_in_regression": 0,
+    "failed_precheck_receipt_retained": "private/p2_checkpoint_next_20261028/validation_graph_material_auto_closure_v063_r1_20261102/validation_receipt.json",
+    "graph_revision_receipt_version": "checkpoint-ready-pipeline-graph-revision-receipt-0.2.0",
+    "reconstruction_replay_required": true,
+    "shared_budget_includes_reconstruction": true,
+    "previous_receipt_version": "checkpoint-ready-pipeline-graph-revision-receipt-0.1.0",
+    "receipt_field_migration": "automatic_reconstruction_performed is derived from the replayed separate reconstruction chain; externally supplied new graphs retain false and no automatic chain requirement",
+    "material_rounds_in_persisted_parent_batches": 1,
+    "new_real_batch_authorized_or_performed": false,
+    "automatic_pass_is_clinical_reference": false,
+    "human_final_review_required_after_automatic_audits": true,
+    "doctor_assignment_created": false,
+    "clinical_reference_created": false,
+    "clinical_release_permitted": false
+  },
+  "reconstruction_interface_and_source_dependency_repair": {
+    "date": "2026-11-02",
+    "scope": "Dedicated real-batch reconstruction adapter, strict reconstruction success/HOLD schema, explicit historical evidence source closure and replayable reconstruction failure evidence",
+    "stable_issues": [
+      "CE-GRA-008",
+      "CE-GRA-009",
+      "CE-GRA-010",
+      "CE-REAL-012"
+    ],
+    "status": "HISTORICAL_IMPLEMENTATION_AND_GUARD_PASS_SUPERSEDED_BY_INDEPENDENT_REVIEW",
+    "implementation_diff": "docs/P2-CE-GRA-008-009-010-CE-REAL-012-修复与回归-20261102.md",
+    "reconstruction_response_version": "candidate-graph-reconstruction-response-0.2.0",
+    "reconstruction_chain_version": "candidate-graph-reconstruction-chain-0.2.0",
+    "targeted_tests_passed": 37,
+    "full_guard_status": "PASS",
+    "tests_passed": 905,
+    "subtests_passed": 449,
+    "protected_files_unchanged": 1690,
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_gra008_009_010_real012_v063_r2_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "ae73b8e213872f495a96e290b10425eaf4e9f3ad76becdb225485b913925d1ae",
+    "code_diff_sha256": "f4efffb8822a4e9eacea844e8bb0d3c5a7a369fb48e86348f1afb8ddfa8aac52",
+    "clinical_model_calls_in_regression": 0,
+    "scale01_offline_source_reconciliation": {
+      "current_processing_unit_sources": 3,
+      "combined_material_sources": 257,
+      "recovered_historical_dependencies": 254,
+      "dependencies_not_found_in_frozen_delivery": 0,
+      "assembly_selected_source_missing_failures_after_reconciliation": 0,
+      "new_remote_execution_performed": false,
+      "doctor_time_visibility_or_blind_permission_certified": false
+    },
+    "historical_v010_chains_overwritten_or_backfilled": false,
+    "new_real_batch_authorized_or_performed": false,
+    "real_reconstruction_success_claimed": false,
+    "doctor_assignment_created": false,
+    "clinical_release_permitted": false,
+    "independent_review_followup": "docs/P2-四项修复-独立复审核查-20261102.md",
+    "closure_scope_caveat": "The 905/449 PASS receipt is retained, but it did not execute the formal first material assembly or real Client transport Schema exception paths; it did not close CE-REAL-012 or CE-GRA-010."
+  },
+  "reconstruction_source_and_failure_binding_followup": {
+    "date": "2026-11-02",
+    "scope": "CE-REAL-012 dual source scopes through formal first-pass and fresh-generation material flows; CE-GRA-010 real Client Schema-exception evidence and externally bound failure-chain replay",
+    "stable_issues": [
+      "CE-REAL-012",
+      "CE-GRA-010"
+    ],
+    "status": "HISTORICAL_FULL_P2_GUARD_PASS_SUPERSEDED_BY_SECOND_INDEPENDENT_REVIEW",
+    "implementation_diff": "docs/P2-CE-REAL-012-CE-GRA-010-剩余缺口修复与完整回归-20261102.md",
+    "targeted_and_affected_modules": {
+      "tests_passed": 430,
+      "subtests_passed": 34,
+      "status": "PASS"
+    },
+    "full_guard_status": "PASS",
+    "tests_passed": 910,
+    "subtests_passed": 449,
+    "protected_files_unchanged": 1690,
+    "required_test_references_executed": 659,
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_gra010_real012_followup_v063_r4_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "e12a7ec3f7d502b0ddc3f56e50e0d187a041f96b7f89fa4b3fafb8185374eb54",
+    "code_diff_sha256": "e7e35a21e598d8a803ef4e09b8890d2e048c0097994586730d5a006c2a05cc33",
+    "failed_precheck_receipts_retained": [
+      "private/p2_checkpoint_next_20261028/validation_gra010_real012_followup_v063_20261102/validation_receipt.json",
+      "private/p2_checkpoint_next_20261028/validation_gra010_real012_followup_v063_r2_20261102/validation_receipt.json"
+    ],
+    "failed_test_isolation_receipt_retained": "private/p2_checkpoint_next_20261028/validation_gra010_real012_followup_v063_r3_20261102/validation_receipt.json",
+    "clinical_model_calls_in_regression": 0,
+    "real_fixed_ten_auto_closure_verified": false,
+    "new_real_batch_authorized_or_performed": false,
+    "doctor_assignment_created": false,
+    "clinical_reference_created": false,
+    "clinical_release_permitted": false,
+    "independent_review_followup": "docs/P2-剩余缺口修复-第二次独立复审-20261102.md",
+    "closure_scope_caveat": "The 910/449 PASS receipt is retained. It lacked a legal failed-chain positive control bound to the real Client ledger and a generations=[] missing-chain negative control; it did not close the two CE-GRA-010 integration gaps."
+  },
+  "reconstruction_hash_domain_and_failed_chain_inventory_repair": {
+    "date": "2026-11-02",
+    "scope": "CE-GRA-010 separate payload and transport request hash binding; reconstruction ledger determines required success, HOLD and failed chains when generations=[]",
+    "stable_issues": [
+      "CE-GRA-010"
+    ],
+    "status": "HISTORICAL_FULL_P2_GUARD_PASS_SUPERSEDED_BY_THIRD_INDEPENDENT_REVIEW",
+    "implementation_diff": "docs/P2-CE-GRA-010-hash域与失败链清单修复-20261102.md",
+    "targeted_tests_passed": 10,
+    "targeted_and_affected_modules": {
+      "tests_passed": 431,
+      "subtests_passed": 34,
+      "status": "PASS"
+    },
+    "full_guard_status": "PASS",
+    "tests_passed": 911,
+    "subtests_passed": 449,
+    "protected_files_unchanged": 1690,
+    "required_test_references_executed": 660,
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_gra010_hash_inventory_followup_v063_r1_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "d72f12cf870cc9f7be175ab072f529e47e82d1ca345f2fbc68dfa947f4f736b1",
+    "code_diff_sha256": "4f5ede22205ba59bddaa0e162f4c4044f7407eb6d4c6f872d940e31729fb27e5",
+    "clinical_model_calls_in_regression": 0,
+    "real_fixed_ten_auto_closure_verified": false,
+    "new_real_batch_authorized_or_performed": false,
+    "doctor_assignment_created": false,
+    "clinical_reference_created": false,
+    "clinical_release_permitted": false,
+    "independent_review_followup": "docs/P2-hash与失败链清单-第三次独立复审-20261102.md",
+    "closure_scope_caveat": "The 911/449 PASS receipt is retained. Its chain-inventory check depended on the revision summary being present; a missing entire case revision directory bypassed it."
+  },
+  "reconstruction_revision_delivery_inventory_repair": {
+    "date": "2026-11-02",
+    "scope": "CE-GRA-010 establish reconstruction calls from the ledger before checking revision summary or directory existence; missing entire case revision delivery fails closed",
+    "stable_issues": [
+      "CE-GRA-010"
+    ],
+    "status": "ENGINEERING_IMPLEMENTED_FULL_P2_GUARD_PASS_NO_NEW_REAL_BATCH",
+    "implementation_diff": "docs/P2-CE-GRA-010-整份病例修订目录缺失修复-20261102.md",
+    "targeted_tests_passed": 10,
+    "targeted_and_affected_modules": {
+      "tests_passed": 431,
+      "subtests_passed": 34,
+      "status": "PASS"
+    },
+    "full_guard_status": "PASS",
+    "tests_passed": 911,
+    "subtests_passed": 449,
+    "protected_files_unchanged": 1690,
+    "required_test_references_executed": 660,
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_gra010_revision_delivery_v063_r1_20261102/validation_receipt.json",
+    "validation_receipt_sha256": "8d0e2720ae074ba185d29a8fcc73e3e02473df86dc3183c83c00a3be146b08e5",
+    "code_diff_sha256": "9d331b91a23b5dbeba20ec668995fb5591322ab47a871188579be8a143b5814b",
+    "clinical_model_calls_in_regression": 0,
+    "real_fixed_ten_auto_closure_verified": false,
+    "new_real_batch_authorized_or_performed": false,
+    "doctor_assignment_created": false,
+    "clinical_reference_created": false,
+    "clinical_release_permitted": false
+  },
+  "versions": [
+    {
+      "version_id": "p2-checkpoint-0.6.0",
+      "display_name": "P2 Checkpoint v0.6.0",
+      "status": "IMPLEMENTED_BASELINE_RESEARCH_VALIDATION_PENDING",
+      "plan": "docs/P2-Checkpoint-v0.6-实施计划与验收-20261028.md",
+      "latest_implementation_receipt": "docs/P2-Checkpoint-v0.6-独立验证与材料审核工作台-实施回执-20261029.md",
+      "progress": "docs/P2-Checkpoint-v0.6-进度总览与剩余验收-20261029.md",
+      "executable_config": "config/p2_auto_checkpoint_v06_deepseek.json",
+      "notes": "候选重建工程、确定性材料分区及虚构FHIR/HTML闭环已实现；独立研究验证、真实材料审核、临床表单冻结和医生Reference未完成。"
+    },
+    {
+      "version_id": "p2-checkpoint-0.6.1",
+      "display_name": "P2 Checkpoint v0.6.1",
+      "status": "ENGINEERING_IMPLEMENTED_RESEARCH_VALIDATION_PENDING",
+      "plan": "docs/P2-Checkpoint-v0.6.1-自动化材料审核与抽样验证实施计划-20261029.md",
+      "implementation_receipt": "docs/P2-Checkpoint-v0.6.1-自动化材料治理实施回执-20261029.md",
+      "validation_receipt": "private/p2_checkpoint_next_20261028/validation_material_governance_v061_final_r2_20261029/validation_receipt.json",
+      "engineering_plan_batches_complete": [
+        "A",
+        "B",
+        "C"
+      ],
+      "executable_config": "config/p2_checkpoint_material_governance_v061.json",
+      "active_clinical_release": false,
+      "scope": [
+        "LLM审核研究者完整原文与实际医生视图预览",
+        "有原文依据的材料修订、确定性重编及逐版本复审",
+        "候选Episode/Checkpoint材料版本化与图问题回路",
+        "独立人工分层抽样验收自动化材料质量",
+        "满足冻结条件后医生试评与保留不可评价意见的盲评"
+      ],
+      "remote_patient_model_run_authorized_by_registration": false,
+      "real_doctor_packet_release_authorized_by_registration": false,
+      "notes": "自动化材料审核、确定性重编、复审链和抽样接口已实现并先用虚构资料验证；真实开发运行、人工抽样合格率、临床表单冻结和真实医生许可包均未完成。默认配置不授权远程患者运行。"
+    },
+    {
+      "version_id": "p2-checkpoint-0.6.2",
+      "display_name": "P2 Checkpoint v0.6.2",
+      "status": "ENGINEERING_IMPLEMENTED_RESEARCH_VALIDATION_PENDING",
+      "plan": "docs/P2-Checkpoint-v0.6.2-双审计与Ready-Resource实施计划-20261029.md",
+      "implementation_receipt": "docs/P2-Checkpoint-v0.6.2-双审计与Ready-Resource实施回执-20261029.md",
+      "validation_receipt": "private/p2_checkpoint_next_20261028/validation_dual_audit_v062_20261029/validation_receipt.json",
+      "executable_config": "config/p2_checkpoint_dual_audit_v062.json",
+      "active_clinical_release": false,
+      "scope": [
+        "独立候选重建审计及新图重建handoff",
+        "完整Episode与实际FrozenCheckpointPacket/FHIR/HTML交付审计",
+        "真实Chrome虚构评审下载与Python/FHIR权威回收",
+        "强绑定ReadyResourceManifest与冻结抽样设计接口"
+      ],
+      "remote_patient_model_run_authorized_by_registration": false,
+      "real_doctor_packet_release_authorized_by_registration": false,
+      "human_sampling_or_statistical_acceptance_completed": false,
+      "notes": "双审计和Ready Resource状态组合已通过虚构反例与浏览器回归；真实质量、加权总体统计、独立人员结果、临床协议和外部发布授权均未完成。CLINICAL_PACKET_ELIGIBLE fixture不是实际放行。"
+    },
+    {
+      "version_id": "p2-checkpoint-0.6.3",
+      "display_name": "P2 Checkpoint v0.6.3",
+      "status": "ENGINEERING_IMPLEMENTED_RESEARCH_VALIDATION_PENDING",
+      "plan": "docs/P2-Checkpoint-v0.6.3-双审计持久化编排与正式抽样统计执行计划-20261029.md",
+      "implementation_receipt": "docs/P2-Checkpoint-v0.6.3-双审计持久化编排与正式抽样统计实施回执-20261029.md",
+      "validation_receipt": "private/p2_checkpoint_next_20261028/validation_ready_pipeline_v063_final_20261029/validation_receipt.json",
+      "executable_config": "config/p2_checkpoint_dual_audit_v063.json",
+      "active_clinical_release": false,
+      "scope": [
+        "持久化候选图审计、逐Checkpoint材料审核、实际交付审计及新目录续跑",
+        "图与交付REVISE的版本化下游消费及完整重放",
+        "按冻结设计执行分层估计和患者/Episode/Checkpoint聚类方差",
+        "Ready Resource重放统计design/plan/responses/assessment"
+      ],
+      "remote_patient_model_run_authorized_by_registration": false,
+      "real_doctor_packet_release_authorized_by_registration": false,
+      "human_sampling_or_statistical_acceptance_completed": false,
+      "notes": "持久化编排、版本化回修和可重放统计工程已通过虚构回归与完整P2守卫；真实模型质量、正式人工回收、统计合格、临床Reference和真实发放均未完成。虚构fixture不是临床放行。"
+    },
+    {
+      "version_id": "p2-checkpoint-real-development-0.1.0",
+      "display_name": "P2 固定十例真实开发验证适配器",
+      "status": "ENGINEERING_ADAPTER_IMPLEMENTED_REAL_DEVELOPMENT_EXECUTED_ALL_GRAPH_HOLDS",
+      "implementation_entry": "scripts/cohort_construction/p2_checkpoint_real_validation/__main__.py",
+      "depends_on": "p2-checkpoint-0.6.3",
+      "fixed_batch_id": "REAL-V063-FIXED-TEN-20261030",
+      "active_clinical_release": false,
+      "scope": [
+        "先离线核验固定十例清单和每例处理单元，不构造远程模型客户端",
+        "另行提供批次特定授权后才允许DeepSeek开发调用",
+        "保留预算、失败、缓存、每例进度与无模型重放回执"
+      ],
+      "remote_patient_model_run_authorized_by_registration": false,
+      "real_doctor_packet_release_authorized_by_registration": false,
+      "human_sampling_or_statistical_acceptance_completed": false,
+      "real_preflight_completed": true,
+      "real_preflight_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_storage_migration_r2_20261101/preflight/batch-preflight.json",
+      "real_remote_execution_completed": true,
+      "real_remote_execution_receipt": "private/p2_checkpoint_next_20261028/ready_pipeline_real_validation_storage_migration_r2_20261101/execution/batch-execution-receipt.json",
+      "real_remote_execution_result": {
+        "state_counts": {
+          "AUTO_GRAPH_AUDIT_HOLD": 10
+        },
+        "requests": 10,
+        "http_attempts": 18,
+        "material_review_reached": false,
+        "doctor_assignment_created": false,
+        "clinical_release_permitted": false
+      },
+      "notes": "2026-11-01 真实 fixed-ten 离线 preflight 已完成，随后一次经用户单独明确授权的远程开发执行已完成。10 请求、18 HTTP attempts；十例均停在候选图审计：四例 HTTP 请求失败、一例响应引文唯一性校验失败、五例旧状态机把 REVISE + required_actions 误归 REVIEW_HOLD。CE-NET-003、CE-REAL-008、CE-GRA-004、CE-GRA-005 已修复并通过完整 P2 守卫；十次重试只用于新的独立授权合同，未自动重试或改写历史结果。模型审核意见不是临床 Reference；独立语义审核、临床表单冻结、人工验收和医生 Reference 尚未完成。"
+    }
+  ],
+  "event_contract_and_batch_inventory_repair": {
+    "date": "2026-11-03",
+    "stable_issues": [
+      "CE-GRA-011",
+      "CE-REAL-013"
+    ],
+    "status": "ENGINEERING_FIXED_FULL_P2_GUARD_PASS",
+    "request_format": "candidate-graph-reconstruction-request-0.2.0",
+    "event_contract_version": "candidate-reconstruction-material-event-0.1.0",
+    "execution_inventory_format": "checkpoint-real-execution-inventory-0.1.0",
+    "implementation_receipt": "docs/P2-CE-GRA-011-CE-REAL-013-修复与回归-20261103.md",
+    "validation_receipt": "private/p2_checkpoint_next_20261028/validation_gra011_real013_v063_r1_20261103/validation_receipt.json",
+    "validation_receipt_sha256": "120c0e35bea8116d65d01ea5400ec448b4957b4c19ddfb73e8036b50019fc7b2",
+    "tests_passed": 921,
+    "subtests_passed": 449,
+    "new_required_test_references": 10,
+    "clinical_model_calls_in_regression": 0,
+    "new_real_batch_performed": false,
+    "real_fixed_ten_auto_closure_verified": false,
+    "clinical_reference_created": false,
+    "clinical_release_permitted": false
+  }
+}

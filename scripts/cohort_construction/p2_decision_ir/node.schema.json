@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decision IR v0.1 source statement (local research schema, not a FHIR resource)",
+  "type": "object",
+  "required": ["id", "patient_uid", "source_id", "source_sha256", "span", "quote", "role", "status", "signals", "action_mentions", "time_basis", "atomicity", "confidence", "expert_reference"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-f0-9]{24}$"},
+    "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "span": {"type": "array", "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "integer", "minimum": 0}], "minItems": 2, "maxItems": 2},
+    "quote": {"type": "string", "minLength": 1},
+    "role": {"enum": ["DECISION_CANDIDATE", "EXECUTION_MENTION", "FEEDBACK_MENTION", "SUPPORT_MENTION", "INSTRUCTION_MENTION"]},
+    "status": {"enum": ["CURRENT_STATEMENT_CANDIDATE", "CONTEXT_REVIEW"]},
+    "atomicity": {"const": "CONTIGUOUS_STATEMENT_GROUP_MAY_CONTAIN_MULTIPLE_ACTIONS"},
+    "confidence": {"type": "null"},
+    "expert_reference": {"type": "null"},
+    "signals": {"type": "array"},
+    "action_mentions": {"type": "array"}
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "version": "p2-validation-0.3",
+  "date": "2026-10-23",
+  "algorithm_version": "decision-graph-0.2",
+  "run07_unchanged": true,
+  "algorithm_core_pipeline_unchanged": true,
+  "previous_release_sha256": "dc4afeab3817d6adaf78cc16591902fcfc9310018abd0696c45c3cd0ddf5a74c",
+  "code_and_contract_sha256": {
+    "scripts/cohort_construction/p2_relation_graph/README.md": "20aea0a79290dd10ba71218eba16354c216e5dd2675121821830dd1ed757244a",
+    "scripts/cohort_construction/p2_relation_graph/VALIDATION.md": "3138e2e756b4a91145cedbc80882451b722986bb8d7d15c8369649d4e841daff",
+    "scripts/cohort_construction/p2_relation_graph/__init__.py": "5ffffa267476089b98b9b44bb15aa32cebb15d3bf672c4c4b1c14515afb36110",
+    "scripts/cohort_construction/p2_relation_graph/annotation_compile.py": "0450c0e96f9a35bcdfa971b03fba8a93df9e14de07f070c4479200f58e823156",
+    "scripts/cohort_construction/p2_relation_graph/annotation_pilot.py": "68029870643b6f30c4085e13ed37ebb72baf963fe3f68c4f3936c871913a9b83",
+    "scripts/cohort_construction/p2_relation_graph/core.py": "da89ec0dfec7447ea33939cb93335c72374e0a836120bd75ac4dce74cc00c5ac",
+    "scripts/cohort_construction/p2_relation_graph/demo.py": "ad1163fb5b882911014074d6b3bc29d016bf8fcb66761e54fc685610671a8b37",
+    "scripts/cohort_construction/p2_relation_graph/evaluate.py": "984dedd7a48044e95eeb7c30a1bda4890d295b2b56dd9cc795b169f7bef77bc5",
+    "scripts/cohort_construction/p2_relation_graph/inter_annotator.py": "0c5ec6d29235a0bfbbdf2dfff36a06cc9036129227c0c84db202bfd7e656573e",
+    "scripts/cohort_construction/p2_relation_graph/model.py": "aca125233d770540daf553a08c369fd5c374260499d096f4f08678ccb00e57c4",
+    "scripts/cohort_construction/p2_relation_graph/pipeline.py": "e1cb85cb25582e93f2d65a67de9edf64854bc37b1821c9e7561d06c1ee9f838e",
+    "scripts/cohort_construction/p2_relation_graph/regression_catalog.json": "89267ca9bcef85191f3a08cf042d02d2b17be7ba5a2e5abb3200682ec49f0060",
+    "scripts/cohort_construction/p2_relation_graph/repeatability.py": "2d3ac44b4a3e5eca0b2b9dc647bfacf65897107a2f01764da4f964fef4d34c37",
+    "scripts/cohort_construction/p2_relation_graph/review_gate_form_v0.1.json": "974407e54ae9b504067442ac5d1e11765c7f19f57000d2461a9aa5bb4aa6fd26",
+    "scripts/cohort_construction/p2_relation_graph/review_workflow.py": "5c2615844984ac74261a955dd3c9654e9ddc504c64c3c0dffdfcf901c5295bb6",
+    "scripts/cohort_construction/p2_relation_graph/run.py": "5e1d3c1775208c3365c6e0dd247accd6464a6a7939525ffbb45e8dc222541b4d",
+    "scripts/cohort_construction/p2_relation_graph/run_validation_checks.py": "6e9ed5c6cf0ae366a29f2fedf013bd158b18b3778c2570235da1da13a78690ee",
+    "scripts/cohort_construction/p2_relation_graph/tests/test_graph.py": "5ddff054b783a3d7a81281ffaeaddd5abedb3c782170df7fe171f324d2a305bd",
+    "scripts/cohort_construction/p2_relation_graph/tests/test_validation.py": "18390075c38547364b92fcf718267cf949c651712e3501d21f2dad279cab482c",
+    "scripts/cohort_construction/p2_relation_graph/validation_regression_catalog_v0.3.json": "02fabd8b1889708bea6a230c8a0739d747b955f3be823e9180672536b9a4d3a1"
+  },
+  "document_sha256": {
+    "README.md": "c1f1203ab3aa33666326788044d831c01d8cf5296053affad529708edc7de2f1",
+    "docs/P2-Episode与分次揭露-PLAN-v0.1-20261020.md": "78afce49c096026c98d97210ed0a7815219e3a77d2531e05993ef017b7f25afd",
+    "docs/P2-重建验证与医生盲评衔接流程-v0.3-20261023.md": "2b9b252abce79f093d9d9c4be0cdb54d163ce7a289bc6d6a0b482e879e221f6f",
+    "docs/P2-重建标注手册-v0.1-20261023.md": "d71ac5f2a3852cdca967790876951a8d880b7c8d43405f6f24c935ecfcb123ec",
+    "docs/P2-验证修复与流程调整-实施回执-v0.3-20261023.md": "f5de8cb34eff3bbdcda6e937cb8c112da485c69994f3bb78e5cd29dcd9420cf1"
+  },
+  "tests": {
+    "inherited": 95,
+    "current_required": 61,
+    "total_passed": 156,
+    "p1_guard_passed": 105,
+    "project_tests_passed": 160
+  },
+  "receipt_sha256": {
+    "receipts/p2-validation-v0.3-p1-guard-20261023.json": "a28fa65c4c35246f7021f84438080c9eff4220ef9bb325c0369ddffd38ed12c1",
+    "receipts/p2-validation-v0.3-project-tests-20261023.json": "8b991b667612ce257a69d13ca8b0f2ce67c95c108da4b1b8db29bb09b5c7273a",
+    "receipts/p2-validation-v0.3-tests-20261023-final02.json": "342b4ffcebeb7d6f9684d77b886e3f16417f9113fcb35c5bda8816f872baeefc"
+  },
+  "private_output_sha256": {
+    "private/p2_validation_v0.3_20261023/independent_annotation_pilot01/researcher_only/selection_manifest.json": "f5dfe9ff2ed34abcf49c3c89ba02f2c650522550fdd2edca9d89beb7eb767ab2",
+    "private/p2_validation_v0.3_20261023/fresh_synthetic_run01/replicates.jsonl": "2cbae36561b95d8ea1ab69dd69ae6204cd065d18248f2a9ff154fb21a23d3f9e",
+    "private/p2_validation_v0.3_20261023/fresh_synthetic_run01/summary.json": "30dee4590dc86c7079c4a529e243dcd3598f7c93e04b0a97ba5736b3ce01f7e3",
+    "private/p2_validation_v0.3_20261023/fresh_synthetic_run01/summary_analysis_v0.3.json": "7decb04d47eb92d59fd0474686498750a5a477ffc49e75484d424f39cd2e84fd",
+    "private/p2_validation_v0.3_20261023/fresh_synthetic_run01/verified_request_protocol.json": "9934e4a629bb34b1a52527647f8571df49c136d72fd1f29a065322b0347e3acc",
+    "private/p2_validation_v0.3_20261023/workflow_synthetic_demo02/events.jsonl": "24a7059fe39f2aa637c668f5fb6deeaff9b98ec96c5cc3d6476001e0fb82a7fb",
+    "private/p2_validation_v0.3_20261023/workflow_synthetic_demo02/summary.json": "8e04cefc52253d559c024bfa4a1c10d79dd63a96b1f8f5033f0339799f532298"
+  },
+  "input_sha256": {
+    "private/p2_dynamic_pathway_probe_v0.1_20261021/review_patient_context.jsonl": "21ba93c0d75162b26e04b7aae99a2db38ba663a31deea73772fcc37ac04afd3d",
+    "private/p2_decision_ir_v0.1_20261022_run07/nodes.jsonl": "81057e68c2833f4a7649d243cc7073a7775922d0ab544f531d424a881ef5d7c9"
+  },
+  "diff": "docs/p2-validation-v0.3-code-20261023.diff",
+  "diff_sha256": "f0e0b30362d039b3d3205054959cb3a6e39d727407b29c9f2ff9a1e077264973",
+  "actual_human_reconstruction_gold_created": false,
+  "actual_clinical_reference_created": false,
+  "real_patient_data_sent_to_model": false,
+  "auto_accept_enabled": false,
+  "episode_rules_finalized": false,
+  "observations": {
+    "prepared_development_cases": 6,
+    "source_documents": 132,
+    "fresh_synthetic_api_requests": 6,
+    "cached_requests": 0,
+    "normalization_invalid_schema": 1,
+    "relation_labels": [
+      "supersede",
+      "revise",
+      "supersede"
+    ]
+  }
+}

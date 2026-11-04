@@ -1,0 +1,20 @@
+{
+  "form_version": "checkpoint-validity-v0.1",
+  "purpose": "Packet and decision-question evaluability before clinical Reference; not treatment correctness",
+  "question": "按本研究定义，这个时点的决策问题及材料包是否清楚、边界合理、可供评价？资料不足以推进治疗本身不构成无效。",
+  "decision_options": ["VALID", "REPAIR_REQUIRED", "UNCERTAIN"],
+  "issue_options": ["INVALID_DUPLICATE", "INVALID_MIXED", "INVALID_BOUNDARY", "SUSPECTED_AVAILABLE_EVIDENCE_OMISSION", "FUTURE_LEAKAGE", "NOT_TARGET_DECISION", "UNCERTAIN"],
+  "required_binding": ["version_id", "packet_sha256", "reviewer_id"],
+  "required_response": ["decision", "issues"],
+  "optional_response": ["rationale", "source_refs", "duration_seconds"],
+  "conditional_requirement": "REPAIR_REQUIRED or UNCERTAIN requires rationale or source_refs",
+  "instructions": [
+    "VALID时issues为空；其余情况至少记录一项问题，并写明具体来源或疑义。",
+    "复合计划不因动作多就自动混杂；检查未做、尚未返回或原文无法判断不自动使包无效。",
+    "疑似遗漏指当时本应可见却在包中缺少的资料，不得补入后来的检查结果。",
+    "无法仅凭允许的盲资料判断是否重复时，选UNCERTAIN，不申请开放未来轨迹。",
+    "不得现场修改checkpoint后继续给修订版Clinical Reference评分。"
+  ],
+  "clinical_reference_form": "Bound separately to a pre-registered external form schema/version; Severity and physician Confidence retained",
+  "algorithm_labels_visible_to_physician": false
+}

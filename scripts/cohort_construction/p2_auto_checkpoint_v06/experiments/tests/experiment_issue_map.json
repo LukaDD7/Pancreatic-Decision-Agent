@@ -1,0 +1,28 @@
+{
+  "CE-EXP-001": {
+    "problem": "Fixed-model continuation must preserve old outputs and use exact authenticated request caches without sending cache-preflight requests.",
+    "required_tests": [
+      "test_fixed_model.py::test_exact_cache_hit_and_no_rewrite",
+      "test_fixed_model.py::test_cache_miss_never_creates_cache",
+      "test_fixed_model.py::test_format_recovery_uses_actual_changed_hash",
+      "test_fixed_model.py::test_corrupt_response_rejected",
+      "test_fixed_model.py::test_changed_request_under_successful_filename_is_rejected",
+      "test_fixed_model.py::test_protected_output_mutation_fails_closed",
+      "test_summary.py::test_transport_stats_excludes_frozen_cached_invocations",
+      "test_summary.py::test_incomplete_ten_cannot_be_released",
+      "test_summary.py::test_intermediate_engine_summary_is_not_a_completed_fhir_case"
+    ]
+  },
+  "CE-EXP-002": {
+    "problem": "Offline structural migration must restore the program's original assembly input without changing the model proposal.",
+    "required_tests": ["test_summary.py::test_replay_restores_graph_input_and_preserves_model_proposal"]
+  },
+  "CE-EXP-003": {
+    "problem": "Offline migration copied pre-audit checkpoint_statuses while final events had already changed; summary metadata must be recomputed from final objects without altering frozen v1 data.",
+    "required_tests": [
+      "test_summary_metadata_fix.py::test_stale_distribution_reproduces_scale09_summary_bug",
+      "test_summary_metadata_fix.py::test_all_derived_counts_recomputed_with_correct_summary_control",
+      "test_summary_metadata_fix.py::test_v2_summary_repair_preserves_v1_and_links_unchanged_objects"
+    ]
+  }
+}

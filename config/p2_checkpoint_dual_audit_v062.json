@@ -1,0 +1,22 @@
+{
+  "version": "p2-checkpoint-0.6.2",
+  "candidate_reconstruction_audit_protocol": "checkpoint-candidate-reconstruction-audit-0.1.0",
+  "candidate_reconstruction_audit_chain": "candidate-reconstruction-audit-chain-0.1.0",
+  "episode_delivery_audit_protocol": "checkpoint-episode-delivery-audit-0.1.0",
+  "episode_delivery_audit_chain": "episode-delivery-audit-chain-0.1.0",
+  "ready_resource_manifest": "ready-resource-manifest-0.1.0",
+  "ready_sampling_design": "frozen-ready-resource-sampling-design-0.1.0",
+  "model_temperature": 0,
+  "max_graph_audit_rounds_on_one_frozen_graph": 1,
+  "remote_execution_authorized": false,
+  "execution_scope": "synthetic_or_separately_authorized_staging_material_only",
+  "semantic_model": null,
+  "graph_audit_modifies_candidate_graph": false,
+  "delivery_audit_modifies_packet_fhir_or_html": false,
+  "doctor_packet_release": false,
+  "real_doctor_assignment_creation": false,
+  "human_sampling_pass_thresholds_frozen": false,
+  "automatic_sampling_release_authorized": false,
+  "clinical_release_permitted": false,
+  "note": "v0.6.2接口、mock和虚构浏览器回归默认配置。单图REVISE产生重建handoff并停止，不在旧图上连续反馈；真实运行、统计门槛和临床发布均须另行授权。"
+}

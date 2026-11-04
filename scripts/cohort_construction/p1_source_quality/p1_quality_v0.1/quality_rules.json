@@ -1,0 +1,33 @@
+{
+  "version": "p1-source-quality-v0.1",
+  "purpose": "患者级关键影像事实表征质量初筛；不是手术可行性判断；P2识别候选Episode，P3继续核查具体Episode及节点时点",
+  "patient_rule": "P0_member AND identity_index_ok AND anchored_pancreas_clinical_note_exists AND qualified_report_exists",
+  "report_rule": "verified_source AND valid_exam_date AND contrast_CT_or_MR AND index_pancreatic_lesion_context AND lesion_site_represented AND lesion_size_represented AND five_vessel_relationships_represented AND metastatic_domain_represented AND no_detected_internal_conflict",
+  "time_scope": "P1检查全部已交付历史；另记录研究期内合格报告，不以任意历史报告替代P3时点资料",
+  "study_window": ["2021-01-01", "2026-10-18"],
+  "required_vessels": {
+    "SMA": ["肠系膜上动脉", "SMA"],
+    "CA": ["腹腔干动脉", "腹腔干", "腹腔动脉"],
+    "CHA": ["肝总动脉", "CHA"],
+    "PV": ["门静脉", "PV", "MPV"],
+    "SMV": ["肠系膜上静脉", "SMV"]
+  },
+  "accepted_relationship_values": ["NO_CONTACT_OR_INVASION", "CONTACT_OR_INVASION", "EXPLICIT_INDETERMINATE"],
+  "nonaccepted_relationship_values": ["MISSING", "EMPTY_ANGLE_FIELD", "PATENCY_ONLY", "UNRECOGNIZED_VALUE", "CONFLICT"],
+  "contact_angle_policy": "明确接触但未量化角度保留CONTACT_OR_INVASION并标记ANGLE_UNQUANTIFIED；接触面/接触角度字段有名无值且无明确不确定表述则EMPTY_ANGLE_FIELD；不把缺描述推断为未接触",
+  "structured_headings": ["肿块评估", "胰胆管评估", "动脉评估", "静脉评估", "其它评估", "其他评估"],
+  "lesion_site_pattern": "胰头钩突|胰头|钩突|胰颈|胰体尾|胰体|胰尾|胰腺头|胰腺颈|胰腺体|胰腺尾|残胰",
+  "size_pattern": "数值x数值[可有第三径]并有mm/cm/毫米/厘米单位；或明确最大径/直径；或肿瘤段明确记载无法测量/病灶不再可辨",
+  "metastatic_domain_rule": "远处转移字段有实质取值 OR 肝脏病变字段与腹膜/网膜字段均有实质取值；不把腹水或淋巴结独立等同转移",
+  "allowed_origins": ["全量251个原报告记录簇按身份关联", "病理目录根部CT总表原文", "24个疾病子表中的CT/MR原文"],
+  "supplement_origin_requires_review": "NAT工作簿报告摘录_未独立回源核验",
+  "source_verification": "记录簇的原始片段/原token字段或同患者原表源行中，归一化后实际出现本报告findings和impression；并核对来源键与日期。不是仅相信original字段名",
+  "identity_index_allowed": ["无所检索标识冲突"],
+  "clinical_document_include_pattern": "病程|查房|入院记录|出院|会诊|术前讨论|术前小结|手术记录|胰腺肿瘤手术|MDT|多学科|诊疗记录",
+  "clinical_document_exclude_pattern": "护理|教育|同意书|交接|核查|物品|告知|临床路径|申请单|报告卡",
+  "postoperative_context_pattern": "胰十二指肠(?:切除)?术后|胰腺十二指肠术后|胰腺术后|胰腺癌术后|胰头术后|胰(?:腺)?(?:体尾|体|尾|部分|次全|全)(?:部)?[+及和联合脾脏]*(?:切除|根治)术?后|全胰(?:腺)?切除术?后",
+  "postoperative_policy": "术后/疑复发报告进入REVIEW_CONTEXT，不自动当作原发灶在位的合格基线报告；同一患者其他合格报告仍可支持P1",
+  "patient_states": ["PASS_V1", "REVIEW_V1", "NOT_MET_V1"],
+  "not_met_meaning": "当前交付资料不满足本版本；不是临床不适合手术或永久排除",
+  "limitations": ["五血管为本院已观察模板的首版统一标准，不等于临床所有病例均必须逐项决策", "只检查表征和内部一致性，不验证影像诊断本身正确", "P1通过不代表全部Episode或checkpoint通过", "不从结局、实际手术或后期报告回填早期信息", "未识别叙述格式进入待核，不能自动视为临床缺失"]
+}

@@ -1,0 +1,504 @@
+{
+  "actual_provider_requests": 0,
+  "clinical_reference_created": false,
+  "implementation_modified": false,
+  "synthetic_output_root": "/private/tmp/p2-latest-real-audit-2cq50zii",
+  "CE_GRA_011": {
+    "complete_event_control": {
+      "schema_accepted": true,
+      "reconstruction_state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+      "prepared_tasks": 2,
+      "assembly_failure_codes": []
+    },
+    "missing_source_ids": {
+      "schema_accepted": true,
+      "reconstruction_state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+      "prepared_tasks": 0,
+      "assembly_failure_codes": [
+        "EVENT_SOURCE_IDS_REQUIRED",
+        "EVENT_SOURCE_IDS_REQUIRED"
+      ]
+    },
+    "schema_minimum_events": {
+      "schema_accepted": true,
+      "reconstruction_state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+      "prepared_tasks": 0,
+      "assembly_failure_codes": [
+        "EVENT_SOURCE_IDS_REQUIRED",
+        "EVENT_SOURCE_IDS_REQUIRED"
+      ]
+    }
+  },
+  "CE_REAL_013": {
+    "baseline_replay_verified": true,
+    "restored_replay_verified": true,
+    "existing_immutable_receipt_guard": "REAL_BATCH_RECEIPT_CHANGED_REQUIRES_NEW_OUTPUT",
+    "defect_precondition": "NO_PRIOR_BATCH_REPLAY_RECEIPT_AVAILABLE",
+    "mocked_http_attempts": 11,
+    "defects": {
+      "empty_progress": {
+        "incorrectly_accepted": true,
+        "replay_verified": true,
+        "reported_case_count": 0,
+        "retained_request_count": 2
+      },
+      "omitted_called_case_with_other_row": {
+        "incorrectly_accepted": true,
+        "replay_verified": true,
+        "reported_case_count": 1,
+        "retained_request_count": 2
+      }
+    }
+  },
+  "real_batches": [
+    {
+      "batch": "ready_pipeline_real_validation_all10_auto_closure_postaudit_r1_20261102",
+      "progress_case_ids": [
+        "SCALE-01",
+        "SCALE-02",
+        "SCALE-03",
+        "SCALE-04",
+        "SCALE-05",
+        "SCALE-06",
+        "SCALE-07",
+        "SCALE-08",
+        "SCALE-09",
+        "SCALE-10"
+      ],
+      "ledger_called_case_ids": [
+        "SCALE-01",
+        "SCALE-02",
+        "SCALE-03",
+        "SCALE-04",
+        "SCALE-05",
+        "SCALE-06",
+        "SCALE-07",
+        "SCALE-08",
+        "SCALE-09",
+        "SCALE-10"
+      ],
+      "called_case_ids_missing_from_progress": [],
+      "saved_batch_receipt_present": true,
+      "saved_state_counts": {
+        "AUTO_GRAPH_AUDIT_HOLD": 1,
+        "AUTO_GRAPH_AUDIT_REVISE": 4,
+        "HOLD": 5
+      },
+      "model_usage": {
+        "requests": 30,
+        "max_requests": 60,
+        "http_attempts": 111,
+        "max_http_attempts": 600,
+        "cache_hits": 0,
+        "denied": 0,
+        "usage": {
+          "prompt_tokens": 6242716,
+          "completion_tokens": 40979,
+          "total_tokens": 6283695
+        },
+        "cost_amount": null,
+        "cost_status": "NOT_ESTIMATED_RATE_UNAVAILABLE"
+      },
+      "runs": [
+        {
+          "path": "automatic-revisions/SCALE-03/generation-0001/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_PASS",
+          "event_count": 1,
+          "events_missing_source_ids": 1,
+          "assembly_failure_counts": {
+            "EVENT_SOURCE_IDS_REQUIRED": 1
+          },
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-04/generation-0001/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_PASS",
+          "event_count": 6,
+          "events_missing_source_ids": 6,
+          "assembly_failure_counts": {
+            "EVENT_SOURCE_IDS_REQUIRED": 6
+          },
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-06/generation-0001/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_PASS",
+          "event_count": 2,
+          "events_missing_source_ids": 2,
+          "assembly_failure_counts": {
+            "EVENT_SOURCE_IDS_REQUIRED": 2
+          },
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-07/generation-0001/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_HOLD",
+          "event_count": 4,
+          "events_missing_source_ids": 4,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-09/generation-0001/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 2,
+          "events_missing_source_ids": 2,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-10/generation-0001/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_PASS",
+          "event_count": 6,
+          "events_missing_source_ids": 6,
+          "assembly_failure_counts": {
+            "EVENT_SOURCE_IDS_REQUIRED": 6
+          },
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-01/EP1f4f2eb60fb1d9484918/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 3,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-02/EP1fbb87ee0f88c520bca8/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-03/EP28e2ac4507c6661757fc/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-04/EP2bdde11005547433b8fb/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-05/EP086354791d981e894845/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_PASS",
+          "event_count": 8,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-06/EP035325d3d19ebef2cccf/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-07/EP09b4c390cae5151f03a8/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 2,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-08/EP08df84d633c8674c81c2/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 8,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-09/EP12f2877d41a8d4ef028e/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-10/EP0bbcd891478c63731a60/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        }
+      ],
+      "reconstructions": [
+        {
+          "path": "automatic-revisions/SCALE-01/reconstruction-0001.json",
+          "state": "RECONSTRUCTION_HOLD",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-02/reconstruction-0001.json",
+          "state": "RECONSTRUCTION_HOLD",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-03/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-04/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-06/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-07/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-08/reconstruction-0001.json",
+          "state": "RECONSTRUCTION_HOLD",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-09/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-10/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        }
+      ],
+      "input_artifact_hashes_unchanged": true,
+      "verified_artifact_count": 339
+    },
+    {
+      "batch": "ready_pipeline_real_validation_retry_provider5_auto_closure_r1_20261103",
+      "progress_case_ids": [
+        "SCALE-01",
+        "SCALE-02"
+      ],
+      "ledger_called_case_ids": [
+        "SCALE-01",
+        "SCALE-02",
+        "SCALE-05"
+      ],
+      "called_case_ids_missing_from_progress": [
+        "SCALE-05"
+      ],
+      "saved_batch_receipt_present": false,
+      "saved_state_counts": null,
+      "model_usage": {
+        "requests": 8,
+        "max_requests": 60,
+        "http_attempts": 70,
+        "max_http_attempts": 600,
+        "cache_hits": 0,
+        "denied": 0,
+        "usage": {
+          "prompt_tokens": 1001271,
+          "completion_tokens": 4446,
+          "total_tokens": 1005717
+        },
+        "cost_amount": null,
+        "cost_status": "NOT_ESTIMATED_RATE_UNAVAILABLE"
+      },
+      "runs": [
+        {
+          "path": "episodes/SCALE-01/EP1f4f2eb60fb1d9484918/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_HOLD",
+          "event_count": 3,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-02/EP1fbb87ee0f88c520bca8/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_HOLD",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-05/EP086354791d981e894845/run.json",
+          "replay_verified": false,
+          "error_type": "JSONDecodeError",
+          "reason_code": "UNREADABLE_INTERRUPTED_JSON"
+        }
+      ],
+      "reconstructions": [],
+      "input_artifact_hashes_unchanged": true,
+      "verified_artifact_count": 96
+    },
+    {
+      "batch": "ready_pipeline_real_validation_retry_provider5_auto_closure_r2_20261103",
+      "progress_case_ids": [
+        "SCALE-01",
+        "SCALE-02",
+        "SCALE-03",
+        "SCALE-04",
+        "SCALE-05",
+        "SCALE-06",
+        "SCALE-07",
+        "SCALE-08"
+      ],
+      "ledger_called_case_ids": [
+        "SCALE-01",
+        "SCALE-02",
+        "SCALE-05",
+        "SCALE-07",
+        "SCALE-08"
+      ],
+      "called_case_ids_missing_from_progress": [],
+      "saved_batch_receipt_present": true,
+      "saved_state_counts": {
+        "AUTO_GRAPH_AUDIT_HOLD": 2,
+        "AUTO_GRAPH_AUDIT_REVISE": 2,
+        "HOLD": 1,
+        "NOT_ATTEMPTED_OUTSIDE_AUTHORIZED_SUBSET": 3
+      },
+      "model_usage": {
+        "requests": 19,
+        "max_requests": 60,
+        "http_attempts": 112,
+        "max_http_attempts": 600,
+        "cache_hits": 0,
+        "denied": 0,
+        "usage": {
+          "prompt_tokens": 2553724,
+          "completion_tokens": 19458,
+          "total_tokens": 2573182
+        },
+        "cost_amount": null,
+        "cost_status": "NOT_ESTIMATED_RATE_UNAVAILABLE"
+      },
+      "runs": [
+        {
+          "path": "automatic-revisions/SCALE-07/generation-0001/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 2,
+          "events_missing_source_ids": 2,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-01/EP1f4f2eb60fb1d9484918/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_HOLD",
+          "event_count": 3,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-02/EP1fbb87ee0f88c520bca8/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_PASS",
+          "event_count": 1,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-05/EP086354791d981e894845/run.json",
+          "state": "HOLD",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_HOLD",
+          "event_count": 8,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-07/EP09b4c390cae5151f03a8/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 2,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        },
+        {
+          "path": "episodes/SCALE-08/EP08df84d633c8674c81c2/run.json",
+          "state": "REVISION_REQUIRED",
+          "graph_audit_state": "AUTO_GRAPH_AUDIT_REVISE",
+          "event_count": 8,
+          "events_missing_source_ids": 0,
+          "assembly_failure_counts": {},
+          "replay_verified": true
+        }
+      ],
+      "reconstructions": [
+        {
+          "path": "automatic-revisions/SCALE-07/reconstruction-0001.json",
+          "state": "RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT",
+          "replay_verified": true
+        },
+        {
+          "path": "automatic-revisions/SCALE-08/reconstruction-0001.json",
+          "state": "RECONSTRUCTION_HOLD",
+          "replay_verified": true
+        }
+      ],
+      "input_artifact_hashes_unchanged": true,
+      "verified_artifact_count": 127
+    }
+  ],
+  "probe_script_sha256": "7ff5d28d66a7ca25049cb6b68c6085640141b86db7394bb152716d8ecd068edb",
+  "baseline_tests": {
+    "passed": 142,
+    "failed": 0,
+    "exit_code": 0,
+    "junit_xml": "/private/tmp/p2-latest-audit-tests-ha31np1m/baseline.xml",
+    "real_http_send_blocked": true
+  },
+  "first_sandbox_test_attempt": {
+    "passed": 139,
+    "failed": 3,
+    "failure_scope": "Chrome launch blocked by sandbox",
+    "junit_xml": "/private/tmp/p2-latest-audit-tests-r6vzho__/baseline.xml"
+  },
+  "historical_full_guard": {
+    "receipt": "private/p2_checkpoint_next_20261028/validation_gra010_revision_delivery_v063_r1_20261102/validation_receipt.json",
+    "receipt_sha256": "8d0e2720ae074ba185d29a8fcc73e3e02473df86dc3183c83c00a3be146b08e5",
+    "historical_tests_passed": 911,
+    "historical_subtests_passed": 449,
+    "current_source_hashes_matched": 239,
+    "changed_files": [],
+    "full_guard_rerun_in_this_audit": false
+  }
+}

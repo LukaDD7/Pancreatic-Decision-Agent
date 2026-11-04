@@ -1,0 +1,74 @@
+{
+  "version": "independent-validation-0.1.0",
+  "clinical_gold": false,
+  "change_type": "new_independent_validation_contract",
+  "issues": [
+    {
+      "id": "CE-IV-001",
+      "problem": "Source-first human review must precede model disclosure; AI preparation cannot complete or reveal. Complete reading can preserve a reasoned unknown. Known same-patient local model exposure blocks later source-first independence claims.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/independent_validation/tests/test_workflow.py",
+      "required_tests": [
+        "test_CE_IV001_phase_a_contains_only_original_scope_and_pending_preparation",
+        "test_CE_IV001_reveal_rejects_absent_source_review",
+        "test_CE_IV001_nonhuman_cannot_assert_independent_completion",
+        "test_CE_IV001_ai_pending_draft_never_reveals_or_enters_completed_denominator",
+        "test_CE_IV001_complete_human_review_reveals_a_separate_researcher_file",
+        "test_CE_IV001_complete_reading_with_unresolved_target_can_reveal_without_forcing_label",
+        "test_CE_IV001_blank_unresolved_target_cannot_claim_completed_reading",
+        "test_CE_IV001_registered_same_patient_reveal_blocks_later_source_completion",
+        "test_CE_IV001_same_patient_source_reviews_frozen_before_reveal_remain_valid"
+      ]
+    },
+    {
+      "id": "CE-IV-002",
+      "problem": "Independent findings must cite exact immutable original source hashes and Unicode codepoint spans within the declared scope; stale task/source versions and incomplete reading cannot claim completion.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/independent_validation/tests/test_workflow.py",
+      "required_tests": [
+        "test_CE_IV002_exact_original_spans_hashes_and_unicode_are_required",
+        "test_CE_IV002_unicode_codepoint_positive_and_complete_no_target_are_valid",
+        "test_CE_IV002_source_scope_completeness_is_explicit_and_not_inferred",
+        "test_CE_IV002_stale_task_and_source_artifact_hashes_are_rejected"
+      ]
+    },
+    {
+      "id": "CE-IV-003",
+      "problem": "Development sampling must expose denominators and deduplicate overlapping strata without encoding stratum in task numbers; original inventories, event copies and source membership must verify before inferred routing is used.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/independent_validation/tests/test_workflow.py",
+      "required_tests": [
+        "test_CE_IV003_deterministic_sampling_covers_four_layers_without_duplicate_tasks",
+        "test_CE_IV003_blind_task_numbers_follow_identity_hash_not_stratum_blocks",
+        "test_CE_IV003_request_failure_is_not_zero_and_empty_layer_is_reported",
+        "test_CE_IV003_old_inventory_lookup_and_reconstructed_routing_are_explicit",
+        "test_CE_IV003_router_mismatch_preserves_gap_instead_of_inventing_support_exclusion",
+        "test_CE_IV003_inventory_text_version_mismatch_is_rejected",
+        "test_CE_IV003_discovery_duplicate_object_content_and_unit_sources_are_checked"
+      ]
+    },
+    {
+      "id": "CE-IV-004",
+      "problem": "Explicit local source scopes do not prove clinical availability or full-patient recall. Independent comparison dimensions bind the frozen source review and reveal, retain unresolved/out-of-scope outcomes and do not create adjudicated clinical truth.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/independent_validation/tests/test_workflow.py",
+      "required_tests": [
+        "test_CE_IV004_default_scope_is_current_unit_and_expansion_is_explicit_proxy_only",
+        "test_CE_IV004_date_only_source_time_is_unresolved_not_midnight",
+        "test_CE_IV004_comparison_preserves_unresolved_and_reports_human_denominators",
+        "test_CE_IV004_comparison_binding_and_explicit_dimensions_fail_closed",
+        "test_CE_IV004_revision_with_exact_original_citation_is_a_report_not_adjudication",
+        "test_CE_IV004_supported_assessment_requires_citation_or_frozen_original_finding"
+      ]
+    },
+    {
+      "id": "CE-IV-005",
+      "problem": "Patient material must remain in resolved private research paths; original bytes, submissions and reveals are exclusive, hash-bound and reverified. No network or model invocation is permitted.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/independent_validation/tests/test_workflow.py",
+      "required_tests": [
+        "test_CE_IV005_all_artifacts_are_exclusive_and_old_input_bytes_unchanged",
+        "test_CE_IV005_real_adapter_rejects_nonprivate_and_symlink_escape_outputs",
+        "test_CE_IV005_frozen_source_review_bytes_tamper_blocks_reveal",
+        "test_CE_IV005_duplicate_json_keys_path_traversal_and_extra_answers_are_rejected",
+        "test_CE_IV005_preparation_and_recovery_create_no_network_connections",
+        "test_CE_IV005_summary_rechecks_comparison_bytes_and_revealed_material"
+      ]
+    }
+  ]
+}

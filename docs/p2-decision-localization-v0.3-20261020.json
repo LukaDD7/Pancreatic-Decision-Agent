@@ -1,0 +1,573 @@
+{
+  "run": {
+    "version": "0.3.0",
+    "config_sha256": "87a60916fc0f550b674696ee164a8f8909adb2fffd29eaf26af2cb232acb8978",
+    "source_code_sha256": {
+      "__init__.py": "452f64980c1201bbe223532be1851a4a636b99c9710326bf27bfa959a8f9cb6b",
+      "documents.py": "26538e88bc83bd67852d2ead80539be88a6d7e097dd22e81fd7ed7364394251b",
+      "labels.py": "26eacf39010f014313ceafcb2cff84409a169cfedfa4741bf9442653f009a090",
+      "review.py": "08c6b85d4068f45fb82c530fbfb008223c58153d0f6a3577cec0b980c4646278",
+      "run.py": "c864c6ef8c0c2e6fce8a9c719c3f07d0a4777d22a41570a2d8a7a1d270584bf8",
+      "timeline.py": "2297174f0aae2f29d388381a8bdb6d1119372f76089ac128fca15003da9a31cc"
+    },
+    "population": 2004,
+    "nested_sample": [
+      100,
+      300
+    ],
+    "seed": 20261020,
+    "study_window": [
+      "2021-01-01",
+      "2026-10-18T23:59:59"
+    ],
+    "clinical_source_coverage": {
+      "clinical_files": 265,
+      "raw_rows": 30353,
+      "retained_context_notes": 20587,
+      "source_counts_match_frozen_P1": true
+    },
+    "imaging_patient_files": 300,
+    "broadened_context_records": 8571,
+    "samples": {
+      "100": {
+        "patients": 100,
+        "context_notes": 6399,
+        "labeled_notes": 1070,
+        "labels": {
+          "PLAN_RESECTION": {
+            "hits": 637,
+            "notes": 395,
+            "patients": 96,
+            "roles": {
+              "NARRATIVE_UNRESOLVED": 148,
+              "CURRENT_DOCUMENT_OPINION": 483,
+              "TEMPLATE_CONTEXT": 1,
+              "EXECUTED_OR_HISTORY": 5
+            },
+            "eligible_notes": 288,
+            "other_procedure_notes": 0
+          },
+          "INDICATION_YES": {
+            "hits": 160,
+            "notes": 101,
+            "patients": 15,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 14,
+              "NARRATIVE_UNRESOLVED": 115,
+              "CONTEXT_UNRESOLVED": 6,
+              "NEGATED_SCOPE": 23,
+              "QUESTION": 2
+            },
+            "eligible_notes": 8,
+            "other_procedure_notes": 30
+          },
+          "INDICATION_NO": {
+            "hits": 180,
+            "notes": 152,
+            "patients": 16,
+            "roles": {
+              "NARRATIVE_UNRESOLVED": 119,
+              "CONTEXT_UNRESOLVED": 46,
+              "CURRENT_DOCUMENT_OPINION": 7,
+              "EXPLICIT_HISTORY": 8
+            },
+            "eligible_notes": 5,
+            "other_procedure_notes": 0
+          },
+          "ASSESSMENT_PENDING": {
+            "hits": 2,
+            "notes": 2,
+            "patients": 2,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 2
+            },
+            "eligible_notes": 2,
+            "other_procedure_notes": 0
+          },
+          "NAT_PLAN": {
+            "hits": 86,
+            "notes": 63,
+            "patients": 8,
+            "roles": {
+              "NARRATIVE_UNRESOLVED": 38,
+              "CURRENT_DOCUMENT_OPINION": 13,
+              "TEMPLATE_CONTEXT": 9,
+              "CONTEXT_UNRESOLVED": 13,
+              "EXPLICIT_HISTORY": 13
+            },
+            "eligible_notes": 2,
+            "other_procedure_notes": 0
+          },
+          "GENERIC_SURGERY_PLAN": {
+            "hits": 155,
+            "notes": 151,
+            "patients": 93,
+            "roles": {
+              "TEMPLATE_CONTEXT": 100,
+              "CURRENT_DOCUMENT_OPINION": 40,
+              "CONTEXT_UNRESOLVED": 8,
+              "EXPLICIT_HISTORY": 1,
+              "NARRATIVE_UNRESOLVED": 6
+            },
+            "eligible_notes": 0,
+            "other_procedure_notes": 7
+          },
+          "FITNESS_CONTEXT": {
+            "hits": 978,
+            "notes": 764,
+            "patients": 100,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 540,
+              "TEMPLATE_CONTEXT": 220,
+              "NARRATIVE_UNRESOLVED": 137,
+              "CONTEXT_UNRESOLVED": 81
+            },
+            "eligible_notes": 0,
+            "other_procedure_notes": 0
+          }
+        },
+        "candidate_chains": {
+          "body_preferred": {
+            "24h": {
+              "chains": 183,
+              "per_patient": {
+                "n": 100,
+                "median": 2.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 5
+              },
+              "patients_zero": 4,
+              "patients_ge2": 69,
+              "candidate_records": 300,
+              "opposing_opinions_or_update_review_chains": 4
+            },
+            "48h": {
+              "chains": 153,
+              "per_patient": {
+                "n": 100,
+                "median": 1.5,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 4
+              },
+              "patients_zero": 4,
+              "patients_ge2": 50,
+              "candidate_records": 300,
+              "opposing_opinions_or_update_review_chains": 4
+            },
+            "168h": {
+              "chains": 112,
+              "per_patient": {
+                "n": 100,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 1.0,
+                "min": 0,
+                "max": 3
+              },
+              "patients_zero": 4,
+              "patients_ge2": 13,
+              "candidate_records": 300,
+              "opposing_opinions_or_update_review_chains": 4
+            }
+          },
+          "system": {
+            "24h": {
+              "chains": 145,
+              "per_patient": {
+                "n": 100,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 4
+              },
+              "patients_zero": 4,
+              "patients_ge2": 39,
+              "candidate_records": 300,
+              "opposing_opinions_or_update_review_chains": 4
+            },
+            "48h": {
+              "chains": 137,
+              "per_patient": {
+                "n": 100,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 3
+              },
+              "patients_zero": 4,
+              "patients_ge2": 33,
+              "candidate_records": 300,
+              "opposing_opinions_or_update_review_chains": 4
+            },
+            "168h": {
+              "chains": 118,
+              "per_patient": {
+                "n": 100,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 1.0,
+                "min": 0,
+                "max": 3
+              },
+              "patients_zero": 4,
+              "patients_ge2": 18,
+              "candidate_records": 300,
+              "opposing_opinions_or_update_review_chains": 4
+            }
+          }
+        }
+      },
+      "300": {
+        "patients": 300,
+        "context_notes": 20587,
+        "labeled_notes": 3288,
+        "labels": {
+          "PLAN_RESECTION": {
+            "hits": 1902,
+            "notes": 1158,
+            "patients": 286,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 1434,
+              "NARRATIVE_UNRESOLVED": 440,
+              "CONTEXT_UNRESOLVED": 8,
+              "EXECUTED_OR_HISTORY": 17,
+              "TEMPLATE_CONTEXT": 3
+            },
+            "eligible_notes": 832,
+            "other_procedure_notes": 0
+          },
+          "INDICATION_YES": {
+            "hits": 594,
+            "notes": 337,
+            "patients": 32,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 29,
+              "NARRATIVE_UNRESOLVED": 475,
+              "TEMPLATE_CONTEXT": 1,
+              "NEGATED_SCOPE": 38,
+              "CONTEXT_UNRESOLVED": 48,
+              "QUESTION": 3
+            },
+            "eligible_notes": 13,
+            "other_procedure_notes": 37
+          },
+          "INDICATION_NO": {
+            "hits": 524,
+            "notes": 438,
+            "patients": 42,
+            "roles": {
+              "NARRATIVE_UNRESOLVED": 367,
+              "CONTEXT_UNRESOLVED": 105,
+              "CURRENT_DOCUMENT_OPINION": 27,
+              "EXPLICIT_HISTORY": 25
+            },
+            "eligible_notes": 18,
+            "other_procedure_notes": 0
+          },
+          "ASSESSMENT_PENDING": {
+            "hits": 7,
+            "notes": 6,
+            "patients": 5,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 6,
+              "TEMPLATE_CONTEXT": 1
+            },
+            "eligible_notes": 5,
+            "other_procedure_notes": 0
+          },
+          "NAT_PLAN": {
+            "hits": 266,
+            "notes": 218,
+            "patients": 20,
+            "roles": {
+              "NARRATIVE_UNRESOLVED": 104,
+              "CURRENT_DOCUMENT_OPINION": 58,
+              "CONTEXT_UNRESOLVED": 53,
+              "TEMPLATE_CONTEXT": 21,
+              "EXPLICIT_HISTORY": 30
+            },
+            "eligible_notes": 4,
+            "other_procedure_notes": 0
+          },
+          "GENERIC_SURGERY_PLAN": {
+            "hits": 449,
+            "notes": 442,
+            "patients": 284,
+            "roles": {
+              "TEMPLATE_CONTEXT": 298,
+              "CONTEXT_UNRESOLVED": 17,
+              "CURRENT_DOCUMENT_OPINION": 118,
+              "EXPLICIT_HISTORY": 1,
+              "NARRATIVE_UNRESOLVED": 15
+            },
+            "eligible_notes": 0,
+            "other_procedure_notes": 9
+          },
+          "FITNESS_CONTEXT": {
+            "hits": 2915,
+            "notes": 2281,
+            "patients": 300,
+            "roles": {
+              "CURRENT_DOCUMENT_OPINION": 1550,
+              "TEMPLATE_CONTEXT": 648,
+              "CONTEXT_UNRESOLVED": 268,
+              "NARRATIVE_UNRESOLVED": 448,
+              "EXPLICIT_HISTORY": 1
+            },
+            "eligible_notes": 0,
+            "other_procedure_notes": 0
+          }
+        },
+        "candidate_chains": {
+          "body_preferred": {
+            "24h": {
+              "chains": 504,
+              "per_patient": {
+                "n": 300,
+                "median": 2.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 8
+              },
+              "patients_zero": 13,
+              "patients_ge2": 165,
+              "candidate_records": 862,
+              "opposing_opinions_or_update_review_chains": 9
+            },
+            "48h": {
+              "chains": 423,
+              "per_patient": {
+                "n": 300,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 6
+              },
+              "patients_zero": 13,
+              "patients_ge2": 112,
+              "candidate_records": 862,
+              "opposing_opinions_or_update_review_chains": 9
+            },
+            "168h": {
+              "chains": 331,
+              "per_patient": {
+                "n": 300,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 1.0,
+                "min": 0,
+                "max": 5
+              },
+              "patients_zero": 13,
+              "patients_ge2": 32,
+              "candidate_records": 862,
+              "opposing_opinions_or_update_review_chains": 9
+            }
+          },
+          "system": {
+            "24h": {
+              "chains": 418,
+              "per_patient": {
+                "n": 300,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 6
+              },
+              "patients_zero": 13,
+              "patients_ge2": 101,
+              "candidate_records": 862,
+              "opposing_opinions_or_update_review_chains": 9
+            },
+            "48h": {
+              "chains": 392,
+              "per_patient": {
+                "n": 300,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 2.0,
+                "min": 0,
+                "max": 6
+              },
+              "patients_zero": 13,
+              "patients_ge2": 82,
+              "candidate_records": 862,
+              "opposing_opinions_or_update_review_chains": 9
+            },
+            "168h": {
+              "chains": 349,
+              "per_patient": {
+                "n": 300,
+                "median": 1.0,
+                "q1": 1.0,
+                "q3": 1.0,
+                "min": 0,
+                "max": 5
+              },
+              "patients_zero": 13,
+              "patients_ge2": 47,
+              "candidate_records": 862,
+              "opposing_opinions_or_update_review_chains": 9
+            }
+          }
+        }
+      }
+    },
+    "preop_backtrack": {
+      "body_preferred": {
+        "preop_plan_anchors": 293,
+        "pairs": {
+          "first_senior_round": {
+            "paired": 292,
+            "within_24h": 155,
+            "within_48h": 221,
+            "within_7d": 286,
+            "hours": {
+              "n": 292,
+              "median": 23.05,
+              "q1": 0.141675,
+              "q3": 47.662525,
+              "min": 0.0,
+              "max": 370.1667
+            }
+          },
+          "abdominal_CT_MR_exam": {
+            "paired": 268,
+            "within_24h": 83,
+            "within_48h": 125,
+            "within_7d": 206,
+            "hours": {
+              "n": 268,
+              "median": 56.92805,
+              "q1": 17.7819,
+              "q3": 160.32162499999998,
+              "min": 0.0708,
+              "max": 3168.6614
+            }
+          },
+          "current_same_surgery_path": {
+            "paired": 231,
+            "within_24h": 96,
+            "within_48h": 145,
+            "within_7d": 228,
+            "hours": {
+              "n": 231,
+              "median": 27.1,
+              "q1": 4.9,
+              "q3": 54.075,
+              "min": 0.0167,
+              "max": 258.3833
+            }
+          }
+        }
+      },
+      "system": {
+        "preop_plan_anchors": 293,
+        "pairs": {
+          "first_senior_round": {
+            "paired": 291,
+            "within_24h": 213,
+            "within_48h": 240,
+            "within_7d": 284,
+            "hours": {
+              "n": 291,
+              "median": 0.0419,
+              "q1": 0.01795,
+              "q3": 26.56375,
+              "min": 0.0025,
+              "max": 1038.1231
+            }
+          },
+          "abdominal_CT_MR_exam": {
+            "paired": 272,
+            "within_24h": 56,
+            "within_48h": 92,
+            "within_7d": 181,
+            "hours": {
+              "n": 272,
+              "median": 101.39345,
+              "q1": 27.15195,
+              "q3": 224.315675,
+              "min": 0.0964,
+              "max": 1135.4722
+            }
+          },
+          "current_same_surgery_path": {
+            "paired": 230,
+            "within_24h": 156,
+            "within_48h": 179,
+            "within_7d": 217,
+            "hours": {
+              "n": 230,
+              "median": 0.13474999999999998,
+              "q1": 0.050875,
+              "q3": 42.8408,
+              "min": 0.0044,
+              "max": 1292.0961
+            }
+          }
+        }
+      }
+    },
+    "cross_visit_statement_repeat": {
+      "records": 609,
+      "patients": 29,
+      "eligible_records": 24,
+      "hit_roles": {
+        "NARRATIVE_UNRESOLVED": 756,
+        "CONTEXT_UNRESOLVED": 115,
+        "CURRENT_DOCUMENT_OPINION": 65,
+        "TEMPLATE_CONTEXT": 19,
+        "EXPLICIT_HISTORY": 4,
+        "NEGATED_SCOPE": 32
+      }
+    },
+    "meaning": "Unadjudicated source-witness chains; not independent clinical decisions or episodes. v0.2 and v0.3 differ in dictionary, source context coverage and counting method; totals are not directly interchangeable."
+  },
+  "semantic_review": {
+    "review_records": 12,
+    "review_patients": 12,
+    "semantic_classes": {
+      "SUPPORTED_CURRENT_NO": 1,
+      "SUPPORTED_CURRENT_DEFER": 1,
+      "SUPPORTED_PENDING_REASSESSMENT": 1,
+      "SUPPORTED_PENDING_WORKUP": 1,
+      "SUPPORTED_CURRENT_PLAN_AFTER_THERAPY": 1,
+      "SUPPORTED_CURRENT_YES_REFERRAL": 1,
+      "SUPPORTED_CURRENT_PLAN": 2,
+      "UNCERTAIN_ASSESSMENT_TEMPLATE": 1,
+      "HISTORICAL_REFERENCE": 1,
+      "POST_HOC_REGEX_FALSE": 1,
+      "NON_TARGET_PROCEDURE": 1
+    },
+    "sampling": "Purposeful diagnostic cases, informed by earlier source inspection; rules iterated on these cases. Not independent validation.",
+    "analyst_supported_records": 8,
+    "source_quote_offsets_verified": true
+  },
+  "quality_checks": {
+    "regression_tests_passed": 15,
+    "all_565_input_hashes_checked": true,
+    "fixed_sample_replayed": true,
+    "all_300_source_counts_match_P1": true,
+    "literal_spans_and_manual_quote_spans_replay": true,
+    "all_12_clock_window_sample_count_variants_recomputed": true,
+    "known_four_operation_form_misses_retrieved": true
+  },
+  "time_quality_flags": {
+    "BODY_SYSTEM_DATE_DISAGREE": 4872,
+    "DISCUSSION_BODY_DATE_DISAGREE": 25
+  },
+  "environment": {
+    "python": "3.12.4",
+    "pyarrow": "14.0.2"
+  }
+}

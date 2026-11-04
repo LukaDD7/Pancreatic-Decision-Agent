@@ -1,0 +1,280 @@
+{
+  "version": "0.4",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "V04-ENG001",
+      "problem": "semantic scope veto overrides discovery positive",
+      "required_tests": [
+        "test_ENG001_semantic_scope_can_restore_rule_discovery_rejection",
+        "test_ENG001_semantic_scope_veto_overrides_discovery_positive"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG002",
+      "problem": "semantic repeat does not require fabricated new evidence",
+      "required_tests": [
+        "test_ENG002_semantic_repeat_does_not_require_fabricated_new_evidence",
+        "test_ENG002_semantic_uncertain_is_not_upgraded_by_valid_quotes"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG003",
+      "problem": "no source backed observation cannot be new checkpoint",
+      "required_tests": [
+        "test_ENG003_bad_secondary_quote_does_not_erase_other_valid_observation",
+        "test_ENG003_no_source_backed_observation_cannot_be_new_checkpoint"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG004",
+      "problem": "unsupported actual action cannot be accepted",
+      "required_tests": [
+        "test_ENG004_unsupported_actual_action_cannot_be_accepted"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG005",
+      "problem": "model can choose different valid predecessor",
+      "required_tests": [
+        "test_ENG005_model_can_choose_different_valid_predecessor"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG006",
+      "problem": "unknown or future predecessor id is rejected",
+      "required_tests": [
+        "test_ENG006_unknown_or_future_predecessor_id_is_rejected",
+        "test_ENG006_unknown_process_predecessor_is_rejected"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG007",
+      "problem": "sibling identity allowed without becoming prior round",
+      "required_tests": [
+        "test_ENG007_sibling_identity_allowed_without_becoming_prior_round",
+        "test_ENG007_sibling_is_not_accepted_as_earlier_decision"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG008",
+      "problem": "report execution can be uncertain time process anchor",
+      "required_tests": [
+        "test_ENG008_execution_is_not_new_evidence_checkpoint",
+        "test_ENG008_report_execution_can_be_uncertain_time_process_anchor"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG009",
+      "problem": "new round requires prior identity and connection",
+      "required_tests": [
+        "test_ENG009_new_round_requires_prior_identity_and_connection"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG010",
+      "problem": "different subquestions can share supported management process",
+      "required_tests": [
+        "test_ENG010_context_only_does_not_force_process_merge",
+        "test_ENG010_different_subquestions_can_share_supported_management_process"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG011",
+      "problem": "unverified connection does not force process merge",
+      "required_tests": [
+        "test_ENG011_generic_only_does_not_create_episode_even_with_candidate_flag",
+        "test_ENG011_unverified_connection_does_not_force_process_merge"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG012",
+      "problem": "masked offsets map to exact raw without rewriting",
+      "required_tests": [
+        "test_ENG012_hidden_different_names_preserve_all_occurrences",
+        "test_ENG012_masked_offsets_map_to_exact_raw_without_rewriting"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG013",
+      "problem": "connection can include action but observation cannot",
+      "required_tests": [
+        "test_ENG013_action_only_observation_cannot_establish_new_evidence",
+        "test_ENG013_connection_can_include_action_but_observation_cannot"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG014",
+      "problem": "future fact and after choice execution rejected individually",
+      "required_tests": [
+        "test_ENG014_future_fact_and_after_choice_execution_rejected_individually"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG015",
+      "problem": "final review can veto discovery positive with record",
+      "required_tests": [
+        "test_ENG015_final_review_can_veto_discovery_positive_with_record"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG016",
+      "problem": "provider budget removes whole source and updates actual ledger",
+      "required_tests": [
+        "test_ENG016_provider_budget_removes_whole_source_and_updates_actual_ledger"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-ENG017",
+      "problem": "shared request pool does not expand another events allowed facts",
+      "required_tests": [
+        "test_ENG017_shared_request_pool_does_not_expand_another_events_allowed_facts"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC001",
+      "problem": "unknown material keeps total 53 without becoming known miss",
+      "required_tests": [
+        "test_SC001_unknown_material_keeps_total_53_without_becoming_known_miss"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC002",
+      "problem": "partial discovery does not shrink fixed denominator",
+      "required_tests": [
+        "test_SC002_partial_discovery_does_not_shrink_fixed_denominator"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC003",
+      "problem": "conservative lower bound can demonstrate threshold",
+      "required_tests": [
+        "test_SC003_conservative_lower_bound_can_demonstrate_threshold"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC004",
+      "problem": "receiptless claimed hit becomes unknown not failure",
+      "required_tests": [
+        "test_SC004_external_success_receipt_can_authenticate_current_input",
+        "test_SC004_receiptless_claimed_hit_becomes_unknown_not_failure"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC005",
+      "problem": "negative error union not fabricated",
+      "required_tests": [
+        "test_SC005_known_four_negative_errors_fail_even_if_other_metrics_unknown",
+        "test_SC005_negative_error_union_not_fabricated"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC006",
+      "problem": "abstain rate does not prove dimension reason preservation",
+      "required_tests": [
+        "test_SC006_abstain_rate_does_not_prove_dimension_reason_preservation"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC007",
+      "problem": "no tested prohibited controls cannot pass zero target",
+      "required_tests": [
+        "test_SC007_known_prohibited_fact_fails_zero_target",
+        "test_SC007_no_tested_prohibited_controls_cannot_pass_zero_target"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC008",
+      "problem": "initial 6 and diagnostic 1 are not newcp 30",
+      "required_tests": [
+        "test_SC008_initial_6_and_diagnostic_1_are_not_newcp_30"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC009",
+      "problem": "contract reference hash mismatch is rejected",
+      "required_tests": [
+        "test_SC009_contract_reference_hash_mismatch_is_rejected"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC010",
+      "problem": "frozen contract hash detects tamper",
+      "required_tests": [
+        "test_SC010_frozen_contract_hash_detects_tamper"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC011",
+      "problem": "scorecard does not mutate raw evaluation or contract",
+      "required_tests": [
+        "test_SC011_scorecard_does_not_mutate_raw_evaluation_or_contract"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-SC012",
+      "problem": "changed artifact receipt not accepted as actual model input",
+      "required_tests": [
+        "test_SC012_changed_artifact_receipt_not_accepted_as_actual_model_input"
+      ],
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_contract_scorecard.py",
+      "origin": "synthetic_counterexamples"
+    }
+  ]
+}

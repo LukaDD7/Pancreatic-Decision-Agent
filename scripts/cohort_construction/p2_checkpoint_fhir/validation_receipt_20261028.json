@@ -1,0 +1,89 @@
+{
+  "receipt_version": "0.1.0",
+  "date": "2026-10-28",
+  "scope": "synthetic_FHIR_packet_response_interfaces_only",
+  "clinical_performance_evaluated": false,
+  "clinical_model_api_calls": 0,
+  "old_patient_outputs_modified": false,
+  "python": "3.12.4",
+  "pytest": "9.1.0",
+  "jsonschema": "4.19.2",
+  "checks": [
+    {
+      "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/anaconda3/bin/python -m pytest scripts/cohort_construction/p2_checkpoint_packet/tests scripts/cohort_construction/p2_checkpoint_review/tests scripts/cohort_construction/p2_checkpoint_fhir/tests -q",
+      "exit_code": 0,
+      "tests_passed": 117,
+      "subtests_passed": 67,
+      "elapsed_seconds": 1.69,
+      "fhir_module_tests_included": 52
+    },
+    {
+      "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/anaconda3/bin/python -m pytest scripts/cohort_construction/p2_checkpoint_fhir/tests -q",
+      "exit_code": 0,
+      "tests_passed": 69,
+      "elapsed_seconds": 2.84,
+      "browser_interop_cases_included": 17
+    }
+  ],
+  "fhir_r4_schema": {
+    "path": "private/p2_auto_checkpoint_v0.1_20261024/standards/fhir.schema.json",
+    "sha256": "2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01",
+    "validation": "complete_R4_JSON_schema_only_not_FHIRPath_terminology_or_profile_snapshot_validation"
+  },
+  "draft_extension_structure_definitions": 24,
+  "published_FHIR_profiles": 0,
+  "required_issue_ids": [
+    "CE-FHIR-001",
+    "CE-FHIR-002",
+    "CE-FHIR-003",
+    "CE-FHIR-004",
+    "CE-FHIR-005",
+    "CE-FHIR-006"
+  ],
+  "source_hashes": {
+    "README.md": "b426b32f9305ffdf5bf7d17f992d0d05abf4a533d86a8db45628ab2f2bca115f",
+    "__init__.py": "cc84355cb72d52dc7fe71e34d468273208913f178f8246691a3f1d594171ddae",
+    "__main__.py": "fef083cf63b8ef520b604a2c98d9a4efcfee2429929a32adf0271e2c68da7cc7",
+    "common.py": "81142365f183b3f32d8e40c27914ef0f91e90d81f0e657cfcd35bbf6ea630deb",
+    "contracts/doctor-bundle.contract.json": "60790b0ad489cb0b562a800c96f1fb988b83f71398e379dffe429060ad8bf526",
+    "contracts/local-extension-definitions.bundle.json": "38ddb471bc09f57bfd9d584e1c187a410eaa7dce902a16f379bc47113d0b1ec0",
+    "contracts/response-bundle.contract.json": "8b37f62bae9228171609b392634ae1f22fad6abb4ac0e2340fc81ab0ad67b993",
+    "doctor.py": "c80199bdc9d50b271ee65921c0ca67dc569e987a330b49181e10c5358bef2d41",
+    "examples/doctor-bundle.decimal.synthetic.json": "5b15dcac85663842ba1a3773cfe6dd0e0432a87a36a0ae0b274027874a57c058",
+    "examples/doctor-bundle.synthetic.json": "723fb3323106d0f1ecf2a7fd8139bfa38310f19b3d07b37b46aa4de35d778c3f",
+    "examples/frozen-packet.synthetic.json": "ac6b0db9e4a3dd8de7e816c835311e0f668239e1a845a3cd40f08108f08a6281",
+    "examples/researcher-bundle.synthetic.json": "e97d9333d3dd11ceb08886c1afd72e1e2bd074a88c3953f7e29431e931bb8d1b",
+    "examples/researcher-graph.synthetic.json": "fda7590238041639df0f5bab6bd38e7c33dd86053811f8a231959586dfe0b3da",
+    "examples/response-bundle.synthetic.json": "8f6dd945de7db8266cc15aa3a9ae72e930091f0a9d1810b1dea321530e85a116",
+    "examples/review-submission.synthetic.json": "be0222d6248dba9500dc21106bc9e84e762796895a5f9bac5c79c1f9da4ff360",
+    "regression_issue_map.json": "7d5157068c3f1e3257ed396270e94b7381b4f7531e25d16266a87ec0f5247229",
+    "researcher.py": "69657d99fbc05a6a9810a467ac77e1000a61e267764217ecaef32373f230c701",
+    "response.py": "617b653bafc5ed96654a6599ff643f97c511641d46b19a6f41cd46c75bdd71d5",
+    "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests/test_browser_interop.py": "538bb315d1a39d2ade338102c5c0149cd77413678735b6e6b930a7a4926b740d",
+    "tests/test_fhir_adapter.py": "d2dfc46e2d102e7aea3cf99964faa92c381280255e8134a51901c509c11be7f0"
+  },
+  "limits": [
+    "No independently audited real patient packet has been created here.",
+    "Content hashes bind bytes and versions but do not authenticate a reviewer or independently establish packet authorization.",
+    "Trusted packet hash and assignment ID must come from the assignment ledger.",
+    "Local draft extension differentials have not been validated with HL7 validator snapshots."
+  ],
+  "browser_bom_regression": {
+    "before_fix": {
+      "tests_passed": 16,
+      "tests_failed": 1,
+      "error": "FHIR_INVALID_BASE64_UTF8",
+      "failing_input": "synthetic permitted source starting U+FEFF"
+    },
+    "after_fix": {
+      "tests_passed": 17,
+      "tests_failed": 0,
+      "change": "root reviewer.js TextDecoder ignoreBOM:true"
+    }
+  },
+  "browser_interop_dependencies_sha256": {
+    "scripts/cohort_construction/p2_checkpoint_review_app/assets/reviewer.js": "0ff24155ddb1b40525a85995d84caf6527902de32e40cd03e9e943d5080bb6ed",
+    "scripts/cohort_construction/p2_checkpoint_review_app/build.py": "9d2d3bab9da1194009f73e71fb912ed8b5f1daa13490ebfe06cc5ac58b0adabe"
+  }
+}

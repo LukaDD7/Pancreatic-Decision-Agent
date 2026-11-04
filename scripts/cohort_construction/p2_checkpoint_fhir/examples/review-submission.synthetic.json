@@ -1,0 +1,41 @@
+{
+  "schema_version": "0.1.0",
+  "submission_id": "fictional-submission-1",
+  "reviewer_assignment_id": "fictional-assignment-1",
+  "submitted_at": "2026-10-28T12:01:00Z",
+  "packet_binding": {
+    "packet_id": "PK-fictional",
+    "packet_version": "1",
+    "packet_sha256": "2fedb16e41c58898c351909c92aaf3b3e934f72833dfcb77379c9aa08ae11653",
+    "clinical_content_sha256": "a4e1ebebce8b6cccd1db18b718a313f1bbb6482054ea625a9342f2d3d224fcd4",
+    "target": {
+      "checkpoint_id": "CP-fictional-1",
+      "decision_task_id": "fictional-task",
+      "visibility_policy_version": "synthetic-policy-1"
+    }
+  },
+  "questionnaire_binding": {
+    "canonical": "urn:fictional:form",
+    "version": "1",
+    "sha256": "0232f2913a8d70fd3d691ce7acf503330225eb11487832a242a35a4b4e891d55"
+  },
+  "questionnaire_response": {
+    "resourceType": "QuestionnaireResponse",
+    "questionnaire": "urn:fictional:form|1",
+    "status": "completed",
+    "authored": "2026-10-28T12:00:00Z",
+    "item": [
+      {
+        "linkId": "fictional-item",
+        "answer": [
+          {
+            "valueCoding": {
+              "system": "urn:fictional",
+              "code": "a"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

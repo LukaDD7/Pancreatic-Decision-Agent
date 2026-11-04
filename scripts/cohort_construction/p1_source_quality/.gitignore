@@ -1,0 +1,6 @@
+**/__pycache__/
+**/results/
+**/inputs/
+**/*.pyc
+p1_pass_audit_20261019/*
+!p1_pass_audit_20261019/*.py

@@ -1,0 +1,36 @@
+{
+  "version": "0.6",
+  "component": "live_review_validation_feedback",
+  "origin": "synthetic_counterexamples",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "CE-AUD-007",
+      "problem": "Repairable citation and contract failures in the live review pipeline did not receive bounded model feedback and full revalidation; unsafe recovery could mutate the source context, create positives from invalid responses, repeat indefinitely or use another concurrent invocation's receipt.",
+      "change_type": "conditional_review_repair",
+      "implementation": "A maximum of one conditional revision reuses the exact original source pool, per-event allowlists and discovery event catalog. Initial-response MODEL_OMITTED_EVENT_ID and MODEL_DUPLICATED_EVENT_ID fallback markers are mechanical repair triggers only when the original request hash exists; unmarked semantic uncertainty is not expanded. Each returned object is schema-checked and mechanically revalidated. Missing/duplicate targets and failures preserve the original classification. Failed transport receipts are accepted only from the invocation-bound ModelRequestFailed with consistent task, hash and failed status; shared receipt lists are never read.",
+      "limitations": "Passing schema, citation and contract checks does not establish clinical semantic correctness or make a physician blind-review packet. Existing original facts remain authoritative.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_review_feedback.py",
+      "required_tests": [
+        "test_CEAUD007_initial_missing_or_duplicate_id_receives_one_mechanical_feedback",
+        "test_CEAUD007_initial_id_feedback_missing_duplicate_or_uncertain_does_not_force_positive",
+        "test_CEAUD007_initial_id_trigger_does_not_expand_pure_semantic_or_unbound_requests",
+        "test_CEAUD007_one_model_revision_revalidates_and_preserves_actual_source_context",
+        "test_CEAUD007_only_failed_targets_are_revised_while_shared_source_pool_stays_exact",
+        "test_CEAUD007_missing_duplicate_or_unexpected_target_cannot_create_positive",
+        "test_CEAUD007_unrequested_proposal_is_audited_but_never_inserted",
+        "test_CEAUD007_returned_proposal_must_pass_same_source_and_contract_checks",
+        "test_CEAUD007_model_can_keep_semantic_uncertainty_without_positive_fallback",
+        "test_CEAUD007_does_not_repair_pure_semantic_uncertainty_or_repeat_attempt",
+        "test_CEAUD007_context_mismatch_or_feedback_budget_does_not_call_model",
+        "test_CEAUD007_returned_json_is_schema_checked_again_before_revalidation",
+        "test_CEAUD007_failure_uses_own_exception_receipt_never_shared_list_tail",
+        "test_CEAUD007_invalid_receipt_or_mutating_client_cannot_create_positive",
+        "test_CEAUD007_arbitrary_provider_error_text_is_not_copied_into_audit",
+        "test_CEAUD007_revalidation_exception_retains_original_without_second_request",
+        "test_CEAUD007_invalid_configuration_fails_before_model_call",
+        "test_CEAUD007_issue_map_references_existing_required_tests"
+      ]
+    }
+  ]
+}

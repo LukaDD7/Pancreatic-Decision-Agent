@@ -1,0 +1,299 @@
+{
+  "version": "0.4",
+  "component": "source_citation_validation",
+  "origin": "synthetic_counterexamples",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "V04-Q001",
+      "problem": "Quote normalization or byte/string offset confusion invents an exact raw span.",
+      "required_tests": [
+        "test_Q001_raw_unicode_string_offsets_are_exact",
+        "test_Q001_no_unicode_or_whitespace_normalization"
+      ]
+    },
+    {
+      "id": "V04-Q002",
+      "problem": "Repeated or overlapping quotes cause whole-response rejection or arbitrary first-match selection.",
+      "required_tests": [
+        "test_Q002_repeated_quote_preserves_all_raw_occurrences",
+        "test_Q002_overlapping_occurrences_are_not_lost"
+      ]
+    },
+    {
+      "id": "V04-Q003",
+      "problem": "Invalid explicit model offsets are silently replaced by a convenient substring match.",
+      "required_tests": [
+        "test_Q003_explicit_span_resolves_repetition",
+        "test_Q003_wrong_explicit_span_never_falls_back_to_search"
+      ]
+    },
+    {
+      "id": "V04-Q004",
+      "problem": "Missing, colliding or conflicting source aliases select an unsupported source.",
+      "required_tests": [
+        "test_Q004_aliases_resolve_to_canonical_raw_source",
+        "test_Q004_unknown_and_conflicting_aliases_do_not_pass",
+        "test_Q004_colliding_alias_does_not_choose_arbitrary_source"
+      ]
+    },
+    {
+      "id": "V04-Q005",
+      "problem": "Source text or submitted source hash changes without detection.",
+      "required_tests": [
+        "test_Q005_source_and_citation_hashes_are_checked"
+      ]
+    },
+    {
+      "id": "V04-Q006",
+      "problem": "Current choice, future source, or a quote crossing the allowed boundary is accepted as prior evidence.",
+      "required_tests": [
+        "test_Q006_visibility_ranges_block_current_choice_and_future_sources",
+        "test_Q006_quote_must_fit_wholly_inside_one_allowed_range",
+        "test_Q006_explicit_disallowed_occurrence_cannot_fall_back_to_allowed_one"
+      ]
+    },
+    {
+      "id": "V04-Q007",
+      "problem": "A repeated quote with temporally disallowed occurrences is silently reassigned to an allowed occurrence.",
+      "required_tests": [
+        "test_Q007_mixed_allowed_repetition_keeps_uncertainty",
+        "test_Q007_all_unallowed_repetitions_are_invalid_prior_evidence"
+      ]
+    },
+    {
+      "id": "V04-Q008",
+      "problem": "A bad secondary quote erases an independent valid primary decision or ambiguous evidence citation.",
+      "required_tests": [
+        "test_Q008_one_bad_citation_does_not_erase_valid_or_ambiguous_support"
+      ]
+    },
+    {
+      "id": "V04-Q009",
+      "problem": "A quote matching only a masked display is falsely represented as raw source evidence.",
+      "required_tests": [
+        "test_Q009_masked_display_is_not_fabricated_raw_evidence",
+        "test_Q009_missing_raw_text_is_explicit_unknown",
+        "test_Q009_explicit_raw_field_wins_over_transformed_display"
+      ]
+    },
+    {
+      "id": "V04-Q010",
+      "problem": "Malformed individual quotes or allowlist spans silently pass or erase unrelated valid citations.",
+      "required_tests": [
+        "test_Q010_malformed_citations_remain_individual_errors",
+        "test_Q010_malformed_visibility_range_is_fail_closed_per_source"
+      ]
+    },
+    {
+      "id": "V04-Q011",
+      "problem": "Validation mutates raw inputs or silently overwrites conflicting source identities.",
+      "required_tests": [
+        "test_Q011_input_is_not_mutated",
+        "test_Q011_duplicate_conflicting_source_identity_is_not_silently_replaced"
+      ]
+    },
+    {
+      "id": "V04-Q012",
+      "problem": "Regression issue records refer to absent tests.",
+      "required_tests": [
+        "test_Q012_issue_map_references_existing_tests"
+      ]
+    }
+  ],
+  "evaluation_issues": [
+    {
+      "id": "V04-E001",
+      "problem": "scope no cannot count as positive detection",
+      "required_tests": [
+        "test_E001_scope_no_cannot_count_as_positive_detection"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E002",
+      "problem": "decision existence and checkpoint selection are separate",
+      "required_tests": [
+        "test_E002_decision_existence_and_checkpoint_selection_are_separate"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E003",
+      "problem": "positive decision with uncertain cp not in positive cp denominator",
+      "required_tests": [
+        "test_E003_positive_decision_with_uncertain_cp_not_in_positive_cp_denominator"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E004",
+      "problem": "initial anchor and new round subtypes separate",
+      "required_tests": [
+        "test_E004_initial_anchor_and_new_round_subtypes_separate"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E005",
+      "problem": "non exhaustive reference does not create precision",
+      "required_tests": [
+        "test_E005_non_exhaustive_reference_does_not_create_precision"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E006",
+      "problem": "repeated support mention is not negative false positive",
+      "required_tests": [
+        "test_E006_repeated_support_mention_is_not_negative_false_positive"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E007",
+      "problem": "unmatched uncertain is not automatically abstention",
+      "required_tests": [
+        "test_E007_unmatched_uncertain_is_not_automatically_abstention"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E008",
+      "problem": "needed quote requires full span coverage",
+      "required_tests": [
+        "test_E008_needed_quote_requires_full_span_coverage"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E009",
+      "problem": "reconstruction disclosure is not blind evidence leak",
+      "required_tests": [
+        "test_E009_reconstruction_disclosure_is_not_blind_evidence_leak"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E010",
+      "problem": "historical baseline allowed but not new observation",
+      "required_tests": [
+        "test_E010_historical_baseline_allowed_but_not_new_observation"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E011",
+      "problem": "availability uncertain is not asserted to be future",
+      "required_tests": [
+        "test_E011_availability_uncertain_is_not_asserted_to_be_future"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E012",
+      "problem": "multiple selected events same positive counted as duplicates",
+      "required_tests": [
+        "test_E012_multiple_selected_events_same_positive_counted_as_duplicates",
+        "test_E012_one_large_prediction_cannot_cover_multiple_positive_events"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E013",
+      "problem": "source hash mismatch does not align",
+      "required_tests": [
+        "test_E013_source_hash_mismatch_does_not_align"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E014",
+      "problem": "empty denominator and absent run are not zero accuracy",
+      "required_tests": [
+        "test_E014_empty_denominator_and_absent_run_are_not_zero_accuracy"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E015",
+      "problem": "missing actual material is unknown not failed retrieval",
+      "required_tests": [
+        "test_E015_missing_actual_material_is_unknown_not_failed_retrieval"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E016",
+      "problem": "fulltext routing coverage is not event detection",
+      "required_tests": [
+        "test_E016_fulltext_routing_coverage_is_not_event_detection"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E017",
+      "problem": "discovery only does not look like final cp failure",
+      "required_tests": [
+        "test_E017_discovery_only_does_not_look_like_final_cp_failure"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E018",
+      "problem": "reference freeze hash is required and tamper detected",
+      "required_tests": [
+        "test_E018_reference_freeze_hash_is_required_and_tamper_detected"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E019",
+      "problem": "reference a evidence array adapts without changing labels",
+      "required_tests": [
+        "test_E019_reference_a_evidence_array_adapts_without_changing_labels"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E020",
+      "problem": "baseline actual material uses cache subset not entire window",
+      "required_tests": [
+        "test_E020_baseline_actual_material_uses_cache_subset_not_entire_window"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E021",
+      "problem": "unknown material hash is not zero leakage",
+      "required_tests": [
+        "test_E021_unknown_material_hash_is_not_zero_leakage"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E022",
+      "problem": "historical restatement not new independent decision",
+      "required_tests": [
+        "test_E022_historical_restatement_not_new_independent_decision"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E023",
+      "problem": "reference needed mask overlap is flagged and not false leak",
+      "required_tests": [
+        "test_E023_reference_needed_mask_overlap_is_flagged_and_not_false_leak"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "V04-E024",
+      "problem": "retained candidate with explicit time uncertainty is not forced positive",
+      "required_tests": [
+        "test_E024_retained_candidate_with_explicit_time_uncertainty_is_not_forced_positive"
+      ],
+      "fixture_origin": "synthetic_counterexamples"
+    }
+  ]
+}

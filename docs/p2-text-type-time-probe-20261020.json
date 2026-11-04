@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-20",
+  "patients": 30,
+  "note_rows": 878,
+  "labels": {
+    "PLAN_CURATIVE_PANCREAS": {
+      "notes": 53,
+      "patients": 18,
+      "patient_visit_groups": 18,
+      "document_type_families": {
+        "首次上级查房": 14,
+        "术前讨论": 15,
+        "术前小结": 15,
+        "其他文书": 9
+      }
+    },
+    "INDICATION_YES": {
+      "notes": 4,
+      "patients": 2,
+      "patient_visit_groups": 2,
+      "document_type_families": {
+        "术前小结": 1,
+        "首次上级查房": 1,
+        "术前讨论": 1,
+        "会诊记录": 1
+      }
+    },
+    "INDICATION_NO": {
+      "notes": 14,
+      "patients": 3,
+      "patient_visit_groups": 3,
+      "document_type_families": {
+        "首次病程": 2,
+        "首次上级查房": 5,
+        "入院记录": 2,
+        "术前小结": 3,
+        "其他文书": 2
+      }
+    },
+    "PAST_INDICATION_NO": {
+      "notes": 12,
+      "patients": 2,
+      "patient_visit_groups": 2,
+      "document_type_families": {
+        "首次病程": 2,
+        "首次上级查房": 4,
+        "入院记录": 2,
+        "术前小结": 2,
+        "其他文书": 2
+      }
+    },
+    "SURGERY_INTENT_GENERIC": {
+      "notes": 46,
+      "patients": 30,
+      "patient_visit_groups": 32,
+      "document_type_families": {
+        "首次上级查房": 33,
+        "其他查房": 1,
+        "会诊记录": 2,
+        "出院文书": 2,
+        "其他文书": 3,
+        "首次病程": 3,
+        "入院记录": 1,
+        "术前小结": 1
+      }
+    },
+    "NAT_INTENT": {
+      "notes": 19,
+      "patients": 5,
+      "patient_visit_groups": 5,
+      "document_type_families": {
+        "术前讨论": 2,
+        "出院文书": 2,
+        "首次病程": 4,
+        "术前小结": 3,
+        "首次上级查房": 4,
+        "入院记录": 2,
+        "其他文书": 2
+      }
+    },
+    "FITNESS_NO_CONTRAINDICATION": {
+      "notes": 226,
+      "patients": 30,
+      "patient_visit_groups": 42,
+      "document_type_families": {
+        "首次病程": 30,
+        "首次上级查房": 67,
+        "术前讨论": 38,
+        "出院文书": 36,
+        "术前小结": 38,
+        "其他文书": 13,
+        "入院记录": 4
+      }
+    }
+  },
+  "time_pairing": {
+    "body_time": {
+      "preoperative_first_label_anchors": 15,
+      "patients": 15,
+      "preceding_records": {
+        "首次病程": {
+          "paired_groups": 15,
+          "median_gap_hours": 32.47,
+          "within_8h": 1,
+          "within_24h": 7,
+          "within_48h": 9,
+          "over_48h": 6,
+          "max_gap_hours": 257.97
+        },
+        "首次上级查房": {
+          "paired_groups": 15,
+          "median_gap_hours": 13.08,
+          "within_8h": 7,
+          "within_24h": 10,
+          "within_48h": 12,
+          "over_48h": 3,
+          "max_gap_hours": 218.15
+        },
+        "更早同类根治计划": {
+          "paired_groups": 12,
+          "median_gap_hours": 15.88,
+          "within_8h": 4,
+          "within_24h": 8,
+          "within_48h": 9,
+          "over_48h": 3,
+          "max_gap_hours": 128.82
+        }
+      }
+    },
+    "system_time": {
+      "preoperative_first_label_anchors": 15,
+      "patients": 15,
+      "preceding_records": {
+        "首次病程": {
+          "paired_groups": 15,
+          "median_gap_hours": 62.56,
+          "within_8h": 1,
+          "within_24h": 4,
+          "within_48h": 7,
+          "over_48h": 8,
+          "max_gap_hours": 361.25
+        },
+        "首次上级查房": {
+          "paired_groups": 15,
+          "median_gap_hours": 0.04,
+          "within_8h": 12,
+          "within_24h": 13,
+          "within_48h": 13,
+          "over_48h": 2,
+          "max_gap_hours": 202.18
+        },
+        "更早同类根治计划": {
+          "paired_groups": 12,
+          "median_gap_hours": 0.18,
+          "within_8h": 8,
+          "within_24h": 9,
+          "within_48h": 9,
+          "over_48h": 3,
+          "max_gap_hours": 202.2
+        }
+      }
+    }
+  },
+  "patterns": {
+    "PLAN_CURATIVE_PANCREAS": "(?:拟|建议|考虑|计划)[^。；;\\n]{0,50}(?:胰[^。；;\\n]{0,16}根治(?:术|性切除|性大部切除)|胰[^。；;\\n]{0,10}根治性[^。；;\\n]{0,10}切除)",
+    "INDICATION_YES": "有手术指征|存在手术指征|手术指征明确",
+    "INDICATION_NO": "无手术指征|(?:不宜|不适合|无法|不能)(?:行|进行)?[^。；;\\n]{0,8}(?:手术治疗|外科手术切除)",
+    "PAST_INDICATION_NO": "当时无手术指征",
+    "SURGERY_INTENT_GENERIC": "拟行手术治疗|建议[：:]?手术治疗|拟限期[^。；;\\n]{0,12}手术|择期手术|限期手术",
+    "NAT_INTENT": "(?:拟|建议|考虑|先行)[^。；;\\n]{0,12}(?:术前新辅助|新辅助治疗|新辅助化疗)",
+    "FITNESS_NO_CONTRAINDICATION": "(?:无|未见|排除)[^。；;\\n]{0,5}手术禁忌"
+  },
+  "input_sha256": "f831680a09bfa05dfc7ecd63a8ae99dc9e9fbaaaedbff09792145c7cfaaf7ab5",
+  "script_sha256": "0808189437bab2e1bdd933fe0f853a151b7988c1b5f36ecfcce5666fac434ab7",
+  "meaning": "Literal multi-label exploration on the same convenience sample. VISIT_ID is a search aid, not an episode definition. Body headers and system times are alternative observation clocks, not verified decision times. Within-window records are candidates, not confirmed decision points. Prior source coverage limits apply."
+}

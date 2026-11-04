@@ -1,0 +1,8 @@
+{
+  "version": "v0.5-development",
+  "issue_id": "V04-TIMEINDEX001",
+  "description": "Endoscopy request physician signature record day was ignored when structured record clock was null; scheduled test date must not replace it or become actual choice time.",
+  "scope": "P2 source clock adapter only; no raw source, P1 extraction, or cohort gate changes",
+  "required_test_file": "test_source_signature_time.py",
+  "tests": ["SIG001", "SIG002", "SIG003", "SIG004", "SIG005", "SIG006", "SIG007", "SIG008", "SIG009", "SIG010", "SIG011", "SIG012", "SIG013", "SIG014", "SIG015"]
+}

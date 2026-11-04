@@ -1,0 +1,66 @@
+{
+  "version": "decision-ir-0.1",
+  "date": "2026-10-22",
+  "base_commit": "c18db725cde0e78a93dcf36383f57fec6f158b86",
+  "final_run": "local_artifacts/p2_decision_ir_v0.1_20261022_run07",
+  "audit_run": "local_artifacts/p2_decision_ir_v0.1_20261022_audit03",
+  "input_sha256": {
+    "/Users/lucachangretta/Agent_Workspace/pdac-cohort-version-control/local_artifacts/p2_dynamic_pathway_probe_v0.1_20261021/review_patient_context.jsonl": "21ba93c0d75162b26e04b7aae99a2db38ba663a31deea73772fcc37ac04afd3d",
+    "/Users/lucachangretta/Agent_Workspace/pdac-cohort-version-control/scripts/cohort_construction/p2_decision_localization/configs/rules-v0.3.json": "87a60916fc0f550b674696ee164a8f8909adb2fffd29eaf26af2cb232acb8978",
+    "/Users/lucachangretta/Agent_Workspace/pdac-cohort-version-control/local_artifacts/p2_dynamic_pathway_probe_v0.1_20261021/five_case_review.json": "dd37105f1ba20a80ea2f4e2e258dc33a5b1e4c4ad997f307e9961e3e0184c359"
+  },
+  "code_sha256": {
+    "scripts/cohort_construction/p2_decision_ir/run.py": "8eddb14e8e46123b126d9d2652055cf59f26ffcb31d8b96932c1e3dd505be0ac",
+    "scripts/cohort_construction/p2_decision_ir/node.schema.json": "6c1eec13aaa141f1e35bc0373f9d7a33dbebb7af77399ddc5c67653c0e6c1b72",
+    "scripts/cohort_construction/p2_decision_ir/test_receipt.json": "2513ef9efa9330ca97a4c7f5a11c1812113d13086ed5973d264f4014fa32da68",
+    "scripts/cohort_construction/p2_decision_ir/__init__.py": "e321f7157cc8706303d9389ad8c4bc198ee38b0ff4ee69c587b6674c62177674",
+    "scripts/cohort_construction/p2_decision_ir/README.md": "138bbf6920ffb32e97dbf18cb8563a7d9cdd66864a4949f484c6f8a17d178bb3",
+    "scripts/cohort_construction/p2_decision_ir/fhir_links.py": "2306be89d0eb39c91b251936898283f62239247e0cca9483409012af7431d7ea",
+    "scripts/cohort_construction/p2_decision_ir/extract.py": "4412bfe90034a5556f6e95f47079efa43ba04b4fdb1574e4abad48aa0fc821f2",
+    "scripts/cohort_construction/p2_decision_ir/compare.py": "749630b0824e4c6172db5470e2c22aea32a74f1482cf4483bffa769225ccc698",
+    "scripts/cohort_construction/p2_decision_ir/regression_catalog.json": "fd2f645e34e0043439f79b1999b39d6e2d2408d911975e20214e7fc11a2dc01a",
+    "scripts/cohort_construction/p2_decision_ir/tests/test_ir.py": "c9602d2131c761f0a42e3302e4d8c16a3afb639989ada453ee48dcb0c48bf167"
+  },
+  "private_outputs_sha256": {
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/known_case_checks.json": "42f2cfd701db2be896418796e14d16533b965608c75b0630c43d422df8e282a9",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/links.jsonl": "a9ef1819e3ddf3c869a5a457f1251ba41abea7f290bb8062babf64dcfd179a38",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/legacy_comparison.json": "591f3babaa5e1f07bf6ddaee535d960cac83d17ec4a4ff3c28f8006e16750ca1",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/aggregate.json": "45b51f5dcb4361ec9eede37491515143c44968ce29ecb480046d912700eef685",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/source_index.jsonl": "97fc88f3cd86b54b0eec5411426632ca55c81ec64bc4499cb4bf156818191062",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/五例-判断执行反馈复核卡.md": "1c0b28c1617bef8a1a3e09a52eeea0cedf6ffdfec5153492f18b6344904b8a9e",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/review_queue.json": "7c8e5f18381feacac2360ea5dc9ff2906237e846768d62348472f2bc1eaec7d8",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/nodes.jsonl": "81057e68c2833f4a7649d243cc7073a7775922d0ab544f531d424a881ef5d7c9",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/run_manifest.json": "b57024b4238e89c7bab766c1689e1ee771ba0cd02a56b5ceaec820315b27a3fb",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_run07/n01_anchor_checks.json": "75fd036e74f8d52b5211d032c7b68d15ba646cc7e2329f2b6fc4df7929c29a9d",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/summary.json": "0be10a2dd42613ebcfeb357efab2d5eed1567a1fdf3ef7b3f2546a6b87b620ed",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/fixed_sample_comparison.json": "01927b4fe8fbac0624f47a5d077481049d00679536c5f316210ac3b7a881e793",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/node_presence_changes.json": "6189b321669cc0b004b2974f9965410eb7a1953f96e9ad6f978f7ccaca872e87",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/n01_fhir_crosswalk.json": "d929544dd05d2397afc03b552b56e1411910d6e53812f0c6288706b04b25736a",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/analyst_review_ledger.json": "9bcddcd62ca0d8ab3a1d9106bc1ab728d673b3b55f3c844f7704cbf0d03907fa",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/node_migrations.json": "8321a5ed6e18744f8728dae60b9f75d7a740384a902d5f997d0e354f2da096ba",
+    "local_artifacts/p2_decision_ir_v0.1_20261022_audit03/receipt.json": "f0bfea215c7de594bbe4b4dafd7894ce3ead41ad194c1125c53bcc87bdf1b616"
+  },
+  "tests": {
+    "passed": 95,
+    "new_ir_tests": 32,
+    "receipt_sha256": "2513ef9efa9330ca97a4c7f5a11c1812113d13086ed5973d264f4014fa32da68"
+  },
+  "run06_to_run07": "No source, node, role, status or sampling change; deterministic ordering of topic links and comparison summary keys.",
+  "development_runs": "Original run plus run02-run06 and audit/audit02 are preserved locally; not independent validation or released clinical cohorts.",
+  "clinical_reference_generated": false,
+  "formal_episode_assignment": false,
+  "p0_p1_changes": false,
+  "protocol_changes": false,
+  "known_limits": [
+    "lexical roles and target/currentness still need contextual review",
+    "relations are provisional, not causal or final episodes",
+    "proxy clocks do not certify historical availability",
+    "49 patients purposefully selected during earlier development",
+    "fixed 20-source review is analyst development review, not physician blinded validation"
+  ],
+  "fhir_adapter": {
+    "source_linked_nodes": 35,
+    "source_documents": 20,
+    "scope": "N01 exact-source DocumentReference join only"
+  }
+}

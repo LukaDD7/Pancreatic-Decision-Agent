@@ -1,0 +1,71 @@
+{
+  "version": "p1-relevance-usability-v0.3.2",
+  "P0_n": 2707,
+  "patient_states": {
+    "INCLUDE_V3": 2690,
+    "REVIEW_V3": 17
+  },
+  "transitions": [
+    {
+      "before": "NOT_MET_V2",
+      "after": "INCLUDE_V3",
+      "n": 66
+    },
+    {
+      "before": "NOT_MET_V2",
+      "after": "REVIEW_V3",
+      "n": 17
+    },
+    {
+      "before": "PASS_V2",
+      "after": "INCLUDE_V3",
+      "n": 2004
+    },
+    {
+      "before": "REVIEW_V2",
+      "after": "INCLUDE_V3",
+      "n": 620
+    }
+  ],
+  "clinical_rows": 210144,
+  "image_source_rows": 38561,
+  "image_content_versions": 31236,
+  "target_context_notes": 106162,
+  "citation_statuses": {
+    "FOUND_CANDIDATE": 15725,
+    "UNRESOLVED_REFERENCE": 42918,
+    "NOT_FOUND_IN_DELIVERED": 39263,
+    "PLANNED_NOT_MISSING": 2882,
+    "SOURCE_UNVERIFIED_CANDIDATE": 2052,
+    "FOUND_EXACT": 224,
+    "AMBIGUOUS": 248
+  },
+  "patient_flag_counts": {
+    "IMAGE_ORIGINAL_NOT_INDEPENDENTLY_RECONCILED": 754,
+    "TARGET_IMAGE_WITH_PARTIAL_OR_UNRECOGNIZED_VESSEL_COVERAGE": 1481,
+    "CITATION_NOT_FOUND_IN_DELIVERED": 2341,
+    "CITATION_UNRESOLVED_REFERENCE": 2642,
+    "SUPPLEMENTAL_NONPHYSICIAN_OR_CONSENT_RECORD": 2655,
+    "TARGET_NOTE_TYPE_REQUIRES_REVIEW": 2605,
+    "CITATION_FOUND_CANDIDATE": 1528,
+    "POSTOPERATIVE_CONTEXT_CLUE_ONLY": 915,
+    "DIFFERING_LOCAL_DESCRIPTIONS_REVIEW": 212,
+    "CITATION_PLANNED_NOT_MISSING": 405,
+    "NO_VERIFIED_TARGET_RELATED_IMAGE_DETECTED": 240,
+    "CITATION_FOUND_EXACT": 47,
+    "CITATION_AMBIGUOUS": 60,
+    "CITATION_SOURCE_UNVERIFIED_CANDIDATE": 148
+  },
+  "coverage_patients_all_history_not_same_time": {
+    "A": 2690,
+    "B": 2514,
+    "C": 2656,
+    "ASSESSMENT_OR_ACQUISITION_CONTEXT": 2659
+  },
+  "clinical_decode_errors": 0,
+  "source_row_coverage_matches_frozen": true,
+  "p2_gate": false,
+  "clinical_validation_completed": false,
+  "proof_policy": "Inherited v0.2 original-source proof on SHA-identical indexed inputs; raw clusters not newly reconciled.",
+  "elapsed_seconds": 40.3
+}

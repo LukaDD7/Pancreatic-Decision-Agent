@@ -1,0 +1,859 @@
+{
+  "contract_version": "0.1.0",
+  "synthetic_only": true,
+  "cases": [
+    {
+      "name": "choice_multiple_distinct_values",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": true,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明"
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "unknown_prefill_even_empty",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": true,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ],
+            "initial": []
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明"
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": false,
+      "expected_error_code": "UNSUPPORTED_FIELD"
+    },
+    {
+      "name": "wrong_code_system",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": true,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明"
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:wrong",
+                  "code": "A"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": false,
+      "expected_error_code": "ANSWER_CHOICE_NOT_PERMITTED"
+    },
+    {
+      "name": "empty_optional_string_rejected",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": true,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明"
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "answer": [
+              {
+                "valueString": ""
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": false,
+      "expected_error_code": "NONEMPTY_STRING_REQUIRED"
+    },
+    {
+      "name": "max_length_counts_codepoints",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": true,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明"
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "answer": [
+              {
+                "valueString": "😀😀😀😀😀😀😀😀😀😀"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "false_answer_counts_as_exists",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "flag",
+            "type": "boolean",
+            "required": true
+          },
+          {
+            "linkId": "x",
+            "type": "string",
+            "required": true,
+            "enableWhen": [
+              {
+                "question": "flag",
+                "operator": "exists",
+                "answerBoolean": true
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "flag",
+            "answer": [
+              {
+                "valueBoolean": false
+              }
+            ]
+          },
+          {
+            "linkId": "x",
+            "answer": [
+              {
+                "valueString": "false是答案"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "not_equal_with_equal_and_different_is_false",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": false,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明",
+            "required": true,
+            "enableWhen": [
+              {
+                "question": "modes",
+                "operator": "!=",
+                "answerCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "not_equal_without_equal_is_true",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": false,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明",
+            "required": true,
+            "enableWhen": [
+              {
+                "question": "modes",
+                "operator": "!=",
+                "answerCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "modes",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "answer": [
+              {
+                "valueString": "B"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "not_equal_with_no_answer_is_true",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "modes",
+            "type": "choice",
+            "required": false,
+            "repeats": true,
+            "text": "虚构多选项",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A",
+                  "display": "虚构甲"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "B",
+                  "display": "虚构乙"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "note",
+            "type": "text",
+            "maxLength": 10,
+            "text": "虚构说明",
+            "required": true,
+            "enableWhen": [
+              {
+                "question": "modes",
+                "operator": "!=",
+                "answerCoding": {
+                  "system": "urn:synthetic:mode",
+                  "code": "A"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "note",
+            "answer": [
+              {
+                "valueString": "无答案也没有相等值"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "boolean_not_integer",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "n",
+            "type": "integer",
+            "required": true
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "n",
+            "answer": [
+              {
+                "valueInteger": false
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": false,
+      "expected_error_code": "FHIR_INTEGER_REQUIRED"
+    },
+    {
+      "name": "integer_zero_answer",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "n",
+            "type": "integer",
+            "required": true
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "n",
+            "answer": [
+              {
+                "valueInteger": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "wrong_tree_flattening",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "g",
+            "type": "group",
+            "item": [
+              {
+                "linkId": "x",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "x",
+            "answer": [
+              {
+                "valueString": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": false,
+      "expected_error_code": "RESPONSE_HIERARCHY_MISMATCH"
+    },
+    {
+      "name": "correct_group_tree",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "g",
+            "type": "group",
+            "item": [
+              {
+                "linkId": "x",
+                "type": "string",
+                "required": true
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "g",
+            "item": [
+              {
+                "linkId": "x",
+                "answer": [
+                  {
+                    "valueString": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    },
+    {
+      "name": "prototype_names_are_ordinary_ids",
+      "questionnaire": {
+        "resourceType": "Questionnaire",
+        "url": "urn:synthetic:form",
+        "version": "demo-1",
+        "status": "active",
+        "experimental": true,
+        "title": "虚构机制测试表，不能用于临床评审",
+        "item": [
+          {
+            "linkId": "__proto__",
+            "type": "boolean"
+          },
+          {
+            "linkId": "constructor",
+            "type": "string",
+            "required": true,
+            "enableWhen": [
+              {
+                "question": "__proto__",
+                "operator": "=",
+                "answerBoolean": true
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "resourceType": "QuestionnaireResponse",
+        "questionnaire": "urn:synthetic:form|demo-1",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "__proto__",
+            "answer": [
+              {
+                "valueBoolean": true
+              }
+            ]
+          },
+          {
+            "linkId": "constructor",
+            "answer": [
+              {
+                "valueString": "按普通linkId处理"
+              }
+            ]
+          }
+        ]
+      },
+      "expected_valid": true,
+      "expected_error_code": null
+    }
+  ]
+}

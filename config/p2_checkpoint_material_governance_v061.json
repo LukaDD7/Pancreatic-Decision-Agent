@@ -1,0 +1,16 @@
+{
+  "version": "p2-checkpoint-0.6.1",
+  "protocol_version": "checkpoint-automated-material-review-0.2.0",
+  "remediation_revision": "20261029-audit-r1",
+  "model_temperature": 0,
+  "max_output_tokens": 16000,
+  "max_concurrent_model_calls": 2,
+  "max_material_review_rounds": 3,
+  "remote_execution_authorized": false,
+  "execution_scope": "synthetic_or_separately_authorized_development_material_only",
+  "semantic_model": null,
+  "clinical_reference": false,
+  "doctor_packet_release": false,
+  "human_sampling_pass_thresholds_frozen": false,
+  "note": "接口与虚构回归默认配置。max_material_review_rounds为工程上限，不是经开发实验选定的最优轮数；真实运行需另行明确记录授权、模型、协议及输入hash。"
+}

@@ -1,0 +1,39 @@
+{
+  "version": "p1-relevance-usability-v0.3.1",
+  "parent_commit": "e689ebc1bebf7ca5d9c3588d1c2bffc127ab3e2e",
+  "code_sha256": {
+    "README.md": "6a607e90e492b4acf531df69ebc13963c3d72665b56b5240366a33b60513efbd",
+    "__init__.py": "4411c9d7ac3944608ed0cfd22194ac6bace4780ba84ce9cdf9679404e72448d4",
+    "labels.py": "d56b9ba381ff35e9f3ead49d153146831af23c7a69db312edd54169b62ed9e44",
+    "references.py": "809f389d60b3ef17349643418df923b97b6ed6824822e8700cad3e8c2c958b3b",
+    "rules.json": "97b43fabab8616aeb67d91294635f107f98d99a2101470eeb580d3ce5527de0f",
+    "run.py": "9dc9dce8e5390855e4ba0af41dd87fe9db12102a1f958897590ca923c16497a7",
+    "tests/test_known_regressions.py": "3fffd1958ee88a7d1d0e4bd78a00bd29ab8e9901ecf31bf93a37e539027d6095",
+    "tests/test_pipeline_regressions.py": "1e66651c3236830066f948e4ba612464ac9fdcc5eafbc2c7baa59b3b1e72ad09",
+    "tests/test_rules.py": "37824c7575814e20869b7a3e65619a41ccd3fdfa47b7a43da58e00247a31b19c",
+    "verify.py": "e45d5a9a90e8d72a13abbdb3cabb8f1f2461a852e68584880004a93c891cc1f4"
+  },
+  "guard_sha256": {
+    "README.md": "742749723b605a4c6b4ebf3e60565fc9070defffcb6d6433a7e57d5237db71f6",
+    "active_release.json": "9cbb29ef896c2fe18d99653e98c991a233cf7f0c8eb052ac0f9dfd538df5f388",
+    "check_mutations.py": "1f798521695e285ca33566e4812aceed4d59bce325bcd91e01d18207b9bb8ff5",
+    "known_cases.json": "9645b9de75d292f63a60f5bdbe579925aef67a3e0f6ef4d53b2e7c885bc0abb0",
+    "run_checks.py": "6cb11e84bb8f3901c207c8ab17cccfac7f2f655c1d456173c906ac8adb7e75e8"
+  },
+  "pre_commit_sha256": "3ec8864d08cebe24fbb0b5542d41b78854120358c0210487263e262b0bcde46a",
+  "tests": {
+    "active": 54,
+    "legacy": 51,
+    "total": 105,
+    "known_cases": 31,
+    "mutations_caught": 4
+  },
+  "summary_sha256": "9f44b4a4b945fb97cebefbbbc0ba5ea498206f285755ce23380df5fde509fd82",
+  "output_diff_sha256": "b093b095385d70646cd35f4ace6d8fd048b77efd93877c42444512defb9f38ca",
+  "patient_states": {
+    "INCLUDE_V3": 2690,
+    "REVIEW_V3": 17
+  },
+  "p2_gate": false,
+  "clinical_validation_completed": false
+}

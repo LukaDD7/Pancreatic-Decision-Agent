@@ -1,0 +1,88 @@
+{
+  "schema_version": "0.1.0",
+  "scope": "synthetic_interface_counterexamples_only",
+  "not_a_clinical_error_count": true,
+  "issues": [
+    {
+      "issue_id": "CE-FHIR-001",
+      "description": "资料包、原文许可视图、Questionnaire的hash或版本不匹配不能进入医生呈现",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_doctor_roundtrip_exact_and_deterministic_r4",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_material_tampering_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_form_tampering_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_stale_packet_or_questionnaire_version_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_recomputed_untrusted_packet_hash_is_not_assignment_authenticity"
+      ]
+    },
+    {
+      "issue_id": "CE-FHIR-002",
+      "description": "医生FHIR包必须拒绝未知/额外/未来资源、外部附件和隐藏研究数据",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_no_masked_text_or_research_object_in_doctor_bytes",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_extra_doctor_basic_fields_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_unknown_resource_or_future_checkpoint_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_unknown_extension_and_nested_extra_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_unknown_questionnaire_field_rejected_even_when_rehashed",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_external_or_invalid_attachment_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_duplicate_local_reference_and_external_reference_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_duplicate_fullurl_or_wrong_reference_type_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_missing_material_or_q_reference_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_order_or_url_mutation_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_fhir_schema_errors_do_not_echo_raw_document_content",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_raw_json_cli_rejects_discarded_duplicate_key_content",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_raw_json_rejects_nonfinite_and_unpaired_surrogates",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_browser_interop.test_browser_and_python_reject_same_isolation_counterexamples"
+      ]
+    },
+    {
+      "issue_id": "CE-FHIR-003",
+      "description": "专家响应须绑定当前目标、资料包、分配ID和表单，核验答案而不是仅接收JSON",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_roundtrip_r4_and_no_materials_returned",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_unknown_code_and_unanswered_required_item_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_packet_assignment_and_form_version_binding_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_mutation_extra_resource_and_unknown_fields_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_hash_tampering_and_duplicate_json_helper_keys_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_import_can_bind_to_trusted_reviewer_assignment",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_browser_interop.test_browser_exported_multiselect_and_decimal_response_enters_python_fhir_roundtrip"
+      ]
+    },
+    {
+      "issue_id": "CE-FHIR-004",
+      "description": "Python/JavaScript小数序列化和Unicode差异不得损坏精确hash或丢失许可原文",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_materials_order_preserved_and_unicode_crlf_exact",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_decimal_date_unicode_questionnaire_survives_js_number_serialization",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_response_js_decimal_helper_supported_without_python_repr_requirement",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_empty_permitted_text_has_zero_size_without_empty_fhir_primitive",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_oversized_integer_form_is_controlled_validation_error_not_float_overflow",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_browser_interop.test_browser_preserves_exact_permitted_text_including_leading_bom"
+      ]
+    },
+    {
+      "issue_id": "CE-FHIR-005",
+      "description": "研究者图须显式承接候选状态、关系语义和真实引用，不能进入医生专用入口",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_research_bundle_real_refs_and_candidate_status_only",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_researcher_graph_invalid_refs_rejected",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_optional_episode_id_never_adds_other_checkpoint"
+      ]
+    },
+    {
+      "issue_id": "CE-FHIR-006",
+      "description": "本地契约通过仍须核验实际FHIR R4资源，并防止CLI覆盖冻结产物",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_official_schema_rejects_actual_invalid_fhir",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_cli_no_overwrite_and_doctor_roundtrip",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_cli_response_and_researcher_paths_roundtrip",
+        "scripts.cohort_construction.p2_checkpoint_fhir.tests.test_fhir_adapter.test_local_draft_extension_definitions_are_r4_and_cover_wire_contracts"
+      ]
+    }
+  ]
+}

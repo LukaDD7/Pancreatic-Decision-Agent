@@ -1,0 +1,16 @@
+{
+  "contract_version": "0.1.0-draft",
+  "status": "local-draft-not-a-published-FHIR-profile",
+  "resource_set": ["one Basic research-review-submission", "one QuestionnaireResponse"],
+  "source_text_or_questionnaire_resource": "prohibited; validate against separately supplied trusted packet",
+  "extension_base": "https://checkpoint-research.invalid/fhir/StructureDefinition/",
+  "basic_extensions": {
+    "submission-binding": {"children_value_type": "valueString", "children": ["schema-version", "submission-id", "reviewer-assignment-id", "submitted-at", "packet-id", "packet-version", "packet-sha256", "clinical-content-sha256", "checkpoint-id", "decision-task-id", "visibility-policy-version", "questionnaire-canonical", "questionnaire-version", "questionnaire-sha256"]},
+    "response": "valueReference.reference local QuestionnaireResponse fullUrl",
+    "response-canonical-json": "valueString: exact serialized JSON of the same permitted response. Python or browser serialization is accepted; parse and semantic-compare, hash exact UTF8 helper bytes.",
+    "response-content-sha256": "valueString: SHA256 UTF8 bytes of response-canonical-json"
+  },
+  "resource_binding": "packet_sha256 + ':' + submission_id + ':' + response_content_sha256",
+  "fullUrl": "urn:uuid:UUIDv5(NAMESPACE_URL, canonical_base + '/' + kind + '/' + resource_binding); kinds submission,response",
+  "integrity": "Validate against trusted packet and frozen Questionnaire answer constraints, then canonical re-encode full bundle using the same JSON helper and require exact object equality. Reject resources, attachments, unknown fields, unknown questions/codes and mismatched form/package versions."
+}

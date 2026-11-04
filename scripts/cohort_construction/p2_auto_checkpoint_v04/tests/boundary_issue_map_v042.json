@@ -1,0 +1,41 @@
+{
+  "version": "v0.4.2",
+  "case_selection_unchanged": true,
+  "manual_unchanged": true,
+  "reference_unchanged": true,
+  "issues": [
+    {
+      "issue_id": "V04-LINK001",
+      "failure": "Terminal punctuation wrongly erases current observation-to-choice connection",
+      "required_tests": [
+        "test_LINK001_terminal_punctuation_does_not_erase_connection",
+        "test_LINK001_subsequent_clinical_result_stays_forbidden",
+        "test_LINK001_whitespace_and_closing_quote_do_not_admit_next_words"
+      ]
+    },
+    {
+      "issue_id": "V04-LINK002",
+      "failure": "Known downstream fact in retrospective prefix admitted as connection proof",
+      "required_tests": [
+        "test_LINK002_explicit_postchoice_fact_before_narrative_choice_is_not_connection_proof"
+      ]
+    },
+    {
+      "issue_id": "V04-TIMELEDGER001",
+      "failure": "Late operation record clock offers postoperative context/comparators",
+      "required_tests": [
+        "test_TIMELEDGER001_late_written_op_discovery_uses_source_operation_interval",
+        "test_TIMELEDGER001_late_written_op_review_never_offers_postop_or_intraop_comparator"
+      ]
+    },
+    {
+      "issue_id": "V04-TIMELEDGER002",
+      "failure": "Unknown/conflicting operative interval falsely certifies within-day order",
+      "required_tests": [
+        "test_TIMELEDGER002_missing_operation_interval_does_not_invent_same_day_order",
+        "test_TIMELEDGER002_nonoperative_context_and_ledger_keep_original_clock",
+        "test_TIMELEDGER002_conflicting_operation_intervals_keep_order_unknown"
+      ]
+    }
+  ]
+}

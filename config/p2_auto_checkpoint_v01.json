@@ -1,0 +1,31 @@
+{
+  "version": "p2-auto-checkpoint-0.1.1",
+  "fhir_version": "4.0.1",
+  "principles": ["根治性切除路径管理相关", "决策相关证据演化支持本轮判断；首见判断单列"],
+  "document_types": {
+    "operative": "手术记录|远端胰腺切除|胰十二指肠切除|胰腺.*根治术",
+    "clinical": "入院记录|首次病程|查房|病程|会诊|术前小结|术前讨论|知情同意|出院小结|出室记录|转入记录|监测申请",
+    "support": "护理|评估记录|交接|健康教育"
+  },
+  "topics": {
+    "PET_MRI": "PET[-－ /]?MRI|PET[-－ /]?MR",
+    "PET_CT": "PET[-－ /]?CT",
+    "CTA": "冠脉CTA|冠状动脉CT|CTA",
+    "MRI": "MRI|MRCP|磁共振|(?<![A-Za-z])MR(?![A-Za-z])|胰腺MR|腹部MR|增强MR",
+    "CT": "(?<![A-Za-z])CT(?![A-Za-z])|增强CT|胸腹CT",
+    "EUS_BIOPSY": "EUS|FNA|穿刺|活检|取材|冰冻",
+    "BILIARY": "PTCD|PTBD|ERCP|ENBD|减黄|胆汁引流|胆道支架|引流管|脱落|脱出",
+    "SYSTEMIC": "化疗|化学治疗|新辅助|放疗|吉西他滨|紫杉醇|FOLFIRINOX|替吉奥",
+    "SAFETY": "心电|心超|心脏超声|肺功能|肌钙蛋白|备血|血型|禁忌|营养|胰腺炎|解痉|抑酶|止泻",
+    "SURGERY": "手术|切除|根治术|探查|Whipple|重建|转至胰腺外科|转外科|取消|暂缓"
+  },
+  "action_pattern": "拟|建议|完善|安排|予以|给予|予|遂行|遂决定|决定|评估|判断|考虑|限期|择期|行|取消|暂缓|待.{0,12}后|继续|同意|转至|转入|选择|要求|需",
+  "max_candidates_per_model_batch": 1,
+  "max_window_characters": 120000,
+  "evidence_page_characters": 24000,
+  "max_evidence_pages": 32,
+  "context_characters": 1800,
+  "model_temperature": 0,
+  "max_output_tokens": 14000,
+  "limitations": ["词表为高召回候选规则，不是临床正确性规则", "检查报告本身只产生证据事件，不等于检查选择", "未命中词表的记录留在覆盖清单，不称无决策", "不按病例ID或已选CP提供提示"]
+}

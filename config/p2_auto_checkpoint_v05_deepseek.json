@@ -1,0 +1,22 @@
+{
+  "version": "p2-auto-checkpoint-0.5.0",
+  "model_temperature": 0,
+  "max_output_tokens": 16000,
+  "max_concurrent_model_calls": 4,
+  "discovery_context_characters": 80000,
+  "review_context_characters": 150000,
+  "max_review_payload_characters": 240000,
+  "preserve_current_prechoice_context": true,
+  "semantic_authority": "LLM selects events, granularity, actual predecessor, checkpoint and process links; program validates provenance, citations, time bounds and contract consistency",
+  "input_unit": "complete_document_or_same_examination_report_versions",
+  "scope": "PDAC workup/resectability/curative pathway including directly linked perioperative preparation, implementation and recovery; routine execution alone is not a new checkpoint",
+  "clinical_reference": false,
+  "reference_files_permitted_as_pipeline_input": false,
+  "development_case_selection": "unchanged fixed ten, seed 20261023",
+  "semantic_model": "deepseek-v4.1-flash",
+  "model_alias_from_user": "deepseek-v4.1-flash",
+  "choice_boundary_contract": "complete_disjoint_choice_clauses_separate_from_node_proof",
+  "uncertainty_contract": "seven_dimensions_with_reason_category_and_source_quotes",
+  "evidence_comparison_contract": "previous_known_vs_current_information_vs_explicit_reinterpretation",
+  "model_change_and_code_change_separately_attributable": false
+}

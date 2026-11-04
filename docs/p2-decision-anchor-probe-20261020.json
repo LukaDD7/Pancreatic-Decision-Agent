@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-20",
+  "patients": 30,
+  "note_rows": 878,
+  "language_patterns": {
+    "standard_resectability_terms": {
+      "notes": 0,
+      "patients": 0,
+      "pattern": "交界可切除|潜在可切除|不可切除|可切除|切除性|局部进展"
+    },
+    "positive_indication_statement": {
+      "notes": 4,
+      "patients": 2,
+      "pattern": "有手术指征|存在手术指征|手术指征明确"
+    },
+    "historical_negative_exact_phrase": {
+      "notes": 12,
+      "patients": 2,
+      "pattern": "考虑当时无手术指征"
+    },
+    "curative_pancreas_plan": {
+      "notes": 53,
+      "patients": 18,
+      "pattern": "(?:拟|建议|考虑|计划)[^。；;\\n]{0,50}(?:胰[^。；;\\n]{0,16}根治(?:术|性切除|性大部切除)|胰[^。；;\\n]{0,10}根治性[^。；;\\n]{0,10}切除)"
+    },
+    "fitness_negative_contraindication": {
+      "notes": 226,
+      "patients": 30,
+      "pattern": "(?:无|未见|排除)[^。；;\\n]{0,5}手术禁忌"
+    },
+    "current_clinical_assessment_marker": {
+      "notes": 208,
+      "patients": 30,
+      "pattern": "目前[^。；;\\n]{0,65}(?:手术|切除)|(?:会诊意见|治疗计划|诊疗计划|医师总结)[^。；;\\n]{0,80}(?:手术|切除)"
+    },
+    "future_general_chemotherapy_reassessment": {
+      "notes": 4,
+      "patients": 2,
+      "pattern": "每[^。；;\\n]{0,12}周期化疗后[^。；;\\n]{0,40}评估疗效"
+    },
+    "targeted_resectability_workup": {
+      "notes": 0,
+      "patients": 0,
+      "pattern": "(?:评估|明确|判断)[^。；;\\n]{0,12}(?:可切除性|能否[^。；;\\n]{0,5}(?:手术|切除))|(?:MRI|CT|MR)[^。；;\\n]{0,15}(?:可切除性|能否切除)"
+    }
+  },
+  "notes_with_leading_body_header_date": 503,
+  "leading_header_date_differs_from_record_date_notes": 177,
+  "leading_header_date_differs_from_record_date_patients": 27,
+  "unrelated_cervical_surgery_title_notes": 4,
+  "unrelated_cervical_surgery_title_patients": 1,
+  "input_sha256": "f831680a09bfa05dfc7ecd63a8ae99dc9e9fbaaaedbff09792145c7cfaaf7ab5",
+  "script_sha256": "416e812130b2f67b5184a2f1564a0dcd4bde7760000b3901ca2585245c2e7082",
+  "limitations": "Same convenience sample as the earlier probe, not new patients or a validation set. Pattern hits are not current resectability decisions. Header date differences do not by themselves establish which time is correct. No original imaging signature times were newly verified."
+}

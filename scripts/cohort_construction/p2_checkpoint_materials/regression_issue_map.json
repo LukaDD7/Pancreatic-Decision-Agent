@@ -1,0 +1,55 @@
+{
+  "CE-MAT-001": {
+    "problem": "Reviewed model output was not connected to complete, immutable, hash-bound source partitions with explicit source scope.",
+    "required_tests": [
+      "test_prepare.py::test_exact_whole_source_manifest_and_explicit_disjoint_partition",
+      "test_prepare.py::test_citation_cannot_expand_source_scope",
+      "test_prepare.py::test_evidence_source_scope_uses_full_text_not_only_model_block",
+      "test_prepare.py::test_unicode_codepoints_and_crlf_preserved",
+      "test_files.py::test_file_bridge_records_hashes_and_creates_no_socket",
+      "test_files.py::test_file_bridge_refuses_existing_output",
+      "test_files.py::test_input_read_failure_retains_rejection_receipt"
+    ]
+  },
+  "CE-MAT-002": {
+    "problem": "Missing/hash-mismatched source material or invalid citation coordinates must not be accepted as trusted source text or attributed to patient quality.",
+    "required_tests": [
+      "test_prepare.py::test_missing_or_unverifiable_original_rejected_as_processing_issue",
+      "test_prepare.py::test_invalid_mask_hint_quarantines_source_for_review"
+    ]
+  },
+  "CE-MAT-003": {
+    "problem": "Unknown, null, proxy-only or unverified availability must never become KEEP permission.",
+    "required_tests": [
+      "test_prepare.py::test_explicit_known_observation_is_hint_only_never_keep",
+      "test_prepare.py::test_unknown_or_nonbefore_availability_never_eligible",
+      "test_prepare.py::test_forged_known_basis_not_counted_as_eligible",
+      "test_prepare.py::test_missing_boundaries_leave_entire_source_review"
+    ]
+  },
+  "CE-MAT-004": {
+    "problem": "Conflicting KEEP/MASK proposals require REVIEW rather than arbitrary clipping or precedence.",
+    "required_tests": ["test_prepare.py::test_keep_mask_conflict_becomes_review_without_clipping_decision"]
+  },
+  "CE-MAT-005": {
+    "problem": "Mechanically complete partitions must not bypass independent semantic assessment or become doctor packets.",
+    "required_tests": ["test_prepare.py::test_researcher_bridge_cannot_freeze_unreviewed_material"]
+  },
+  "CE-MAT-006": {
+    "problem": "AI-assisted reading drafts must not be relabelled as independent human semantic review, and unresolved segments or source coverage cannot grant doctor-packet release.",
+    "counterexamples": [
+      "A PENDING draft has research_preparation as its reviewer type, no independence attestation, and unresolved coverage.",
+      "A proposed MASK remains subject to independent review; other spans remain REVIEW after deterministic recompilation."
+    ],
+    "controls": [
+      "Draft metadata and exact source/span bindings validate without becoming a semantic PASS.",
+      "Changing preparation status or asserting independence is rejected; existing files are never overwritten."
+    ],
+    "required_tests": [
+      "test_review.py::test_review_draft_is_explicitly_unresolved_preparation_not_independent_audit",
+      "test_review.py::test_review_draft_does_not_retype_preparation_as_independent_pass",
+      "test_review.py::test_draft_revision_is_new_researcher_partition_with_review_retained",
+      "test_review.py::test_review_cli_writes_pending_receipt_and_refuses_overwrite"
+    ]
+  }
+}

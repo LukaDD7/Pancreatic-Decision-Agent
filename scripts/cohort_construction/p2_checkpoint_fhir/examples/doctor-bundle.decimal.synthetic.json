@@ -1,0 +1,213 @@
+{
+  "resourceType": "Bundle",
+  "id": "doctor-e8df9ae00035405c07e9f217054ffbe2",
+  "type": "collection",
+  "identifier": {
+    "system": "https://checkpoint-research.invalid/fhir/identifier/doctor-bundle",
+    "value": "14da6984281fd3e436d6a511885f2a106d67f616d3fa81b83ccd157517248805"
+  },
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:8ce52f98-677f-5924-a361-9f64501cde71",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "cp-e8df9ae00035405c07e9f217054ffbe2",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/packet",
+            "value": "PK-fictional"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-checkpoint"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/packet-binding",
+            "extension": [
+              {
+                "url": "schema-version",
+                "valueString": "0.1.0"
+              },
+              {
+                "url": "packet-id",
+                "valueString": "PK-fictional"
+              },
+              {
+                "url": "packet-version",
+                "valueString": "1"
+              },
+              {
+                "url": "state",
+                "valueString": "frozen_for_review"
+              },
+              {
+                "url": "fhir-version",
+                "valueString": "4.0.1"
+              },
+              {
+                "url": "checkpoint-id",
+                "valueString": "CP-fictional-1"
+              },
+              {
+                "url": "decision-task-id",
+                "valueString": "fictional-task"
+              },
+              {
+                "url": "visibility-policy-version",
+                "valueString": "synthetic-policy-1"
+              },
+              {
+                "url": "clinical-content-sha256",
+                "valueString": "a4e1ebebce8b6cccd1db18b718a313f1bbb6482054ea625a9342f2d3d224fcd4"
+              },
+              {
+                "url": "packet-sha256",
+                "valueString": "14da6984281fd3e436d6a511885f2a106d67f616d3fa81b83ccd157517248805"
+              },
+              {
+                "url": "compiler-version",
+                "valueString": "0.1.0"
+              },
+              {
+                "url": "compiled-partition-sha256",
+                "valueString": "9a34b5b480cef0da87febbe28c16855d24a8988dc75c9c8389d7bd43fb0658de"
+              },
+              {
+                "url": "semantic-audit-id",
+                "valueString": "SA-fictional"
+              }
+            ]
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire",
+            "valueReference": {
+              "reference": "urn:uuid:87988a78-3296-5607-8375-9627b3c51e13"
+            }
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-sha256",
+            "valueString": "b43de0c5f4fda0b866d9c7ee40809efd595a2f3277e00620150e149e52c5f7b1"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-frozen",
+            "valueBoolean": true
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-canonical-json",
+            "valueString": "{\"date\":\"2026-10-28T12:00:00Z\",\"item\":[{\"answerOption\":[{\"valueCoding\":{\"code\":\"a\",\"system\":\"urn:fictional\"}},{\"valueCoding\":{\"code\":\"b\",\"system\":\"urn:fictional\"}}],\"linkId\":\"fictional-item\",\"repeats\":true,\"text\":\"虚构测试题\",\"type\":\"choice\"},{\"linkId\":\"decimal\",\"text\":\"虚构数值\",\"type\":\"decimal\"},{\"enableWhen\":[{\"answerDecimal\":1.0,\"operator\":\">\",\"question\":\"decimal\"}],\"linkId\":\"conditional\",\"text\":\"虚构条件题\",\"type\":\"string\"},{\"enableWhen\":[{\"answerDecimal\":1e-07,\"operator\":\"<\",\"question\":\"decimal\"}],\"linkId\":\"tiny\",\"text\":\"虚构微小值条件\",\"type\":\"string\"}],\"resourceType\":\"Questionnaire\",\"status\":\"active\",\"title\":\"虚构跨语言小数测试，非临床表单😀\",\"url\":\"urn:fictional:form\",\"version\":\"1\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/material",
+            "valueReference": {
+              "reference": "urn:uuid:38fc058c-03b6-56e5-a44b-4553f5099ff1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:38fc058c-03b6-56e5-a44b-4553f5099ff1",
+      "resource": {
+        "resourceType": "DocumentReference",
+        "id": "doc-73a805cf2de0537051d6520d8376246d",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/material",
+            "value": "DVM-f351138b9b5ed4dd0b693b6d"
+          }
+        ],
+        "status": "current",
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-id",
+            "valueString": "S-fictional"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-version",
+            "valueString": "v1"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/content-sha256",
+            "valueString": "c53fc1e157d861c78cc3ec159b1f8755c36cb6f1f0cadf68df02573635409859"
+          }
+        ],
+        "content": [
+          {
+            "attachment": {
+              "contentType": "text/plain;charset=utf-8",
+              "data": "6KeC5a+f55Sy44CCW+i1hOaWmeaMieaWueahiOmBruiUvV0="
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:87988a78-3296-5607-8375-9627b3c51e13",
+      "resource": {
+        "resourceType": "Questionnaire",
+        "url": "urn:fictional:form",
+        "version": "1",
+        "status": "active",
+        "item": [
+          {
+            "linkId": "fictional-item",
+            "type": "choice",
+            "repeats": true,
+            "text": "虚构测试题",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:fictional",
+                  "code": "a"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:fictional",
+                  "code": "b"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "decimal",
+            "type": "decimal",
+            "text": "虚构数值"
+          },
+          {
+            "linkId": "conditional",
+            "type": "string",
+            "text": "虚构条件题",
+            "enableWhen": [
+              {
+                "question": "decimal",
+                "operator": ">",
+                "answerDecimal": 1.0
+              }
+            ]
+          },
+          {
+            "linkId": "tiny",
+            "type": "string",
+            "text": "虚构微小值条件",
+            "enableWhen": [
+              {
+                "question": "decimal",
+                "operator": "<",
+                "answerDecimal": 1e-07
+              }
+            ]
+          }
+        ],
+        "title": "虚构跨语言小数测试，非临床表单😀",
+        "date": "2026-10-28T12:00:00Z"
+      }
+    }
+  ]
+}

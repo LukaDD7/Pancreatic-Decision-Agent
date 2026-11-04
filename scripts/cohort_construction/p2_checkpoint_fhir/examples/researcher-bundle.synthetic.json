@@ -1,0 +1,252 @@
+{
+  "resourceType": "Bundle",
+  "id": "researchgraph-66abb561ae44bc09fd971445a6dab85d",
+  "type": "collection",
+  "identifier": {
+    "system": "https://checkpoint-research.invalid/fhir/identifier/research-graph",
+    "value": "f18ca80ea076cac047a46acd574b59c7fff54e763510d175ea37ff32ac68564a"
+  },
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:3a752bb7-1d6d-5901-83bf-5295c5983a4a",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "research-891614a66a62cfa909ae8ea95e027725",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/research-graph",
+            "value": "fictional-graph"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-graph"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+            "valueString": "researcher-only"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+            "valueString": "algorithm-candidate-not-clinical-reference"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+            "valueString": "{\"graph_id\":\"fictional-graph\",\"graph_sha256\":\"f18ca80ea076cac047a46acd574b59c7fff54e763510d175ea37ff32ac68564a\",\"graph_version\":\"1\",\"relation_definitions\":{\"evidence_comparison_previous\":{\"asserting_actor\":\"复核阶段LLM指定既往管理判断比较对象；程序核验是否提供、是否在先及最终对象分类\",\"effect\":\"仅定义比较依赖；单独存在不构成同一候选Episode或同一临床决策的证明\",\"meaning\":\"target_event_id所指当前记录的患者信息变化判断，以source_event_id所指既往管理判断为比较对象\"},\"same_event\":{\"asserting_actor\":\"复核阶段LLM提议；程序核验具体管理判断同一性的来源证据\",\"effect\":\"支持时可参与候选事件身份归并；不将重复表述当作新增独立决策点\",\"meaning\":\"两条管理记录表述同一项具体临床管理判断的候选身份关系\"},\"same_management_process\":{\"asserting_actor\":\"复核阶段LLM提议；程序核验支持证据并决定是否合并候选Episode\",\"effect\":\"只有程序核验支持的关系可参与候选Episode连通性合并；不证明两条记录是同一临床决策\",\"meaning\":\"source_event_id所指管理记录与target_event_id所指管理记录属于同一连续管理过程的候选关系\"}}}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+            "valueString": "a0498d1284f594b102f74d39acb5ccc822be019fa775a1ce75559a9bc86b2441"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:ea29f854-cb1c-5887-856a-91d1ef329b01",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "research-246a4d9d409d546b3c54637b38cd1f8f",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/research-management-record",
+            "value": "E0"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-management-record"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+            "valueString": "researcher-only"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+            "valueString": "algorithm-candidate-not-clinical-reference"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+            "valueString": "{\"checkpoint_status\":\"NOT_CHECKPOINT\",\"episode_id\":\"EP0\",\"event_id\":\"E0\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+            "valueString": "e5437010f3cb35939c311abceae0937e92fdb73ae5e9d1312ad5388a46ff0ce1"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-episode",
+            "valueReference": {
+              "reference": "urn:uuid:dda00f92-e2ac-5017-96d0-d980aa56d006"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:6ccbcf86-96a9-5ef2-b832-ee3011788781",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "research-04c16bff0bb2746281235d0b9c69326a",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/research-management-record",
+            "value": "E1"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-management-record"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+            "valueString": "researcher-only"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+            "valueString": "algorithm-candidate-not-clinical-reference"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+            "valueString": "{\"checkpoint_status\":\"CANDIDATE_INITIAL\",\"episode_id\":\"EP0\",\"event_id\":\"E1\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+            "valueString": "94d53603361b51ed1971c9ab295903378c8a04742c5694c994b3f2b517387797"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-episode",
+            "valueReference": {
+              "reference": "urn:uuid:dda00f92-e2ac-5017-96d0-d980aa56d006"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:dda00f92-e2ac-5017-96d0-d980aa56d006",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "research-cfc8afff009e6997fd4ed7636bae1ff0",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/research-candidate-episode",
+            "value": "EP0"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-candidate-episode"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+            "valueString": "researcher-only"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+            "valueString": "algorithm-candidate-not-clinical-reference"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+            "valueString": "{\"candidate_ids\":[\"E0\",\"E1\"],\"checkpoint_ids\":[\"E1\"],\"episode_id\":\"EP0\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+            "valueString": "179b0e6524af0f52911276069d04ba620782e7f65eb54bc2b8c3e4a8204a0e85"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/member-management-record",
+            "valueReference": {
+              "reference": "urn:uuid:ea29f854-cb1c-5887-856a-91d1ef329b01"
+            }
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/member-management-record",
+            "valueReference": {
+              "reference": "urn:uuid:6ccbcf86-96a9-5ef2-b832-ee3011788781"
+            }
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-checkpoint",
+            "valueReference": {
+              "reference": "urn:uuid:6ccbcf86-96a9-5ef2-b832-ee3011788781"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:b4eb96c1-d318-595f-a66c-890e9a7de4bc",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "research-5ae9c0bcc06c6e87a76c19b64a779773",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/research-graph-relation",
+            "value": "fictional-graph:R0:23b6a6c7663362c5"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-graph-relation"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+            "valueString": "researcher-only"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+            "valueString": "algorithm-candidate-not-clinical-reference"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+            "valueString": "{\"relation\":\"same_management_process\",\"source_event_id\":\"E0\",\"status\":\"supported\",\"target_event_id\":\"E1\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+            "valueString": "23b6a6c7663362c564783637c980ceeb47adb4f020a48ebb06d9be66acea7afa"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/relation-type",
+            "valueCode": "same_management_process"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-management-record",
+            "valueReference": {
+              "reference": "urn:uuid:ea29f854-cb1c-5887-856a-91d1ef329b01"
+            }
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/target-management-record",
+            "valueReference": {
+              "reference": "urn:uuid:6ccbcf86-96a9-5ef2-b832-ee3011788781"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+--- a/p1_quality_v0_3/labels.py
++++ b/p1_quality_v0_3_1/labels.py
+@@ -123,2 +123,5 @@
+-            parent_tail = re.sub(r'(?:无(?:明显)?|未见(?:明显)?)?(?:累及|侵犯|受侵|接触)(?:第[一二三1-3])?空肠(?:引流)?支', '', tail)
+-            state = relationship(local_prefix + parent_tail, summary=heading == '与血管接触',
++            parent_tail, child_count = re.subn(r'(?:无(?:明显)?|未见(?:明显)?)?(?:累及|侵犯|受侵|接触)(?:第[一二三1-3])?空肠(?:引流)?支', '', tail)
++            # A branch-only phrase cannot turn into an empty summary slot
++            # that then falsely supplies CONTACT to the parent vessel.
++            branch_only = child_count and not parent_tail.strip(' 、和及与:：')
++            state = relationship(local_prefix + parent_tail, summary=heading == '与血管接触' and not branch_only,
+@@ -175,0 +179,5 @@
++    # Structured reports sometimes say "肿块评估：低密度...位于胰头".
++    # The section itself supplies the omitted lesion noun, within its bounds.
++    tumour_section = re.search(r'肿块评估\s*[:：](.*?)(?=胰胆管评估\s*[:：]|动脉评估\s*[:：]|静脉评估\s*[:：]|其[它他]评估\s*[:：]|$)', text, re.S)
++    if tumour_section and re.search(rules['pancreatic_anatomy_pattern'], tumour_section[1]) and re.search(r'位于|密度|信号|强化|弥散|肿块|病灶|无法测量', tumour_section[1]):
++        target = True
+@@ -178,0 +187,3 @@
++    # Narrative distant-domain statements also represent biological evidence,
++    # including explicit negatives; they need not use a template heading.
++    b = b or bool(re.search(r'(?:远处|肝脏|肝内|腹膜|网膜)[^。；;\n]{0,20}(?:转移|种植|播散)', text))
+--- a/p1_quality_v0_3/run.py
++++ b/p1_quality_v0_3_1/run.py
+@@ -63,0 +64 @@
++    # Immutable byte-identical source cache is shared; derived outputs are not.
+@@ -95 +96 @@
+-    output = repo/'local_artifacts/p1_quality_v0.3/results'
++    output = repo/'local_artifacts'/rules['artifact_directory']/'results'
+@@ -305 +306 @@
+-    public_summary = repo/'docs/p1-relevance-usability-v0.3-20261021.json'
++    public_summary = repo/'docs'/(rules['public_release_stem']+'.json')
+--- a/p1_quality_v0_3/verify.py
++++ b/p1_quality_v0_3_1/verify.py
+@@ -15 +14,0 @@
+-    base = repo/'local_artifacts/p1_quality_v0.3/results'
+@@ -16,0 +16,2 @@
++    rules = json.loads((here/'rules.json').read_text())
++    base = repo/'local_artifacts'/rules['artifact_directory']/'results'
+@@ -74 +75 @@
+-    write_json(repo/'receipts/p1_relevance_usability_v0.3_20261021.json',public)
++    write_json(repo/'receipts'/(rules['receipt_stem']+'.json'),public)
+--- a/p1_quality_v0_3/rules.json
++++ b/p1_quality_v0_3_1/rules.json
+@@ -2 +2 @@
+-  "version": "p1-relevance-usability-v0.3",
++  "version": "p1-relevance-usability-v0.3.1",
+@@ -4 +4,4 @@
+-  "study_window_annotation_only": ["2021-01-01", "2026-10-18"],
++  "study_window_annotation_only": [
++    "2021-01-01",
++    "2026-10-18"
++  ],
+@@ -20,7 +23,28 @@
+-    "SMA": ["肠系膜上动脉", "SMA"],
+-    "CA": ["腹腔干动脉", "腹腔干", "腹腔动脉"],
+-    "CHA": ["肝总动脉", "CHA"],
+-    "PV": ["门静脉", "MPV", "PV"],
+-    "SMV": ["肠系膜上静脉", "SMV"],
+-    "SA": ["脾动脉"],
+-    "SV": ["脾静脉"]
++    "SMA": [
++      "肠系膜上动脉",
++      "SMA"
++    ],
++    "CA": [
++      "腹腔干动脉",
++      "腹腔干",
++      "腹腔动脉"
++    ],
++    "CHA": [
++      "肝总动脉",
++      "CHA"
++    ],
++    "PV": [
++      "门静脉",
++      "MPV",
++      "PV"
++    ],
++    "SMV": [
++      "肠系膜上静脉",
++      "SMV"
++    ],
++    "SA": [
++      "脾动脉"
++    ],
++    "SV": [
++      "脾静脉"
++    ]
+@@ -29 +53,4 @@
+-  "scope_note": "ABC are nonexclusive coverage labels across supplied history, not a contemporaneous clinical state; source and quote coordinates remain available"
++  "scope_note": "ABC are nonexclusive coverage labels across supplied history, not a contemporaneous clinical state; source and quote coordinates remain available",
++  "artifact_directory": "p1_quality_v0.3.1",
++  "public_release_stem": "p1-relevance-usability-v0.3.1-20261021",
++  "receipt_stem": "p1_relevance_usability_v0.3.1_20261021"

@@ -1,0 +1,8 @@
+{
+  "command": "PYTHONPATH=outputs/p2_test_runtime:. /opt/anaconda3/bin/python3.12 -m pytest tests -q",
+  "exit_code": 0,
+  "passed": 160,
+  "elapsed_seconds": 54.14,
+  "dependency_environment": "existing ignored outputs/p2_test_runtime; no new system installation",
+  "scope": "existing project regressions; P2 validation modules tested separately by run_validation_checks"
+}

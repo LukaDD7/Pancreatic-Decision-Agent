@@ -1,0 +1,36 @@
+{
+  "graph_id": "fictional-graph",
+  "graph_version": "1",
+  "events": [
+    {
+      "event_id": "E0",
+      "checkpoint_status": "NOT_CHECKPOINT",
+      "episode_id": "EP0"
+    },
+    {
+      "event_id": "E1",
+      "checkpoint_status": "CANDIDATE_INITIAL",
+      "episode_id": "EP0"
+    }
+  ],
+  "episodes": [
+    {
+      "episode_id": "EP0",
+      "candidate_ids": [
+        "E0",
+        "E1"
+      ],
+      "checkpoint_ids": [
+        "E1"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "source_event_id": "E0",
+      "target_event_id": "E1",
+      "relation": "same_management_process",
+      "status": "supported"
+    }
+  ]
+}

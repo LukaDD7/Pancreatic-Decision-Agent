@@ -1,0 +1,20 @@
+{
+  "synthetic_only": true,
+  "clinical_accuracy": null,
+  "counterexamples": [
+    {
+      "issue": "EV001",
+      "scenario": "Different mention representative of same event",
+      "v0.2_relation_recall": 0.0,
+      "v0.3_relation_recall": 1.0
+    },
+    {
+      "issue": "EV002_EV003",
+      "scenario": "One correct edge and two spurious in-scope edges",
+      "v0.2_precision": 1.0,
+      "v0.3_precision": 0.3333333333333333,
+      "v0.2_curve_precision": 1.0,
+      "v0.3_curve_precision": 0.3333333333333333
+    }
+  ]
+}

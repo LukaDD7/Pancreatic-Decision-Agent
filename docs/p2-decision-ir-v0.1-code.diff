@@ -1,0 +1,976 @@
+diff --git a/scripts/cohort_construction/p2_decision_ir/README.md b/scripts/cohort_construction/p2_decision_ir/README.md
+new file mode 100644
+index 0000000..fef9fc8
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/README.md
+@@ -0,0 +1,48 @@
++# Decision-IR v0.1：来源定位与关系复核
++
++这是 P2 开发工具。输入原始文书及来源字段，输出连续原文中的候选判断、执行提及、反馈提及、指导语句和待核关系。既不改变 P0/P1，也不按旧 P1 PASS 过滤，不生成正式 episode、专家 Reference 或临床错误标签。
++
++## 文件职责
++
++- `extract.py`：完整标点单元、旧检索标签加扩展措辞、语境优先级、来源坐标及时间、候选邻接关系。新增正则集中在 ADDED，动作与主题分别在 ACTION_PATTERNS、TOPICS。
++- `node.schema.json`：本地研究结构约束；不是 HL7 FHIR 资源或临床本体。
++- `run.py`：校验冻结 49 人开发池哈希，逐文书处理，验证源坐标，分层抽样，保存全量索引与五例复核卡。
++- `fhir_links.py`：可选的原文版本交叉引用；要求显式患者别名映射、来源编号、全文哈希和跨度一致。
++- `compare.py`：首轮与最终轮的逐节点差异、原固定抽样的当前结果、N01 FHIR 连接与哈希回执。
++- `tests/test_ir.py`：IR001–IR032 合成反例及对照。用例名即稳定问题登记，完整编号也见 `regression_catalog.json`。
++- `release.json`：基线、正式开发运行、代码/输入/产物哈希及测试回执。
++
++## 核心约定
++
++一个节点是一段连续原文（句号、分号、换行界定），可能同时含状态、几项动作及条件。不能把节点数称为临床决策点数。`DECISION_CANDIDATE` 是有判断/安排措辞的候选；`CURRENT_STATEMENT_CANDIDATE` 只是语境优先级，不保证针对根治性切除。`surgical_pathway_relevance=UNADJUDICATED` 对所有节点适用。单独营养医嘱额外标记 `SUPPORTIVE_CARE_PATHWAY_LINK_REQUIRED`，保留供后续联系上下文。
++
++原文不被改写；偏移为 Python Unicode 字符坐标 [start,end)，不是字节位置。source_sha256 对完整源文书编码 UTF-8 后计算。动作字段叫 action_mentions：提到 PTCD 并不意味着本次决定 PTCD。执行/反馈线索可以与判断共存；主 role 只用于复核队列，不表示一句话只有一个语义。
++
++当前性按具体语句、文书类型及语境提示判断。POSTOP 也可能出现新的减黄安排，不能整体排除；住院/出院叙述、知情同意、历史与模板优先留待核。否定判断仍是判断；疑问不能成为肯定适应证。日期和麻醉措辞受拟/定于/计划等未来算子约束。分句中的既往证据不会抹掉另一分句明确的当前结论。
++
++正文时间、创建时间分别保留；排序使用正文时间，缺失时才用创建时间，二者均为代理时钟。无时区按本院 +08:00；日期精度不能补成零点。同时间不指定先后；相邻只是提议关系，不是因果证明或真实首次决策时间。
++
++每个同患者、同具体主题节点提议两类前项：最近更早的主题节点；若本节点为判断候选，再找最近更早的判断候选。泛称“手术”不单独连边。不同就诊可连边但明确标记；visit_id 仅为源就诊索引，不是 episode。完全相同措辞也分别保留，不按 24/48 小时合并。不得把跨次相邻关系直接宣称为同一治疗过程。
++
++输出含原文、当次选择和后续内容，是研究者复核材料，不是 Agent/医生盲评输入。盲评 state 仍需核对具体动作边界与可见时间。专家可接受动作评价不要求与历史动作一致；历史未提供某行动结果不阻止本模块检索，也不会生成 action unacceptable。专家 confidence 保留在方案；这里的 confidence=null 仅表示程序没有校准置信度，不替代或删除专家问项。
++
++## 复现
++
++在独立 Git 仓库根目录，使用 Python 3.12 + jsonschema；本地冻结输入需已存在。运行目录必须全新，程序拒绝覆盖旧结果。
++
++```bash
++python -m unittest discover -s scripts/cohort_construction/p2_decision_ir/tests -v
++python -m scripts.cohort_construction.p2_decision_ir.run --repo "$PWD" --output "$PWD/local_artifacts/decision_ir_new_run"
++python -m scripts.cohort_construction.p2_decision_ir.compare --repo "$PWD" --baseline "$PWD/local_artifacts/p2_decision_ir_v0.1_20261022" --current "$PWD/local_artifacts/decision_ir_new_run" --output "$PWD/local_artifacts/decision_ir_new_audit"
++```
++
++`compare` 的 N01 适配检查需要既有 `n01_fhir_replay_v0.1_20261022/researcher_event_envelopes.jsonl`；`run` 提取本身不要求 FHIR 转换、服务器、网络或额外反事实结果。当前复用旧 FHIR 模块的纯时间解析函数，并在提取完成后读取人工 N01 锚点作覆盖检查，不以锚点控制检索。
++
++固定抽样：种子 20261022，当前判断、待核判断、执行、反馈、零命中文书五层，每层随机选四名不同患者，再每人随机选一条；允许跨层同患者。49 人来自此前目的性检索/开发，不是 P0 的随机验证集。修改后的新队列保持 PENDING；只有本轮逐项查看的首轮固定 20 条写入分析者复核账，不伪装为医生裁定或独立准确率。
++
++## 已知边界
++
++- 词法规则仍可能漏掉间接判断、纯检查建议、跨句条件及操作对象；零命中保留索引，不能排除患者。
++- 叙述时态、医疗措施所指对象、常规支持与手术路径的联系仍需看原文；局部提示不是完整语义解析。
++- 主题邻接尚未判定 responds_to / implements / supersedes；重复、再次确认和计划变更必须复核。
++- 本轮不自动生成正式 episode，也不报告独立决策点中位数。FHIR 交叉引用只证明相同文本，不证明历史时点可见或临床正确。
+diff --git a/scripts/cohort_construction/p2_decision_ir/__init__.py b/scripts/cohort_construction/p2_decision_ir/__init__.py
+new file mode 100644
+index 0000000..7073a86
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/__init__.py
+@@ -0,0 +1 @@
++"""Source-anchored decision statements and review links, independent of FHIR."""
+diff --git a/scripts/cohort_construction/p2_decision_ir/compare.py b/scripts/cohort_construction/p2_decision_ir/compare.py
+new file mode 100644
+index 0000000..c35744e
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/compare.py
+@@ -0,0 +1,60 @@
++"""Compare frozen development runs and join N01 to the existing FHIR fixture.
++
++Outputs are private. Original sampled source IDs remain fixed across repairs;
++the runner records migration, not automatic clinical review or accuracy.
++"""
++import argparse
++from collections import Counter
++import hashlib
++import json
++from pathlib import Path
++from .fhir_links import source_crosswalk
++
++
++def read_nodes(path):
++    return {n['id']: n for n in map(json.loads,(path/'nodes.jsonl').read_text().splitlines())}
++
++
++def compare(repo, baseline, current, output):
++    old,new=read_nodes(baseline),read_nodes(current)
++    shared=old.keys() & new.keys()
++    migrations=[{'id':k,'old_role':old[k]['role'],'new_role':new[k]['role'],
++                 'old_status':old[k]['status'],'new_status':new[k]['status'],
++                 'old_flags':old[k]['flags'],'new_flags':new[k]['flags']}
++                for k in sorted(shared) if any(old[k][f]!=new[k][f] for f in ['role','status','flags'])]
++    queue=json.loads((baseline/'review_queue.json').read_text())
++    same_sample=[]
++    for i,q in enumerate(queue):
++        current_nodes=[n for n in new.values() if n['patient_uid']==q['patient_uid'] and n['source_id']==q['source_id']]
++        same_sample.append({'sample_index':i,**q,'current_nodes':current_nodes,
++                            'same_node_retained':q['node_id'] in new})
++    cases=json.loads((repo/'local_artifacts/p2_dynamic_pathway_probe_v0.1_20261021/five_case_review.json').read_text())
++    uid=next(c['patient_uid'] for c in cases if c['case_id']=='N01')
++    envelopes=repo/'local_artifacts/n01_fhir_replay_v0.1_20261022/researcher_event_envelopes.jsonl'
++    events=list(map(json.loads,envelopes.read_text().splitlines()))
++    crosswalk=source_crosswalk(new.values(),events,{uid:'N01'})
++    summary={'baseline_nodes':len(old),'current_nodes':len(new),'shared_nodes':len(shared),
++             'added_nodes':len(new.keys()-old.keys()),'no_longer_emitted_nodes':len(old.keys()-new.keys()),
++             'role_migrations':dict(Counter(old[k]['role']+' -> '+new[k]['role'] for k in sorted(shared) if old[k]['role']!=new[k]['role'])),
++             'status_migrations':dict(Counter(old[k]['status']+' -> '+new[k]['status'] for k in sorted(shared) if old[k]['status']!=new[k]['status'])),
++             'original_sample_rechecked_sources':len(same_sample),'n01_fhir_linked_nodes':len(crosswalk),
++             'n01_fhir_linked_documents':len({x['fhir_reference'] for x in crosswalk}),
++             'source_or_cohort_membership_changed':False,'confirmed_episode_count':None}
++    output.mkdir(parents=True,exist_ok=False)
++    artifacts={'summary.json':summary,'node_migrations.json':migrations,'fixed_sample_comparison.json':same_sample,
++               'n01_fhir_crosswalk.json':crosswalk,
++               'node_presence_changes.json':{'added':sorted(new.keys()-old.keys()),'no_longer_emitted':sorted(old.keys()-new.keys())}}
++    for name,value in artifacts.items():
++        (output/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
++    inputs=[baseline/'nodes.jsonl',current/'nodes.jsonl',baseline/'review_queue.json',envelopes]
++    receipt={'inputs_sha256':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs},
++             'outputs_sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir()},
++             'code_sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(__file__).parent.glob('*.py')}}
++    (output/'receipt.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2)+'\n')
++    return summary
++
++
++if __name__=='__main__':
++    p=argparse.ArgumentParser(description=__doc__)
++    for arg in ['repo','baseline','current','output']:p.add_argument('--'+arg,type=Path,required=True)
++    a=p.parse_args();print(json.dumps(compare(a.repo,a.baseline,a.current,a.output),ensure_ascii=False))
+diff --git a/scripts/cohort_construction/p2_decision_ir/extract.py b/scripts/cohort_construction/p2_decision_ir/extract.py
+new file mode 100644
+index 0000000..075363c
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/extract.py
+@@ -0,0 +1,217 @@
++"""Development extractor: retain source spans and distinguish semantic roles.
++
++One candidate = one contiguous sentence/semicolon unit with potentially several
++actions. It is NOT a confirmed atomic clinical decision or episode. Old labels
++are retrieval evidence only; neither their eligibility nor time-window chains
++are used as a gate. No mode/reference or counterfactual-result requirement.
++"""
++import hashlib
++import re
++from datetime import timezone
++from scripts.cohort_construction.p2_decision_localization.labels import Labeler
++from scripts.cohort_construction.p2_dynamic_pathway_probe.review_context import local_context_flags
++from scripts.cohort_construction.p2_fhir_replay.core import instant
++
++
++ADDED = {
++    'OPTIMIZATION_PLAN': r'(?:今予|拟(?:行)?|计划(?:行)?|先行|择期再行|再行|予以)[^。；;\n]{0,15}?(?:PTCD|ERCP|减黄|胆汁引流|营养(?:支持|补充))',
++    'CONDITIONAL_SURGERY': r'待[^。；;\n]{0,65}?(?:后|再)[^。；;\n]{0,25}?(?:手术|切除)',
++    'INDICATION_PRESENT_EXT': r'具备(?:明确的?)?手术(?:指征|条件)',
++    'NAMED_RESECTION_EXT': r'(?:限期行|择期行|再行|需行|需|行)(?:根治性)?(?:胰十二指肠切除(?:术)?|胰体尾脾切除(?:术)?|Whipple(?:术)?)',
++    'SCHEDULE_REASSESSMENT': r'(?:拟|计划|建议|待|再|重新)[^。；;\n]{0,30}?(?:评估|评价)[^。；;\n]{0,20}?(?:手术|切除)',
++    'SCHEDULED_RESECTION': r'(?:定于|拟于|拟|计划于)[^。；;\n]{0,55}?(?:胰十二指肠切除|胰体尾脾切除|胰[头体尾腺]癌根治|Whipple)',
++    'SCHEDULED_PROCEDURE': r'(?:定于|拟于|计划于)[^。；;\n]{0,55}?(?:下行|行)[^。；;\n]{0,40}?(?:术|治疗)',
++}
++ACTION_PATTERNS = {
++    'PTCD': r'PTCD', 'ERCP': r'ERCP', 'DRAINAGE_UNSPECIFIED': r'减黄|胆汁引流',
++    'NUTRITION': r'营养(?:支持|补充|改善)',
++    'PANCREAS_RESECTION': r'胰(?:十二指肠|体尾|体|尾|头|腺)[^。；;\n，,]{0,16}(?:切除|根治|次全切)|全胰切除|Whipple',
++    'SURGERY_UNSPECIFIED': r'手术(?:治疗)?', 'BIOPSY': r'活检|穿刺|FNA|FNB',
++    'MRI': r'MRI|磁共振', 'CT': r'(?<![A-Z])CT(?![A-Z])',
++    'NEOADJUVANT': r'新辅助(?:治疗|化疗)|转化治疗',
++}
++TOPICS = {'BILIARY': r'胆红素|黄疸|减黄|胆汁|PTCD|ERCP',
++          'NUTRITION': r'营养|白蛋白', 'CARDIOPULMONARY': r'心功能|心衰|肺部感染|BNP',
++          'STAGING': r'转移|分期|病理|活检|穿刺', 'RESECTION': r'手术|切除|Whipple'}
++EXECUTION = r'已(?:经)?行|完成(?:了)?[^。；;\n]{0,20}(?:手术|PTCD|ERCP)|(?:全麻|局麻|麻醉)[^。；;\n]{0,8}下行|于\d{4}[年-][^。；;\n]{0,32}(?:行|进行)'
++FEEDBACK = r'(?:管|管道|引流管)[^。；;\n]{0,8}脱出|引流不畅|引流量|白蛋白未有明显升高|病灶较前缩小|疾病进展'
++INTENT = r'今予|拟(?:行|施行)?|定于|计划|建议|择期|限期|先行|再行|暂不|不宜|不适合|无手术指征|待|需'
++HISTORY = r'既往|当时|曾(?:行|于|经)|此前|外院建议|\d+[年月]前'
++CURRENT_FAMILIES = {'FIRST_COURSE', 'FIRST_SENIOR_ROUND', 'WARD_ROUND', 'CONSULT', 'MDT',
++                    'OUTPATIENT', 'PREOP_BRIEF', 'PREOP_DISCUSSION', 'TRANSFER_IN', 'TRANSFER_OUT', 'POSTOP'}
++
++
++def execution_mentions(quote, offset):
++    """A future operator scopes anaesthesia/date wording within its comma clause.
++
++    Preserve explicit 已行/完成 and execution in a separate earlier clause;
++    planned anaesthesia alone is not evidence that an operation happened.
++    """
++    result = []
++    for m in matches(EXECUTION, quote, offset):
++        local_start = m['start']-offset
++        prefix = re.split(r'[，,：:]', quote[:local_start])[-1]
++        explicit_done = re.match(r'已|完成', m['text'])
++        if not explicit_done and re.search(r'拟|定于|计划|将于|预计|择期', prefix + quote[local_start:local_start+1]):
++            continue
++        result.append(m)
++    return result
++
++
++def sha(text):
++    return hashlib.sha256(text.encode()).hexdigest()
++
++
++def spans(text):
++    """Full punctuation units keep negation; decimal dots never split numbers."""
++    return [(m.start(), m.end()) for m in re.finditer(r'[^。；;\n]+[。；;]?', text) if m.group().strip()]
++
++
++def matches(pattern, text, offset=0):
++    return [{'start': offset+m.start(), 'end': offset+m.end(), 'text': m.group()}
++            for m in re.finditer(pattern, text, re.I)]
++
++
++class Extractor:
++    def __init__(self, legacy_config):
++        self.labeler = Labeler(legacy_config)
++
++    def extract(self, note):
++        text = note['text']; legacy = self.labeler.match(note); nodes = []
++        for start, end in spans(text):
++            quote = text[start:end]
++            signals = []
++            for h in legacy:
++                if start <= h['start'] and h['end'] <= end:
++                    signals.append({'label': h['label'], 'span': [h['start'], h['end']],
++                                    'quote': text[h['start']:h['end']], 'legacy_role': h['role'],
++                                    'legacy_target': h['target']})
++            for label, pattern in ADDED.items():
++                for m in matches(pattern, quote, start):
++                    signals.append({'label': label, 'span': [m['start'], m['end']], 'quote': m['text']})
++            # Positive substring inside "不可切除/不具备..." must not become an
++            # affirmative assessment. Keep it in audit with explicit suppression.
++            negative = [s for s in signals if s['label'] == 'INDICATION_NO']
++            for s in signals:
++                if s['label'] == 'NAMED_RESECTION_EXT' and s['quote'].startswith('行'):
++                    prefix = text[max(start, s['span'][0]-15):s['span'][0]]
++                    if re.search(r'下$|已$|曾$', prefix):
++                        s['suppressed_as_intent'] = True
++                if s['label'] in {'INDICATION_YES', 'INDICATION_PRESENT_EXT'}:
++                    prefix = text[max(start, s['span'][0]-12):s['span'][0]]
++                    if any(n['span'][0] <= s['span'][0] < n['span'][1] for n in negative) or re.search(r'是否|有无|不$|未见$|否认$', prefix):
++                        s['suppressed_as_affirmative'] = True
++            active = [s for s in signals if s['label'] != 'FITNESS_CONTEXT'
++                      and not s.get('suppressed_as_affirmative') and not s.get('suppressed_as_intent')]
++            execution = execution_mentions(quote, start)
++            feedback = matches(FEEDBACK, quote, start)
++            if not (signals or execution or feedback):
++                continue
++            flags = local_context_flags(note, quote)
++            if re.search(r'同意|教育|介绍表', note['document_type']): flags.append('FORM_OR_CONSENT')
++            if re.search(r'手术可能存在|可能出现的(?:意外|风险)|并发症包括|临床研究|临床试验', quote): flags.append('RISK_OR_TRIAL_CONTEXT')
++            if any(s.get('legacy_role') == 'TEMPLATE_CONTEXT' for s in active): flags.append('TEMPLATE_CONTEXT')
++            instruction = bool(re.search(r'出院(?:指导|医嘱)|注意事项|出院后[^。；;\n]{0,30}(?:每隔|每天|应|注意)', quote) or
++                               (note['family']=='DISCHARGE' and re.search(r'如连续|每天记|每隔\d|若.*(?:可|应|需)', quote)))
++            if instruction: flags.append('INSTRUCTION_NOT_OBSERVED_FEEDBACK')
++            # Current supportive-care wording is not proof of a resection-path
++            # decision. Retain it for linking; do not exclude its patient.
++            if active and all(s['label']=='OPTIMIZATION_PLAN' for s in active) and re.search(r'营养', quote) and not re.search(r'手术|切除|PTCD|ERCP|胆汁引流|减黄', quote):
++                flags.append('SUPPORTIVE_CARE_PATHWAY_LINK_REQUIRED')
++            if re.search(HISTORY, quote): flags.append('HISTORY_CUE')
++            current_clause = False
++            for s in active:
++                # A reference to earlier evidence must not erase an explicit
++                # current conclusion in another comma clause of the same source.
++                pos = s['span'][0]-start
++                left = max(quote.rfind('，',0,pos),quote.rfind(',',0,pos))+1
++                ends = [x for x in [quote.find('，',pos),quote.find(',',pos)] if x>=0]
++                clause = quote[left:min(ends) if ends else len(quote)]
++                if re.search(r'目前|当前|今予|今日|现(?:已|拟|有|无)',clause) and not re.search(HISTORY,clause):
++                    current_clause = True
++            if 'HISTORY_CUE' in flags and current_clause: flags.append('CURRENT_JUDGMENT_WITH_HISTORICAL_CONTEXT')
++            if re.search(r'是否|能否|有无|[？?]', quote): flags.append('QUESTION_CUE')
++            if execution: flags.append('EXECUTION_OR_RETROSPECTIVE_CUE')
++            if note['family'] in {'ADMISSION', 'DISCHARGE'}: flags.append('NARRATIVE_DOCUMENT_TIME_REVIEW')
++            if any(s.get('legacy_role') in {'EXPLICIT_HISTORY', 'NARRATIVE_UNRESOLVED', 'EXECUTED_OR_HISTORY'} for s in active):
++                flags.append('LEGACY_TEMPORAL_REVIEW')
++            if re.search(r'首先考虑[：:]?.*(?:新辅助治疗|化疗)后', quote) and not re.search(r'拟先|计划先|建议先', quote):
++                flags.append('DIAGNOSIS_NOT_TREATMENT_SEQUENCE')
++            target_other = 'DYN005_OTHER_TARGET_REVIEW' in flags or bool(re.search(r'输尿管|ESWL|脊髓|鞘内|颈椎|腰椎', quote))
++            if target_other: flags.append('OTHER_TARGET_REVIEW')
++            body = instant(note.get('body_time')); recorded = instant(note.get('system_time'))
++            if not body: flags.append('NO_PRECISE_BODY_TIME')
++            if body and recorded and body.date() != recorded.date(): flags.append('BODY_RECORD_DATE_DIFFER')
++            blocker = {'FORM_OR_CONSENT','RISK_OR_TRIAL_CONTEXT','HISTORY_CUE','NARRATIVE_DOCUMENT_TIME_REVIEW',
++                       'LEGACY_TEMPORAL_REVIEW','OTHER_TARGET_REVIEW','TEMPLATE_CONTEXT'} & set(flags)
++            if current_clause:
++                blocker.discard('HISTORY_CUE')
++                if not any(s.get('legacy_role') in {'NARRATIVE_UNRESOLVED','EXECUTED_OR_HISTORY'} for s in active):
++                    blocker.discard('LEGACY_TEMPORAL_REVIEW')
++            if instruction:
++                role, status = 'INSTRUCTION_MENTION', 'CONTEXT_REVIEW'
++            elif active:
++                role = 'DECISION_CANDIDATE'
++                current = note['family'] in CURRENT_FAMILIES and not blocker
++                # Execution wording cannot silently establish a present plan.
++                if execution and not re.search(INTENT, quote): current = False
++                if 'QUESTION_CUE' in flags and not re.search(r'拟|待|计划|建议|再评估|重新评估', quote): current = False
++                status = 'CURRENT_STATEMENT_CANDIDATE' if current else 'CONTEXT_REVIEW'
++            elif execution:
++                role, status = 'EXECUTION_MENTION', 'CONTEXT_REVIEW'
++            elif feedback:
++                role, status = 'FEEDBACK_MENTION', 'CONTEXT_REVIEW'
++            else:
++                role, status = 'SUPPORT_MENTION', 'CONTEXT_REVIEW'
++            actions = [{'concept': label, **m} for label, pattern in ACTION_PATTERNS.items() for m in matches(pattern, quote, start)]
++            topics = [label for label, pattern in TOPICS.items() if re.search(pattern, quote, re.I)]
++            nid = sha('|'.join([note['patient_uid'], note['record_key'], sha(text), str(start), str(end)]))[:24]
++            nodes.append({'id': nid, 'patient_uid': note['patient_uid'], 'visit_id': note.get('visit_id'),
++                          'source_id': note['record_key'], 'source_sha256': sha(text), 'span': [start, end],
++                          'quote': quote, 'document_type': note['document_type'], 'document_family': note['family'],
++                          'body_time': note.get('body_time'), 'recorded_time': note.get('system_time'),
++                          'ordering_time': (body or recorded).astimezone(timezone.utc).isoformat() if body or recorded else None,
++                          'time_basis': 'BODY_PROXY' if body else 'CREATION_PROXY' if recorded else 'UNKNOWN',
++                          'role': role, 'status': status, 'flags': sorted(set(flags)), 'signals': signals,
++                          'action_mentions': actions, 'execution_cues': execution, 'feedback_cues': feedback,
++                          'topic_candidates': topics, 'atomicity': 'CONTIGUOUS_STATEMENT_GROUP_MAY_CONTAIN_MULTIPLE_ACTIONS',
++                          'surgical_pathway_relevance': 'UNADJUDICATED',
++                          'extractor_version': 'decision-ir-0.1', 'confidence': None, 'expert_reference': None})
++        return nodes
++
++
++def relate(nodes):
++    """Propose review links, never merge records or claim causal/clinical links.
++
++    Compare nearest strictly earlier statement on each specific shared topic.
++    Generic surgery alone is too weak for a problem-thread claim. Multiple
++    parallel topics are kept. Missing/same-time sources do not receive ordering.
++    """
++    links = []
++    ordered = sorted(nodes, key=lambda n: (n['ordering_time'] or '', n['id']))
++    prior = {}
++    for n in ordered:
++        if not n['ordering_time']: continue
++        for topic in sorted(set(n['topic_candidates']) - {'RESECTION'}):
++            key = (n['patient_uid'], topic)
++            candidates = [p for p in prior.get(key, []) if p['source_id'] != n['source_id'] and p['ordering_time'] < n['ordering_time']]
++            pools = [('previous_topic_statement', candidates)]
++            if n['role'] == 'DECISION_CANDIDATE':
++                pools.append(('previous_topic_decision', [p for p in candidates if p['role']=='DECISION_CANDIDATE']))
++            for selector, pool in pools:
++                if not pool: continue
++                p = max(pool, key=lambda x: (x['ordering_time'], x['id']))
++                precise_actions = lambda x: {a['concept'] for a in x['action_mentions']} - {'SURGERY_UNSPECIFIED', 'DRAINAGE_UNSPECIFIED'}
++                pa, na = precise_actions(p), precise_actions(n)
++                if n['quote'].strip() == p['quote'].strip(): hint = 'IDENTICAL_WORDING_NOT_MERGED'
++                elif pa and pa == na: hint = 'SAME_ACTION_REASSESSMENT_OR_REPEAT_REVIEW'
++                elif pa and na and pa != na: hint = 'ACTION_MENTION_DIFFERENCE_REVIEW'
++                else: hint = 'SAME_TOPIC_NEIGHBOUR_REVIEW'
++                links.append({'from': p['id'], 'to': n['id'], 'topic': topic, 'hint': hint,
++                              'selector': selector,
++                              'relation_status': 'UNADJUDICATED_TEMPORAL_TOPIC_LINK',
++                              'basis': 'shared lexical topic + strictly earlier proxy time; not proof of responds_to/implements',
++                              'cross_visit': p.get('visit_id') != n.get('visit_id'),
++                              'episode_id': None})
++            prior.setdefault(key, []).append(n)
++    return links
+diff --git a/scripts/cohort_construction/p2_decision_ir/fhir_links.py b/scripts/cohort_construction/p2_decision_ir/fhir_links.py
+new file mode 100644
+index 0000000..1cf8e4e
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/fhir_links.py
+@@ -0,0 +1,42 @@
++"""Optional source join to existing FHIR envelopes; not a clinical mapping.
++
++Patient alias mapping must be explicit. A matching source ID with different
++content is rejected. This does not create orders, observations or references
++from inferred decisions, and it does not certify evidence availability.
++"""
++import base64
++from .extract import sha
++
++
++def source_crosswalk(nodes, events, patient_aliases):
++    index = {}
++    for e in events:
++        if e['kind'] != 'document':
++            continue
++        key = (e['patient'], e['source_id'], e['source_sha256'])
++        if key in index:
++            raise ValueError('Ambiguous source version')
++        resource = e['resource']
++        attachment = resource['content'][0]['attachment']['data']
++        text = base64.b64decode(attachment).decode('utf-8')
++        if resource['resourceType'] != 'DocumentReference' or sha(text) != e['source_sha256'] or text != e['source_text']:
++            raise ValueError('Source/resource content mismatch')
++        if resource['subject']['reference'] != 'Patient/'+e['patient']:
++            raise ValueError('Source/resource patient mismatch')
++        index[key] = e
++    links = []
++    for n in nodes:
++        alias = patient_aliases.get(n['patient_uid'])
++        if alias is None:
++            continue  # Patient not part of this explicitly scoped adapter run.
++        key = (alias, n['source_id'], n['source_sha256'])
++        if key not in index:
++            raise ValueError('Exact source version missing in scoped FHIR collection')
++        e = index[key]
++        if e['source_text'][slice(*n['span'])] != n['quote']:
++            raise ValueError('Statement/source span mismatch')
++        links.append({'node_id': n['id'], 'source_span': n['span'],
++                      'fhir_reference': 'DocumentReference/'+e['resource']['id'],
++                      'source_sha256': n['source_sha256'],
++                      'meaning': 'same original source text; no clinical-reference or availability assertion'})
++    return links
+diff --git a/scripts/cohort_construction/p2_decision_ir/node.schema.json b/scripts/cohort_construction/p2_decision_ir/node.schema.json
+new file mode 100644
+index 0000000..aee2466
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/node.schema.json
+@@ -0,0 +1,19 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "Decision IR v0.1 source statement (local research schema, not a FHIR resource)",
++  "type": "object",
++  "required": ["id", "patient_uid", "source_id", "source_sha256", "span", "quote", "role", "status", "signals", "action_mentions", "time_basis", "atomicity", "confidence", "expert_reference"],
++  "properties": {
++    "id": {"type": "string", "pattern": "^[a-f0-9]{24}$"},
++    "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
++    "span": {"type": "array", "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "integer", "minimum": 0}], "minItems": 2, "maxItems": 2},
++    "quote": {"type": "string", "minLength": 1},
++    "role": {"enum": ["DECISION_CANDIDATE", "EXECUTION_MENTION", "FEEDBACK_MENTION", "SUPPORT_MENTION", "INSTRUCTION_MENTION"]},
++    "status": {"enum": ["CURRENT_STATEMENT_CANDIDATE", "CONTEXT_REVIEW"]},
++    "atomicity": {"const": "CONTIGUOUS_STATEMENT_GROUP_MAY_CONTAIN_MULTIPLE_ACTIONS"},
++    "confidence": {"type": "null"},
++    "expert_reference": {"type": "null"},
++    "signals": {"type": "array"},
++    "action_mentions": {"type": "array"}
++  }
++}
+diff --git a/scripts/cohort_construction/p2_decision_ir/regression_catalog.json b/scripts/cohort_construction/p2_decision_ir/regression_catalog.json
+new file mode 100644
+index 0000000..8172c12
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/regression_catalog.json
+@@ -0,0 +1,194 @@
++[
++  {
++    "issue_id": "IR001",
++    "required_test": "test_IR001_negative_judgment_is_a_decision_not_a_dropped_negation",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR002",
++    "required_test": "test_IR002_vascular_observation_not_surgical_judgment",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR003",
++    "required_test": "test_IR003_question_not_affirmative_but_planned_assessment_kept",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR004",
++    "required_test": "test_IR004_risk_template_and_real_risk_are_different",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR005",
++    "required_test": "test_IR005_history_and_current_withdrawal_not_confused",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR006",
++    "required_test": "test_IR006_trial_title_not_current_inoperability",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR007",
++    "required_test": "test_IR007_other_operation_and_consent_review_not_deleted",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR008",
++    "required_test": "test_IR008_narrow_radical_word_not_required",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR009",
++    "required_test": "test_IR009_executed_operation_not_new_plan",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR010",
++    "required_test": "test_IR010_diagnostic_nat_not_new_treatment_plan",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR011",
++    "required_test": "test_IR011_conditional_wait_has_multiple_actions_not_many_points",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR012",
++    "required_test": "test_IR012_repeated_ptcd_after_failure_not_merged",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR013",
++    "required_test": "test_IR013_same_words_different_sources_retained",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR014",
++    "required_test": "test_IR014_cross_patient_never_linked",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR015",
++    "required_test": "test_IR015_same_instant_different_timezone_not_ordered",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR016",
++    "required_test": "test_IR016_source_spans_exact_and_unmutated",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR017",
++    "required_test": "test_IR017_no_history_result_or_reference_gate",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR018",
++    "required_test": "test_IR018_imaging_negative_not_positive_resectability",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR019",
++    "required_test": "test_IR019_postop_posterior_not_future_intent",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR020",
++    "required_test": "test_IR020_date_only_not_padded_to_midnight",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR021",
++    "required_test": "test_IR021_postop_type_does_not_block_a_new_plan",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR022",
++    "required_test": "test_IR022_scheduled_anaesthesia_not_performed",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR023",
++    "required_test": "test_IR023_discharge_threshold_not_observed_feedback",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR024",
++    "required_test": "test_IR024_template_intent_not_current_judgment",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR025",
++    "required_test": "test_IR025_supportive_plan_not_confirmed_resection_decision",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR026",
++    "required_test": "test_IR026_postdischarge_observation_not_instruction",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR027",
++    "required_test": "test_IR027_fhir_link_requires_explicit_patient_alias",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR028",
++    "required_test": "test_IR028_fhir_link_rejects_changed_source_version",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR029",
++    "required_test": "test_IR029_fhir_link_rejects_ambiguous_source",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR030",
++    "required_test": "test_IR030_historical_evidence_does_not_erase_current_conclusion",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR031",
++    "required_test": "test_IR031_scheduled_drainage_biopsy_not_lost_when_execution_removed",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  },
++  {
++    "issue_id": "IR032",
++    "required_test": "test_IR032_link_order_is_stable_across_topic_sets",
++    "file": "tests/test_ir.py",
++    "evidence": "synthetic counterexample and controls; no independent clinical validation"
++  }
++]
+diff --git a/scripts/cohort_construction/p2_decision_ir/run.py b/scripts/cohort_construction/p2_decision_ir/run.py
+new file mode 100644
+index 0000000..b24401d
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/run.py
+@@ -0,0 +1,144 @@
++"""Run on frozen 49-patient development context, not a new cohort sample.
++
++Saves all source indices including zero-hit notes, statement nodes, tentative
++links, old/new retrieval differences and a reproducible balanced review queue.
++This runner never assigns expert Reference or final episodes.
++"""
++import argparse
++from collections import Counter, defaultdict
++import hashlib
++import json
++from pathlib import Path
++import random
++import statistics
++from jsonschema import Draft202012Validator
++from .extract import Extractor, relate
++
++
++def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
++def write(path, value):path.write_text(json.dumps(value, ensure_ascii=False, indent=2)+'\n')
++def jsonl(path, rows):path.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in rows))
++
++
++def run(repo, output):
++    prior=repo/'local_artifacts/p2_dynamic_pathway_probe_v0.1_20261021'
++    source=prior/'review_patient_context.jsonl'
++    release=json.loads((repo/'scripts/cohort_construction/p2_dynamic_pathway_probe/release.json').read_text())
++    assert sha(source)==release['private_outputs_sha256'][source.name], 'Frozen context changed'
++    config_path=repo/'scripts/cohort_construction/p2_decision_localization/configs/rules-v0.3.json'
++    extractor=Extractor(json.loads(config_path.read_text()))
++    notes=[json.loads(s) for s in source.read_text().splitlines()]
++    assert len(notes)==5199 and len({n['patient_uid'] for n in notes})==49
++    bykey={(n['patient_uid'],n['record_key']):n for n in notes}
++    assert len(bykey)==len(notes), 'Source identities are not unique'
++    nodes=[];index=[];old_keys=set();new_keys=set()
++    for n in notes:
++        found=extractor.extract(n);nodes.extend(found)
++        old=extractor.labeler.match(n)
++        key=(n['patient_uid'],n['record_key'])
++        if any(x['candidate_eligible'] for x in old):old_keys.add(key)
++        if any(x['status']=='CURRENT_STATEMENT_CANDIDATE' for x in found):new_keys.add(key)
++        index.append({k:n.get(k) for k in ['patient_uid','record_key','document_type','family','body_time','system_time','source_file','source_row','source_record_id']} |
++                     {'body_sha256':hashlib.sha256(n['text'].encode()).hexdigest(), 'node_ids':[x['id'] for x in found],
++                      'legacy_eligible':key in old_keys, 'new_current_candidate':key in new_keys})
++    validator=Draft202012Validator(json.loads((Path(__file__).parent/'node.schema.json').read_text()))
++    for x in nodes:
++        validator.validate(x)
++        n=bykey[x['patient_uid'],x['source_id']]
++        assert n['text'][slice(*x['span'])]==x['quote']
++        assert hashlib.sha256(n['text'].encode()).hexdigest()==x['source_sha256']
++        for a in x['action_mentions']:assert n['text'][a['start']:a['end']]==a['text']
++        for s in x['signals']:assert n['text'][slice(*s['span'])]==s['quote']
++    assert len({n['id'] for n in nodes})==len(nodes)
++    links=relate(nodes);byid={n['id']:n for n in nodes}
++    for edge in links:
++        a,b=byid[edge['from']],byid[edge['to']]
++        assert a['patient_uid']==b['patient_uid']
++        assert a['ordering_time']<b['ordering_time']
++        assert edge['episode_id'] is None
++    cases=json.loads((prior/'five_case_review.json').read_text())
++    checks=[]
++    for c in cases:
++        matched=[n for n in nodes if n['source_id']==c['record_key'] and n['patient_uid']==c['patient_uid']
++                 and n['span'][0]<c['entry_end'] and c['entry_start']<n['span'][1]]
++        checks.append({'case_id':c['case_id'],'node_ids':[n['id'] for n in matched],
++                       'statuses':[n['status'] for n in matched],
++                       'interpretation':'overlap with prior analyst-selected source; NOT independent validation'})
++    # Independent of the original FHIR mapper: only use the reviewed anchor list
++    # to inspect extraction coverage AFTER the new rules have run on every note.
++    from scripts.cohort_construction.p2_fhir_replay.build_n01 import ANCHORS
++    n01=next(c['patient_uid'] for c in cases if c['case_id']=='N01')
++    anchor_checks=[]
++    for point,key,marker,role in ANCHORS:
++        note=bykey[n01,key];pos=note['text'].index(marker)
++        matches=[n for n in nodes if n['patient_uid']==n01 and n['source_id']==key and n['span'][0]<=pos<n['span'][1]]
++        anchor_checks.append({'anchor':point,'manual_role':role,'node_ids':[n['id'] for n in matches],
++                              'statuses':[n['status'] for n in matches]})
++    # Reproducible review queue. Five strata, up to four distinct patients each.
++    # It is development sampling within an already purposefully selected pool.
++    rng=random.Random(20261022);queue=[]
++    groups={
++        'current_candidate':[n for n in nodes if n['status']=='CURRENT_STATEMENT_CANDIDATE'],
++        'context_review':[n for n in nodes if n['role']=='DECISION_CANDIDATE' and n['status']=='CONTEXT_REVIEW'],
++        'execution':[n for n in nodes if n['role']=='EXECUTION_MENTION'],
++        'feedback':[n for n in nodes if n['role']=='FEEDBACK_MENTION'],
++        'zero_hit_source':[n for n in index if not n['node_ids']],
++    }
++    for stratum,rows in groups.items():
++        patients=sorted({r['patient_uid'] for r in rows});rng.shuffle(patients)
++        for patient in patients[:4]:
++            options=sorted([r for r in rows if r['patient_uid']==patient],key=lambda r:r.get('id',r.get('record_key')))
++            row=rng.choice(options);key=row.get('source_id',row.get('record_key'))
++            queue.append({'stratum':stratum,'patient_uid':patient,'source_id':key,'node_id':row.get('id'),
++                          'source_note':bykey[patient,key],'review_status':'PENDING'})
++    counts=Counter(n['patient_uid'] for n in nodes if n['status']=='CURRENT_STATEMENT_CANDIDATE')
++    patients=sorted({n['patient_uid'] for n in notes})
++    aggregate={'version':'0.1','pool':'49 previously selected development patients; NOT representative P0 sample',
++               'source_patients':len(patients),'source_documents':len(notes),'statement_nodes':len(nodes),
++               'roles':dict(Counter(n['role'] for n in nodes)),'statuses':dict(Counter(n['status'] for n in nodes)),
++               'supportive_care_pathway_link_required':sum('SUPPORTIVE_CARE_PATHWAY_LINK_REQUIRED' in n['flags'] for n in nodes),
++               'zero_node_documents':sum(not n['node_ids'] for n in index),'review_links':len(links),
++               'current_candidate_patients':len(counts),'current_candidate_statement_median_per_patient':statistics.median(counts[p] for p in patients),
++               'legacy_comparison_same_inputs':{'legacy_eligible_documents':len(old_keys),'new_current_candidate_documents':len(new_keys),
++                                               'retained':len(old_keys&new_keys),'newly_prioritized':len(new_keys-old_keys),
++                                               'no_longer_prioritized':len(old_keys-new_keys)},
++               'manual_anchor_count':4,'n01_anchor_hits':sum(bool(x['node_ids']) for x in anchor_checks),
++               'new_review_queue_size':len(queue),'clinical_decision_count':None,'episode_count':None,
++               'expert_reference_generated':False,'clinical_validation':False}
++    output.mkdir(parents=True,exist_ok=False)
++    jsonl(output/'source_index.jsonl',index);jsonl(output/'nodes.jsonl',nodes);jsonl(output/'links.jsonl',links)
++    write(output/'review_queue.json',queue);write(output/'known_case_checks.json',checks)
++    write(output/'n01_anchor_checks.json',anchor_checks);write(output/'aggregate.json',aggregate)
++    write(output/'legacy_comparison.json',{'newly_prioritized':[list(x) for x in sorted(new_keys-old_keys)],
++                                          'no_longer_prioritized':[list(x) for x in sorted(old_keys-new_keys)]})
++    # Full context stays researcher-only. Each card has neighbours but makes no
++    # claim that neighbour ordering proves clinical causation or availability.
++    lines=['# 五例 Decision-IR 开发复核卡\n','原文用于定位复核，含当次选择与后续，不是Agent或专家盲评包。\n']
++    for c in cases:
++        lines.append(f'\n## {c["case_id"]}\n')
++        patient_nodes=[n for n in nodes if n['patient_uid']==c['patient_uid']]
++        # N01 shows all current-statement candidates and all PTCD/ERCP sources;
++        # other cases show their known anchor source plus adjacent source notes.
++        pn=sorted([n for n in notes if n['patient_uid']==c['patient_uid']],key=lambda n:((n.get('body_time') or n.get('system_time') or ''),n['record_key']))
++        i=next(i for i,n in enumerate(pn) if n['record_key']==c['record_key'])
++        keys={n['record_key'] for n in pn[max(0,i-1):i+2]}
++        if c['case_id']=='N01':keys|={n['source_id'] for n in patient_nodes if n['status']=='CURRENT_STATEMENT_CANDIDATE' or any(a['concept'] in {'PTCD','ERCP'} for a in n['action_mentions'])}
++        for note in pn:
++            if note['record_key'] not in keys:continue
++            found=[n for n in patient_nodes if n['source_id']==note['record_key']]
++            lines += [f'### {note["document_type"]} | 正文 {note.get("body_time")} | 创建 {note.get("system_time")}\n',
++                      f'来源 `{note["record_key"]}`；IR单元数 {len(found)}\n', note['text']+'\n']
++            for n in found:
++                lines.append(f'- `{n["id"]}` {n["role"]} / {n["status"]}；偏移{n["span"]}；标记{n["flags"]}\n')
++    (output/'五例-判断执行反馈复核卡.md').write_text('\n'.join(lines))
++    write(output/'run_manifest.json',{'input_sha256':{str(source):sha(source),str(config_path):sha(config_path),str(prior/'five_case_review.json'):sha(prior/'five_case_review.json')},
++                                    'seed':20261022,'schema_validated':True,'source_and_action_spans_checked':True,
++                                    'legacy_chain_builder_used':False,'fhir_dependency_for_extraction':False,
++                                    'code_sha256':{str(p.relative_to(repo)):sha(p) for p in (Path(__file__).parent).rglob('*') if p.is_file() and '__pycache__' not in p.parts},
++                                    'outputs_sha256':{p.name:sha(p) for p in output.iterdir() if p.is_file()}})
++    return aggregate
++
++
++if __name__=='__main__':
++    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
++    a=p.parse_args();print(json.dumps(run(a.repo,a.output),ensure_ascii=False))
+diff --git a/scripts/cohort_construction/p2_decision_ir/tests/test_ir.py b/scripts/cohort_construction/p2_decision_ir/tests/test_ir.py
+new file mode 100644
+index 0000000..df00ab9
+--- /dev/null
++++ b/scripts/cohort_construction/p2_decision_ir/tests/test_ir.py
+@@ -0,0 +1,197 @@
++"""New IR counterexamples, including migrated relevant DYN/localization cases."""
++import copy
++import json
++from pathlib import Path
++import unittest
++from scripts.cohort_construction.p2_decision_ir.extract import Extractor, relate
++from scripts.cohort_construction.p2_decision_ir.fhir_links import source_crosswalk
++from scripts.cohort_construction.p2_fhir_replay.core import pack_event
++
++CONFIG = json.loads((Path(__file__).parents[2]/'p2_decision_localization/configs/rules-v0.3.json').read_text())
++
++
++def note(text, key='a', patient='demo', time='2025-01-01 10:00:00', title='医师查房记录', family='WARD_ROUND'):
++    return dict(text=text, record_key=key, patient_uid=patient, visit_id='v1', body_time=time,
++                system_time=time, document_type=title, family=family)
++
++
++class IRTests(unittest.TestCase):
++    def setUp(self): self.e = Extractor(CONFIG)
++    def current(self, text, **kwargs):
++        return [n for n in self.e.extract(note(text, **kwargs)) if n['status']=='CURRENT_STATEMENT_CANDIDATE']
++
++    def test_IR001_negative_judgment_is_a_decision_not_a_dropped_negation(self):
++        self.assertTrue(self.current('病情：胰腺占位，目前无手术指征，拟行EUS活检。'))
++
++    def test_IR002_vascular_observation_not_surgical_judgment(self):
++        self.assertFalse(self.current('未见肠系膜上动脉受侵；与门静脉关系无法判断。'))
++
++    def test_IR003_question_not_affirmative_but_planned_assessment_kept(self):
++        self.assertFalse(self.current('胰腺肿瘤是否有手术指征？'))
++        nodes=self.current('治疗计划：胰腺肿瘤，待MRI后评估是否有手术指征。')
++        self.assertTrue(nodes)
++        self.assertTrue(all(s.get('suppressed_as_affirmative') for n in nodes for s in n['signals'] if s['label']=='INDICATION_YES'))
++
++    def test_IR004_risk_template_and_real_risk_are_different(self):
++        self.assertFalse(self.current('手术可能存在的风险：术后感染，营养情况不佳，恢复欠理想。'))
++        self.assertTrue(self.current('患者胆红素高，手术风险高，今予PTCD，待改善后行手术治疗。'))
++
++    def test_IR005_history_and_current_withdrawal_not_confused(self):
++        self.assertFalse(self.current('现病史：当时无手术指征，拟行新辅助治疗。',family='ADMISSION'))
++        self.assertTrue(self.current('目前心功能不全，暂不适合全麻手术治疗。'))
++
++    def test_IR006_trial_title_not_current_inoperability(self):
++        self.assertFalse(self.current('参加局部进展期不可切除胰腺癌的临床研究。'))
++
++    def test_IR007_other_operation_and_consent_review_not_deleted(self):
++        nodes=self.e.extract(note('待感染控制后手术。',title='输尿管软镜知情同意'))
++        self.assertTrue(nodes)
++        self.assertTrue(all(n['status']=='CONTEXT_REVIEW' for n in nodes))
++
++    def test_IR008_narrow_radical_word_not_required(self):
++        for operation in ['胰十二指肠切除术','胰体尾脾切除术','根治性胰十二指肠切除术','Whipple手术']:
++            with self.subTest(operation=operation): self.assertTrue(self.current('治疗计划：拟行'+operation+'。'))
++
++    def test_IR009_executed_operation_not_new_plan(self):
++        nodes=self.e.extract(note('在全麻下行胰十二指肠切除术，操作顺利。',title='手术记录',family='OTHER'))
++        self.assertTrue(any(n['role']=='EXECUTION_MENTION' for n in nodes))
++        self.assertFalse(any(n['status']=='CURRENT_STATEMENT_CANDIDATE' for n in nodes))
++
++    def test_IR010_diagnostic_nat_not_new_treatment_plan(self):
++        nodes=self.e.extract(note('目前首先考虑：胰头恶性肿瘤新辅助治疗后，需手术治疗。'))
++        self.assertFalse(any(s['label']=='NAT_PLAN' for n in nodes for s in n['signals']))
++
++    def test_IR011_conditional_wait_has_multiple_actions_not_many_points(self):
++        nodes=self.current('今予PTCD胆汁引流，待胆红素下降后行手术治疗。')
++        self.assertEqual(len(nodes),1)
++        self.assertIn('PTCD',{a['concept'] for a in nodes[0]['action_mentions']})
++        self.assertIn('SURGERY_UNSPECIFIED',{a['concept'] for a in nodes[0]['action_mentions']})
++
++    def test_IR012_repeated_ptcd_after_failure_not_merged(self):
++        a=self.e.extract(note('今予PTCD胆汁引流。'))
++        b=self.e.extract(note('管道脱出，择期再行PTCD手术治疗。',key='b',time='2025-01-02 10:00:00'))
++        nodes=a+b;links=relate(nodes)
++        self.assertEqual(len(nodes),2)
++        self.assertTrue(links)
++        self.assertTrue(all(x['episode_id'] is None for x in links))
++
++    def test_IR013_same_words_different_sources_retained(self):
++        a=self.e.extract(note('今予PTCD胆汁引流。'))
++        b=self.e.extract(note('今予PTCD胆汁引流。',key='b',time='2025-01-02 10:00:00'))
++        self.assertEqual(len(a+b),2)
++        self.assertTrue(any(l['hint']=='IDENTICAL_WORDING_NOT_MERGED' for l in relate(a+b)))
++
++    def test_IR014_cross_patient_never_linked(self):
++        nodes=self.e.extract(note('今予PTCD。'))+self.e.extract(note('今予ERCP。',key='b',patient='other',time='2025-01-02 10:00:00'))
++        self.assertFalse(relate(nodes))
++
++    def test_IR015_same_instant_different_timezone_not_ordered(self):
++        nodes=self.e.extract(note('今予PTCD。'))+self.e.extract(note('今予ERCP。',key='b',time='2025-01-01T02:00:00Z'))
++        self.assertFalse(relate(nodes))
++
++    def test_IR016_source_spans_exact_and_unmutated(self):
++        n=note('总胆红素404.1μmol/L。今予PTCD，待指标下降后手术。');old=copy.deepcopy(n)
++        nodes=self.e.extract(n)
++        for x in nodes:
++            self.assertEqual(n['text'][slice(*x['span'])],x['quote'])
++            for a in x['action_mentions']:self.assertEqual(n['text'][a['start']:a['end']],a['text'])
++        self.assertEqual(n,old)
++
++    def test_IR017_no_history_result_or_reference_gate(self):
++        n=note('治疗计划：拟行MRI，待结果后再评估是否手术。')
++        a=self.e.extract(n);n['future_mri_available']=False;n['expert_reference']='unknown';b=self.e.extract(n)
++        self.assertEqual(a,b)
++        self.assertTrue(any(x['role']=='DECISION_CANDIDATE' for x in b))
++
++    def test_IR018_imaging_negative_not_positive_resectability(self):
++        nodes=self.current('病情：胰腺肿瘤不可切除。')
++        self.assertTrue(nodes)
++        self.assertFalse(any(s['label']=='INDICATION_YES' and not s.get('suppressed_as_affirmative') for n in nodes for s in n['signals']))
++
++    def test_IR019_postop_posterior_not_future_intent(self):
++        self.assertFalse(self.current('术后第一天，手术切口恢复可，胆红素正常。'))
++        self.assertFalse(self.current('已行胰体尾切除术及腹膜后淋巴结清扫。'))
++
++    def test_IR020_date_only_not_padded_to_midnight(self):
++        n=note('今予PTCD。',time='2025-01-01');a=self.e.extract(n)
++        self.assertIsNone(a[0]['ordering_time'])
++
++    def test_IR021_postop_type_does_not_block_a_new_plan(self):
++        self.assertTrue(self.current('引流管脱出，择期再行PTCD手术治疗。',family='POSTOP'))
++        nodes=self.current('今PTCD引流不畅，仍需胆汁引流，今予ERCP治疗。',family='POSTOP')
++        self.assertTrue(nodes)
++        self.assertEqual(nodes[0]['surgical_pathway_relevance'],'UNADJUDICATED')
++        self.assertFalse(self.current('术后第一天，切口愈合可。',family='POSTOP'))
++
++    def test_IR022_scheduled_anaesthesia_not_performed(self):
++        for text in ['定于2025年11月10日在全麻下行胰十二指肠切除术治疗。',
++                     '故拟全麻下行胰体癌根治术治疗。',
++                     '拟于2025-11-10行胰十二指肠切除术。']:
++            nodes=self.current(text,family='PREOP_DISCUSSION')
++            self.assertTrue(nodes,text)
++            self.assertFalse(any(n['execution_cues'] for n in nodes),text)
++        nodes=self.e.extract(note('已行PTCD，拟于2025-11-10行胰十二指肠切除术。'))
++        self.assertTrue(any(n['execution_cues'] for n in nodes))
++
++    def test_IR023_discharge_threshold_not_observed_feedback(self):
++        nodes=self.e.extract(note('每天记引流量，如连续3天引流量＜5ml，可拔管。',family='DISCHARGE'))
++        self.assertEqual(nodes[0]['role'],'INSTRUCTION_MENTION')
++        nodes=self.e.extract(note('术后第一天，今日引流量250ml。',family='POSTOP'))
++        self.assertEqual(nodes[0]['role'],'FEEDBACK_MENTION')
++
++    def test_IR024_template_intent_not_current_judgment(self):
++        nodes=self.e.extract(note('可能出现的意外及防范措施：如发生出血，需行手术治疗。',family='PREOP_DISCUSSION'))
++        self.assertFalse(any(n['status']=='CURRENT_STATEMENT_CANDIDATE' for n in nodes))
++
++    def test_IR025_supportive_plan_not_confirmed_resection_decision(self):
++        nodes=self.current('继续予以营养支持、对症补液支持等治疗。',family='POSTOP')
++        self.assertIn('SUPPORTIVE_CARE_PATHWAY_LINK_REQUIRED',nodes[0]['flags'])
++        nodes=self.current('先行营养支持，待营养改善后行手术治疗。')
++        self.assertTrue(nodes)
++        self.assertNotIn('SUPPORTIVE_CARE_PATHWAY_LINK_REQUIRED',nodes[0]['flags'])
++
++    def test_IR026_postdischarge_observation_not_instruction(self):
++        nodes=self.e.extract(note('患者出院后引流量100ml，今日来院复查。',family='OUTPATIENT'))
++        self.assertEqual(nodes[0]['role'],'FEEDBACK_MENTION')
++
++    def test_IR027_fhir_link_requires_explicit_patient_alias(self):
++        text='今予PTCD。';nodes=self.e.extract(note(text))
++        event=pack_event('N01','document','a','查房',text)
++        self.assertFalse(source_crosswalk(nodes,[event],{}))
++        self.assertEqual(len(source_crosswalk(nodes,[event],{'demo':'N01'})),1)
++
++    def test_IR028_fhir_link_rejects_changed_source_version(self):
++        nodes=self.e.extract(note('今予PTCD。'))
++        event=pack_event('N01','document','a','查房','今予ERCP。')
++        with self.assertRaises(ValueError):source_crosswalk(nodes,[event],{'demo':'N01'})
++
++    def test_IR029_fhir_link_rejects_ambiguous_source(self):
++        text='今予PTCD。';nodes=self.e.extract(note(text))
++        event=pack_event('N01','document','a','查房',text)
++        with self.assertRaises(ValueError):source_crosswalk(nodes,[event,event],{'demo':'N01'})
++
++    def test_IR030_historical_evidence_does_not_erase_current_conclusion(self):
++        nodes=self.current('结合既往肿瘤指标及影像表现，患者目前治疗效果确切，目前已具备手术条件。')
++        self.assertTrue(nodes)
++        self.assertIn('CURRENT_JUDGMENT_WITH_HISTORICAL_CONTEXT',nodes[0]['flags'])
++        self.assertFalse(self.current('当时无手术指征，拟行新辅助治疗。'))
++        self.assertFalse(self.current('目前回顾当时无手术指征。'))
++
++    def test_IR031_scheduled_drainage_biopsy_not_lost_when_execution_removed(self):
++        for operation in ['ERCP治疗','PTCD术','EUS+FNA治疗']:
++            nodes=self.current('定于2025年11月10日在局麻下行'+operation+'。',family='PREOP_DISCUSSION')
++            self.assertTrue(nodes)
++            self.assertFalse(nodes[0]['execution_cues'])
++        nodes=self.e.extract(note('定于2025年11月10日在全麻下行输尿管镜检术。',family='PREOP_DISCUSSION'))
++        self.assertTrue(nodes)
++        self.assertTrue(all(n['status']=='CONTEXT_REVIEW' for n in nodes))
++
++    def test_IR032_link_order_is_stable_across_topic_sets(self):
++        a=self.e.extract(note('今予PTCD，并予以营养支持。'))
++        b=self.e.extract(note('今予ERCP，并予以营养支持。',key='b',time='2025-01-02 10:00:00'))
++        links=relate(a+b)
++        self.assertEqual([l['topic'] for l in links],sorted(l['topic'] for l in links))
++        self.assertEqual(relate(b+a),links)
++
++
++if __name__=='__main__':unittest.main()

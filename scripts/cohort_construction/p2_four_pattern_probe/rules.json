@@ -1,0 +1,26 @@
+{
+  "version": "p2-four-pattern-probe-v0.1-20261021",
+  "source_population": "all frozen P0, regardless of P1/QC state",
+  "patterns": {
+    "CONDITION_DEFERRAL": {
+      "name": "身体条件导致当前暂不手术",
+      "all_of": ["感染|肺炎|发热|心功能|呼吸功能|一般情况.{0,6}(?:差|不佳)|营养.{0,6}(?:差|不良)", "不宜(?:行|进行)?手术|不适合(?:行|进行)?手术|暂缓(?:行|进行)?手术|暂不(?:行|进行|考虑)?手术|不能(?:行|进行)?手术"],
+      "supporting_label": "INDICATION_NO"
+    },
+    "DECOMPRESSION_REASSESSMENT": {
+      "name": "减黄或解除梗阻后重评手术",
+      "all_of": ["减黄|黄疸|胆道梗阻|ERCP|胆管支架|解除梗阻", "(?:再|重新|再次)评估[^。；;\\n]{0,35}(?:外科|手术|切除)|(?:后|待)[^。；;\\n]{0,30}(?:手术方案|手术计划)"],
+      "supporting_label": "ASSESSMENT_PENDING"
+    },
+    "SURGICAL_REFERRAL": {
+      "name": "肯定手术机会并转外科或安排切除",
+      "all_of": ["有(?:明确|明显)?(?:外科|根治性)?手术指征|手术指征明确|具备(?:根治性)?手术条件", "转(?:入|至|往)?[^。；;\\n]{0,18}外科|建议[^。；;\\n]{0,20}手术|拟行[^。；;\\n]{0,20}切除"],
+      "supporting_label": "INDICATION_YES"
+    },
+    "DISEASE_NO_SURGERY": {
+      "name": "疾病判断支持当前不走手术路径",
+      "all_of": ["转移|不可切除|无法切除|病情进展|广泛侵犯|远处病灶", "无(?:明确|明显)?(?:外科|根治性)?手术指征|不具备[^。；;\\n]{0,10}手术条件|不宜(?:行|进行)?手术|不能(?:行|进行)?手术|暂不考虑手术|不建议(?:行|进行)?手术"],
+      "supporting_label": "INDICATION_NO"
+    }
+  }
+}

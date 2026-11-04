@@ -1,0 +1,25 @@
+{
+  "version": "v0.4.3",
+  "issues": [
+    {
+      "issue_id": "V04-PHASE001",
+      "failure": "preoperative/postoperative/perioperative substring misclassified as operative phase, erasing ordinary context and prior state",
+      "required_test_file": "test_phase_labels.py",
+      "required_test_prefixes": [
+        "test_PHASE001",
+        "test_PHASE002",
+        "test_PHASE003"
+      ],
+      "observed_source_counterexamples": [
+        "SCALE-02-B-P03",
+        "SCALE-02-B-P05",
+        "SCALE-04-B-P03",
+        "SCALE-10-B-P04"
+      ],
+      "before_failure_receipt": "phase_parser_failing_before_fix.log",
+      "after_receipt": "regression_tests_v043.log",
+      "source_quality_defect": false,
+      "manual_change": false
+    }
+  ]
+}

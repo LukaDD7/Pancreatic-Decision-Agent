@@ -1,0 +1,18 @@
+{
+  "development_only": true,
+  "seed": 20261023,
+  "cases": 6,
+  "source_documents": 132,
+  "strata": {
+    "feedback_cue_challenge": 1,
+    "multiple_action_challenge": 1,
+    "random_full_source": 2,
+    "zero_hit_full_source": 2
+  },
+  "A_B_source_materials_identical": true,
+  "algorithm_outputs_in_annotation_packets": false,
+  "human_gold_created": false,
+  "actual_physician_review_started": false,
+  "clinical_blind_packets_created": false,
+  "selection_manifest_sha256": "f5dfe9ff2ed34abcf49c3c89ba02f2c650522550fdd2edca9d89beb7eb767ab2"
+}

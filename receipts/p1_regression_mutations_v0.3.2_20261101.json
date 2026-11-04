@@ -1,0 +1,32 @@
+{
+  "active_package": "p1_quality_v0_3_2",
+  "mutation_checks": [
+    {
+      "mutation": "W02_front_negation",
+      "test": "test_rules.ScopeRegressionTests.test_front_negation",
+      "baseline_passed": true,
+      "reintroduced_bug_caught": true
+    },
+    {
+      "mutation": "R08_template_context",
+      "test": "test_known_regressions.KnownDefectContracts.test_R08_structured_lesion_can_omit_repeated_noun",
+      "baseline_passed": true,
+      "reintroduced_bug_caught": true
+    },
+    {
+      "mutation": "R02_branch_parent",
+      "test": "test_known_regressions.KnownDefectContracts.test_R02_branch_only_in_contact_summary_never_fills_parent",
+      "baseline_passed": true,
+      "reintroduced_bug_caught": true
+    },
+    {
+      "mutation": "W10_narrative_B",
+      "test": "test_known_regressions.KnownDefectContracts.test_W10_narrative_metastatic_domain_is_represented",
+      "baseline_passed": true,
+      "reintroduced_bug_caught": true
+    }
+  ],
+  "caught": 4,
+  "live_source_unchanged": true,
+  "source_sha256": "d56b9ba381ff35e9f3ead49d153146831af23c7a69db312edd54169b62ed9e44"
+}

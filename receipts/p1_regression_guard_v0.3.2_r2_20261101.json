@@ -1,0 +1,11 @@
+{
+  "version": "p1-relevance-usability-v0.3.2",
+  "known_case_count": 32,
+  "required_test_methods": 38,
+  "active_tests": 55,
+  "legacy_tests": 51,
+  "total_tests": 106,
+  "required_tests_skipped": [],
+  "success": true,
+  "scope": "Synthetic tests, CLI fixture and frozen legacy baseline; not clinical validation."
+}

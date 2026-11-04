@@ -1,0 +1,70 @@
+{
+  "version": "p2-dynamic-pathway-probe-v0.1-20261021",
+  "study_reference_validated": false,
+  "formal_episode_rules_changed": false,
+  "P0_membership_changed": false,
+  "predefined_broad_sample": {
+    "spans": 20,
+    "patients": 20,
+    "seed": 20261021
+  },
+  "post_inspection_relation_sample": {
+    "spans": 20,
+    "patients": 18,
+    "seed": 20261022
+  },
+  "purposeful_biliary_queue": {
+    "spans": 12,
+    "distinct_patients": 12,
+    "query_candidate_spans": 512
+  },
+  "context_review": {
+    "patients_available": 49,
+    "source_notes_available": 5199,
+    "full_notes_read": 10,
+    "featured_patient_contexts_inspected": 5
+  },
+  "featured_new_cases": [
+    {
+      "case_id": "N01",
+      "title": "胆红素持续升高，处理引流后再推进切除",
+      "entry_id": "T08",
+      "not_in_original_four_patients": true
+    },
+    {
+      "case_id": "N02",
+      "title": "减黄与营养补充后安排胰十二指肠切除",
+      "entry_id": "T10",
+      "not_in_original_four_patients": true
+    },
+    {
+      "case_id": "N03",
+      "title": "营养支持后白蛋白未明显升高，等待改善并查原因",
+      "entry_id": "R02-02",
+      "not_in_original_four_patients": true
+    },
+    {
+      "case_id": "N04",
+      "title": "新辅助治疗后营养差并心功能不全，当前暂不适合全麻手术",
+      "entry_id": "R02-04",
+      "not_in_original_four_patients": true
+    },
+    {
+      "case_id": "N05",
+      "title": "化疗后复查缩小、手术机会被重新提出",
+      "entry_id": "R04-03",
+      "not_in_original_four_patients": true
+    }
+  ],
+  "known_issues": [
+    "DYN-001",
+    "DYN-002",
+    "DYN-003",
+    "DYN-004",
+    "DYN-005",
+    "DYN-006"
+  ],
+  "independent_decision_count": null,
+  "test_count": 26,
+  "test_exit_code": 0
+}

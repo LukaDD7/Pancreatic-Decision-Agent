@@ -1,0 +1,22 @@
+{
+  "date_local": "2026-10-28",
+  "change_scope": "Terminology instructions, interface explanation and illustrative workflow only",
+  "production_code_changed": false,
+  "clinical_model_calls": 0,
+  "existing_clinical_outputs_modified": false,
+  "verification": {
+    "unique_html_ids": 10,
+    "script_syntax": "PASS",
+    "workflow_nodes": 11,
+    "proof_examples": 3,
+    "tab_switch": "PASS",
+    "synthetic_partition": "PASS",
+    "live_browser_layout_verified": false,
+    "method": "Offline JavaScript VM with minimal DOM and static HTML checks"
+  },
+  "sha256": {
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/AGENTS.md": "74847e430f57be581704f11d7b48d006140770dc1ccf123f2942b10263e9a37a",
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/docs/Checkpoint-Episode-术语-事件接口与HTML盲评应用-20261028.md": "29f8b10f70fccd1f33a53d4c41df40d5bc1a710bc38d1c263d29e306d9535651",
+    "/Users/lucachangretta/.codex/visualizations/2026/10/27/01a17deb-2ba0-7b21-9e77-dbb288323481/checkpoint-interfaces-explicit.html": "79e4df1a9ffb0f138007344af0e3b8a85dac85be7add2aee3f9a69849d9af136"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "version": "p2-four-pattern-probe-v0.1-20261021",
+  "P0_n": 2707,
+  "clinical_source_rows": 210144,
+  "retained_context_rows": 143712,
+  "source_files": 265,
+  "P1_filter_used": false,
+  "raw_hit_patients_any_category": 44,
+  "study_period_filter_used": false,
+  "development_sample_size": 40,
+  "categories": {
+    "CONDITION_DEFERRAL": {
+      "name": "身体条件导致当前暂不手术",
+      "raw_sentence_hits": 10,
+      "raw_hit_patients": 5,
+      "current_opinion_hint_hits": 5,
+      "current_opinion_hint_patients": 5,
+      "within_patient_distinct_sentence_signatures": 5,
+      "repeat_hint_hits": 0,
+      "document_families_current_hints": {
+        "WARD_ROUND": 3,
+        "FIRST_SENIOR_ROUND": 2
+      },
+      "role_counts_all_hits": {
+        "CONTEXT_UNRESOLVED": 1,
+        "CURRENT_DOCUMENT_OPINION": 5,
+        "NARRATIVE_UNRESOLVED": 4
+      }
+    },
+    "DECOMPRESSION_REASSESSMENT": {
+      "name": "减黄或解除梗阻后重评手术",
+      "raw_sentence_hits": 6,
+      "raw_hit_patients": 3,
+      "current_opinion_hint_hits": 1,
+      "current_opinion_hint_patients": 1,
+      "within_patient_distinct_sentence_signatures": 1,
+      "repeat_hint_hits": 0,
+      "document_families_current_hints": {
+        "FIRST_SENIOR_ROUND": 1
+      },
+      "role_counts_all_hits": {
+        "CURRENT_DOCUMENT_OPINION": 1
+      }
+    },
+    "SURGICAL_REFERRAL": {
+      "name": "肯定手术机会并转外科或安排切除",
+      "raw_sentence_hits": 20,
+      "raw_hit_patients": 14,
+      "current_opinion_hint_hits": 8,
+      "current_opinion_hint_patients": 6,
+      "within_patient_distinct_sentence_signatures": 8,
+      "repeat_hint_hits": 0,
+      "document_families_current_hints": {
+        "WARD_ROUND": 3,
+        "FIRST_SENIOR_ROUND": 2,
+        "TRANSFER_OUT": 1,
+        "PREOP_BRIEF": 1,
+        "TRANSFER_IN": 1
+      },
+      "role_counts_all_hits": {
+        "CURRENT_DOCUMENT_OPINION": 9,
+        "NARRATIVE_UNRESOLVED": 8,
+        "CONTEXT_UNRESOLVED": 2,
+        "TEMPLATE_CONTEXT": 1
+      }
+    },
+    "DISEASE_NO_SURGERY": {
+      "name": "疾病判断支持当前不走手术路径",
+      "raw_sentence_hits": 198,
+      "raw_hit_patients": 23,
+      "current_opinion_hint_hits": 13,
+      "current_opinion_hint_patients": 10,
+      "within_patient_distinct_sentence_signatures": 11,
+      "repeat_hint_hits": 2,
+      "document_families_current_hints": {
+        "PREOP_BRIEF": 4,
+        "FIRST_SENIOR_ROUND": 7,
+        "PREOP_DISCUSSION": 2
+      },
+      "role_counts_all_hits": {
+        "NARRATIVE_UNRESOLVED": 107,
+        "CURRENT_DOCUMENT_OPINION": 13,
+        "EXPLICIT_HISTORY": 10,
+        "CONTEXT_UNRESOLVED": 68
+      }
+    }
+  },
+  "original_four_seed_retrieval": [
+    {
+      "case_id": "B01",
+      "pattern": "DISEASE_NO_SURGERY",
+      "retrieved": true,
+      "current_opinion_hint": true
+    },
+    {
+      "case_id": "B02",
+      "pattern": "CONDITION_DEFERRAL",
+      "retrieved": true,
+      "current_opinion_hint": true
+    },
+    {
+      "case_id": "B03",
+      "pattern": "DECOMPRESSION_REASSESSMENT",
+      "retrieved": true,
+      "current_opinion_hint": true
+    },
+    {
+      "case_id": "B06",
+      "pattern": "SURGICAL_REFERRAL",
+      "retrieved": true,
+      "current_opinion_hint": true
+    }
+  ],
+  "clinical_validation_completed": false,
+  "units": "Sentence hits/patients, not decisions or episodes; categories overlap; wording signatures do not prove distinct decisions.",
+  "limitations": "Co-occurrence does not establish causality, currentness or surgical target. Current-opinion hints only prioritize review; false hints remain in the output."
+}

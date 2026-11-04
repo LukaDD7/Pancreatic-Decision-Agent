@@ -1,0 +1,28 @@
+{
+  "version": "p2-validation-0.3",
+  "date": "2026-10-23",
+  "reason": "Integrate checkpoint validity with clinical blinded review; fix event-level metrics and FP denominators; enable independent annotation and fresh repeated calls.",
+  "layers": {
+    "extraction": "Frozen run07 and graph generation core unchanged; validation interfaces repaired",
+    "quality_source": "New packet/annotation review and exposure logs only; no P1 quality-state rewrite",
+    "cohort": "No patient membership or source-document filtering change; six development annotation windows selected",
+    "episode": "No episode rules or confirmed clinical decision points generated"
+  },
+  "known_issues": "scripts/cohort_construction/p2_relation_graph/validation_regression_catalog_v0.3.json",
+  "backward_compatibility": "Old evaluate.py results are invalid for event-level F1 or full-scope precision; old raw outputs and release retained. New real gold requires explicit scope and dual-annotation/adjudication provenance.",
+  "output_migration": {
+    "old_input_patients": 49,
+    "new_input_patients": 49,
+    "old_source_documents": 5199,
+    "new_source_documents": 5199,
+    "old_statement_nodes": 3036,
+    "new_statement_nodes": 3036,
+    "clinical_patient_or_episode_count_change": null,
+    "explanation": "No extraction or cohort membership migration. Evaluator counterexample outcomes intentionally change; no clinical performance estimated."
+  },
+  "diff": "docs/p2-validation-v0.3-code-20261023.diff",
+  "diff_sha256": "f0e0b30362d039b3d3205054959cb3a6e39d727407b29c9f2ff9a1e077264973",
+  "release": "scripts/cohort_construction/p2_relation_graph/validation_release_v0.3.json",
+  "no_protocol_claims_without_human_work": true,
+  "final_test_receipt": "receipts/p2-validation-v0.3-tests-20261023-final02.json"
+}

@@ -1,0 +1,253 @@
+{
+  "schema_version": "0.1.0",
+  "scope": "synthetic_v062_candidate_reconstruction_audit_counterexamples_only",
+  "not_a_clinical_error_count": true,
+  "issues": [
+    {
+      "issue_id": "CE-GRA-001",
+      "description": "独立候选重建审计必须绑定声明处理单位中的完整原文、零发现与被拒单位及发现/复核原提案，不能把自动图PASS称为全病历临床确认",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "只给审计者程序选定引文而不给声明范围完整原文",
+        "未覆盖来源被写成无漏事件",
+        "审计响应绑定另一冻结图"
+      ],
+      "controls": [
+        "请求显式保存完整来源、处理单位、覆盖范围和上游提案",
+        "响应逐字引文必须在指定原文唯一定位",
+        "whole_patient_chart_certified固定为false"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_full_scope_and_upstream_proposals_are_bound",
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_unverifiable_quote_and_empty_pass_are_rejected"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-002",
+      "description": "即使上游LLM判断合理，程序错误排除根治路径事件或错误合并Episode也必须退回独立重建；审计层不能直接改图或迁移旧材料PASS",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "暂缓切除并补充证据的复评被漏掉",
+        "不同管理任务被程序合并为一个Episode",
+        "新图沿用旧审计响应和材料PASS"
+      ],
+      "controls": [
+        "重建handoff保存原文证据和受影响事件/Episode",
+        "新图生成新请求并重新执行材料及交付审计",
+        "审计链只提议修订，不修改候选图"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_missed_radical_pathway_needs_evidence_and_new_graph_restarts",
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_bounded_graph_chain_replay_and_reconstruction_restart"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-003",
+      "description": "图审计链的零完成轮次、执行失败、HOLD或REVISE不得通过改写尾部状态成为PASS；完整历史必须可离线权威重放",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "模型调用失败后形成空PASS",
+        "重算链hash掩盖历史输入篡改",
+        "无实质修订的旧图上无限反馈"
+      ],
+      "controls": [
+        "失败零轮仅允许可重放HOLD",
+        "重放重建请求、核验响应、handoff和停止原因",
+        "REVISE停止并产生新图重建请求"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_failed_graph_review_cannot_become_an_empty_pass",
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_bounded_graph_chain_replay_and_reconstruction_restart"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-004",
+      "description": "模型返回REVISE并同时填写required_actions时，链曾按actions非空误归REVIEW_HOLD，丢失可重建handoff；固定十例SCALE-02/03/07/09/10已观察到该接口分类缺陷",
+      "implementation_status": "implemented_with_synthetic_and_historical_offline_replay_regression",
+      "counterexamples": [
+        "AUTO_GRAPH_AUDIT_REVISE + 非空required_actions被归为REVIEW_HOLD且handoff为null",
+        "真实历史链在旧实现重放通过，但重放只证明与旧实现一致，不证明分类正确"
+      ],
+      "controls": [
+        "显式HOLD仍停止；REVISE且无HUMAN_REVIEW/SOURCE_COVERAGE请求时输出RECONSTRUCTION_REQUIRED及handoff",
+        "重建提示明确required_actions用于同步列出重建行动，不表示人工HOLD",
+        "修复不改变历史冻结chain；历史链按旧实现保留"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_bounded_graph_chain_replay_and_reconstruction_restart"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-005",
+      "description": "同一来源中完全相同的短句出现多次时，程序不会擅自选第一处；模型必须扩展连续上下文形成唯一逐字引文。SCALE-04的F6/RR7第二引文出现两次，旧提示未充分说明如何消歧",
+      "implementation_status": "implemented_with_synthetic_and_historical_offline_replay_regression",
+      "counterexamples": [
+        "重复短句不指定上下文导致GRAPH_AUDIT_EVIDENCE_QUOTE_NOT_UNIQUE",
+        "程序任选第一处或最后一处作为模型引文位置",
+        "拼接不连续文字冒充唯一连续引文"
+      ],
+      "controls": [
+        "count!=1继续拒绝，不把引文长度变化视为语义事实修复",
+        "提示要求沿原文前后扩展连续上下文，直到该来源中唯一出现",
+        "保留不存在、未知来源及空PASS拒绝测试；增加重复短句和上下文消歧正负对照"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit.ReconstructionAuditTests.test_unverifiable_quote_and_empty_pass_are_rejected"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-006",
+      "description": "图审计请求在完整事件、上游复核提案和证据上下文中重复携带相同JSON子树，SCALE-01/05/08的冻结请求约8.6/19.6/11.7MB；传输去重必须无损恢复完整请求，不能借压缩删除原文、事件、提案或临床字段。重复子树与HTTP 400的关系仍是待真实测试的研究假设",
+      "implementation_status": "implemented_recursive_v020_with_synthetic_and_all_ten_frozen_request_lossless_roundtrip_controls",
+      "counterexamples": [
+        "仅按最初重复次数保留块，后续投影留下无块可解析的引用",
+        "v0.1.0只处理少数同值事件/证据结构，遗留不同事件间共享证据和字符串；三例真实compact-json-0.1.0执行仍全部HTTP 400",
+        "递归v0.2.0块根被替换为自身引用、标量块误递归或遗漏块内依赖，导致GRAPH_AUDIT_COMPACT_REFERENCE_INVALID",
+        "同一event_id被合法引用两次时被按路径复用误拒，或循环event引用未拒绝",
+        "compact传输负载被持久化为审计请求，导致完整图、原文或上游提案丢失",
+        "修改块、引用、原文或projection_scope后仍通过原始hash绑定"
+      ],
+      "controls": [
+        "只替换可逐字节恢复的重复子树，恢复对象和原请求完全相等",
+        "保留全部实际引用块并核验块hash、事件引用唯一性、循环和原请求hash",
+        "只有provider transport使用compact envelope；chain、journal、响应校验及无模型replay继续使用完整请求",
+        "真实执行需要单独显式授权graph_audit_compact_transport和lossless_request_projection_is_explicit；离线roundtrip不证明400已解决"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_compact_projection.py::test_CE_GRA006_compact_roundtrip_retains_all_originals_events_and_proposals",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_compact_projection.py::test_CE_GRA006_compact_tampering_cannot_change_sources_graph_or_hashes",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_compact_projection.py::test_CE_GRA006_compact_missing_and_cyclic_references_fail_closed",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_compact_projection.py::test_CE_GRA006_real_graph_adapter_preserves_compact_payload_and_instructions",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_compact_projection.py::test_CE_GRA006_chain_persists_full_request_not_compact_provider_payload",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL004_batch_authorization_is_specific_and_never_releases"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-007",
+      "description": "图审核REVISE后原先只生成handoff并停止；且审核者从候选action、uncertainty或上游invalid引文复制文字会造成响应校验失败，必须由分离重建接口核对原文而不是放宽引文校验",
+      "implementation_status": "implemented_with_synthetic_regression_and_real_failure_structural_attribution",
+      "counterexamples": [
+        "SCALE-01审核响应使用声明完整原文之外的source_id",
+        "SCALE-03/07把uncertainty/action描述当作原文引文",
+        "SCALE-10把上游invalid引文复制为审核证据",
+        "审核者直接改图并自行PASS，或把无法验证的引文提升为新图有效action支持",
+        "相同graph_version/hash冒充重建后的新图"
+      ],
+      "controls": [
+        "提示只允许audit_scope.complete_originals_supplied中的source_id和逐字唯一原文",
+        "独立重建请求保留旧图、原文、上游提案和revision requests，审核响应不直接编辑图",
+        "程序重新解析全部action引文、重建证据上下文、核验新图版本/hash并强制独立重审",
+        "HUMAN_REVIEW/SOURCE_COVERAGE不进入自动重建，自动流程不形成临床Reference"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA007_separate_reconstruction_revalidates_support_and_requires_new_audit",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_unresolved_graph_input_never_calls_reconstructor"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-008",
+      "description": "固定十例自动闭环曾把图审核adapter和system prompt用于独立图重建，台账也记为graph；审核者明确无权改图，而重建请求不采用audit_scope包装",
+      "implementation_status": "implemented_with_synthetic_real_adapter_path_regression_no_new_remote_run",
+      "counterexamples": [
+        "真实批次reconstruction使用GRAPH_AUDIT_INSTRUCTIONS",
+        "自动修订从adapters.graph取得重建器，台账stage错误记为graph",
+        "普通新图审核收到reconstruction adapter而违反独立stage接口"
+      ],
+      "controls": [
+        "真实批次分别注入graph_audit_client与graph_reconstruction_client",
+        "自动修订只取adapters.reconstruction，后续全新管线只接收graph/material/delivery",
+        "离线真实批次路径捕获两个system prompt并核对task、stage和expected_gain"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA008_010_real_batch_uses_separate_reconstruction_and_replays_failed_chain",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-009",
+      "description": "重建transport Schema曾允许任意graph对象；六份真实占位响应通过transport后才被业务校验拒绝，且没有合法HOLD响应分支",
+      "implementation_status": "implemented_v020_with_synthetic_placeholder_and_hold_regression_no_new_remote_run",
+      "counterexamples": [
+        "graph为{\"、\":[\"、\"]}或{\"、\":null}",
+        "graph漏events/relations/episodes/graph_version或多额外字段",
+        "无法形成新图时以占位对象冒充重建成功"
+      ],
+      "controls": [
+        "v0.2.0 Schema要求完整图字段及事件、关系、Episode关键结构",
+        "RECONSTRUCTION_HOLD必须graph=null且不产生新图或成功回执",
+        "业务层继续逐字引文、来源、新图版本/hash、全处理单位覆盖及独立重审校验"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA009_placeholder_graphs_are_rejected_by_transport_schema",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA009_explicit_model_hold_does_not_fabricate_a_graph",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA007_separate_reconstruction_revalidates_support_and_requires_new_audit"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-010",
+      "description": "重建失败链曾不保存已返回response/provider_receipt，批次replay只复验父运行；失败自hash通过不等于失败业务重放",
+      "implementation_status": "implemented_chain_v020_with_synthetic_failure_and_batch_replay_regression_no_new_remote_run",
+      "counterexamples": [
+        "占位图响应校验失败后response只存在于model-cache而独立链无响应",
+        "provider无响应时伪造response或provider_receipt",
+        "篡改失败响应、重算hash或把成功图改名为失败HOLD",
+        "失败重建无generation时replay只验证父run.json",
+        "真实Client在transport Schema失败后抛异常，旧接口没有传出已解析response及invocation_id",
+        "provider失败链修改请求并重算自hash，或在response/provider分支错放另一输入图",
+        "批次replay未从父审核REVISE独立构造预期重建请求或绑定台账调用",
+        "汇总声明generation存在但对应reconstruction-*.json缺失时跳过链replay",
+        "Client receipt.request_sha256为digest([endpoint, HTTP body])，台账request_sha256为canonical_sha256(payload)，两者直接比较使合法失败链错误拒绝",
+        "真实失败generations=[]且台账重建调用存在时，缺链目录没有按台账要求链文件",
+        "整份病例修订目录缺失但台账保留重建调用时，replay绕过摘要和链清单检查仍通过"
+      ],
+      "controls": [
+        "v0.2.0私有失败链保存response、脱敏provider_receipt及invocation/response/content hash绑定",
+        "离线replay重现RESPONSE_VALIDATION；PROVIDER_REQUEST无响应证据时只核验链和provider调用身份",
+        "批次replay读取所有reconstruction-*.json，成功链还必须与同代graph-reconstruction-chain.json绑定",
+        "真实Client以ModelRequestFailed.response_evidence私有异常字段传出已解析对象及envelope；脱敏回执保留invocation_id和response_sha256，JSON/HTTP/TLS失败不伪造响应",
+        "provider/response失败均先校验请求；批次replay从对应父run的initial_request和最终REVISE独立构造请求，并核对case、graph、台账request/invocation/response hash",
+        "历史单来源范围合同仅在显式历史replay兼容；新运行分别持久化graph_audit_sources和material sources",
+        "预期provider绑定明确区分payload_sha256与transport_request_sha256，各自只与相同计算对象比较；不可通过删除任一绑定绕过",
+        "失败链清单以台账重建调用为准，成功、模型HOLD、响应失败和无响应provider失败均计入，不依赖generations列表",
+        "台账已有重建调用时，先要求整份病例修订交付存在；缺目录或缺摘要不能解释成没有重建调用",
+        "旧v0.1.0链保留冻结，不宣称其缺失证据已被补齐"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA010_failed_response_is_preserved_replayed_and_tamper_rejected",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA010_provider_failure_has_no_fabricated_response_and_success_still_replays",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA010_real_client_schema_exception_preserves_private_response_and_binding",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA010_provider_failure_revalidates_request_before_replay",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA010_provider_failure_chain_requires_parent_and_ledger_binding",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA010_real_client_and_batch_ledger_bind_same_hash_domains",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA010_successful_batch_reconstruction_binds_initial_parent_and_fresh_sources",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA010_success_chain_cannot_be_turned_into_failure_by_rehash",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA008_010_real_batch_uses_separate_reconstruction_and_replays_failed_chain",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits"
+      ]
+    },
+    {
+      "issue_id": "CE-GRA-011",
+      "description": "重建四字段事件可通过旧Schema却无法进入材料装配；来源、时点和引文交接必须显式版本化",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "仅含旧Schema四个必需字段",
+        "缺source_ids及时间/引文集合",
+        "主来源不在声明清单或引用未知原文",
+        "非原文引文被用作遮蔽或时点依据"
+      ],
+      "controls": [
+        "完整Schema最小事件经过生产Client、批次、重建、新图审核和材料调用",
+        "多来源及未知时点保留",
+        "旧请求契约只用于历史重放，不自动补写源资料"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_missing_scope_and_four_field_responses_rejected_early",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_schema_minimum_complete_event_assembles_without_inventing_time",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_source_scope_and_all_material_citations_are_verified",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_legacy_event_contract_replays_without_upgrading_history",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_GRA011_production_client_batch_reconstruction_reaches_material_review"
+      ]
+    }
+  ]
+}

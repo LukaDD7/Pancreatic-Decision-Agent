@@ -1,0 +1,73 @@
+{
+  "synthetic_only": true,
+  "clinical_accuracy": null,
+  "human_gold_created": false,
+  "protocol": {
+    "model": "kimi-k3",
+    "temperature": 1,
+    "thinking": "disabled",
+    "cache_mode": "bypass",
+    "transport_retries": 0,
+    "tasks": 2,
+    "replicates_per_task": 3
+  },
+  "total_fresh_requests": 6,
+  "cached_requests": 0,
+  "tasks": [
+    {
+      "task_id": "synthetic-fixed-relation",
+      "attempted_replicates": 3,
+      "valid_grounded_replicates": 3,
+      "failed_replicates": 0,
+      "valid_pair_comparisons": 3,
+      "mention_jaccard_or_relation_label_agreement": 0.3333333333333333,
+      "raw_relation_label_agreement": 0.3333333333333333,
+      "field_exact_agreement_on_shared_mentions": {
+        "management_question": null,
+        "clinical_target": null,
+        "assessment": null,
+        "intended_action": null,
+        "condition": null,
+        "goal": null,
+        "commitment": null,
+        "temporality": null
+      },
+      "fresh_requests": 3,
+      "semantic_request_hashes": [
+        "fa3507d503f46f395e672b5ce7db430065516f2c49247813ef942aa4c3ca22d1"
+      ],
+      "interpretation": "Stability only; exact field wording is not semantic correctness. Failures remain in denominator report."
+    },
+    {
+      "task_id": "synthetic-normalization",
+      "attempted_replicates": 3,
+      "valid_grounded_replicates": 2,
+      "failed_replicates": 1,
+      "valid_pair_comparisons": 1,
+      "mention_jaccard_or_relation_label_agreement": 0.6666666666666666,
+      "raw_relation_label_agreement": null,
+      "field_exact_agreement_on_shared_mentions": {
+        "management_question": 0.0,
+        "clinical_target": 0.0,
+        "assessment": 0.5,
+        "intended_action": 1.0,
+        "condition": 0.5,
+        "goal": 0.5,
+        "commitment": 0.0,
+        "temporality": 1.0
+      },
+      "fresh_requests": 3,
+      "semantic_request_hashes": [
+        "d07150ddd0c8d6c4a343e1c166a5654202ab6aaa510578a537a5851d361f1ad1"
+      ],
+      "interpretation": "Stability only; exact field wording is not semantic correctness. Failures remain in denominator report."
+    }
+  ],
+  "relation_labels": [
+    "supersede",
+    "revise",
+    "supersede"
+  ],
+  "replicates_sha256": "2cbae36561b95d8ea1ab69dd69ae6204cd065d18248f2a9ff154fb21a23d3f9e",
+  "limitations": "Two invented tasks, not clinical gold or generalization estimate. Normalization failed once; exact field agreement is not semantic correctness."
+}

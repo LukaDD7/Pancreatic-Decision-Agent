@@ -1,0 +1,62 @@
+{
+  "synthetic_only": true,
+  "actual_provider_requests": 0,
+  "output_root": "/private/tmp/p2-review2-probes-43yvq7lt",
+  "hash_domain_probes": [
+    {
+      "scenario": "schema_rejection",
+      "reproduced": true,
+      "standalone_replay_verified": true,
+      "parent_and_ledger_replay_error": "GRAPH_RECONSTRUCTION_LEDGER_REQUEST_BINDING_MISMATCH",
+      "response_preserved": true,
+      "invocation_preserved": true,
+      "transport_request_sha256": "2257afc5b577696741d3076ac9938c6f9a7192597547e4c4d058173b53b1522a",
+      "payload_sha256": "05a44a888933112ecdcd4fcec471860deb4ce1bad8c105fdfb912bc6a3f49718"
+    },
+    {
+      "scenario": "connection_failure",
+      "reproduced": true,
+      "standalone_replay_verified": true,
+      "parent_and_ledger_replay_error": "GRAPH_RECONSTRUCTION_LEDGER_REQUEST_BINDING_MISMATCH",
+      "response_preserved": false,
+      "invocation_preserved": true,
+      "transport_request_sha256": "2257afc5b577696741d3076ac9938c6f9a7192597547e4c4d058173b53b1522a",
+      "payload_sha256": "05a44a888933112ecdcd4fcec471860deb4ce1bad8c105fdfb912bc6a3f49718"
+    }
+  ],
+  "real_client_full_batch": {
+    "reproduced": true,
+    "error": "GRAPH_RECONSTRUCTION_LEDGER_REQUEST_BINDING_MISMATCH",
+    "mocked_http_attempts": 11,
+    "progress_saved": true,
+    "execution_receipt_created": false
+  },
+  "missing_failed_chain": {
+    "reproduced": true,
+    "summary_generations": [],
+    "replay_verified_without_required_failed_chain": true,
+    "replayed_reconstruction_count": 0,
+    "reconstruction_ledger_records": 2
+  },
+  "review_conclusion": "CE_GRA_010_NOT_CLOSED",
+  "existing_targeted_tests": {
+    "passed": 430,
+    "subtests_passed": 34,
+    "exit_code": 0,
+    "junit_xml": "/private/tmp/p2-fix-review2-9xqix5g5/baseline.xml"
+  },
+  "scale01_read_only_assembly": {
+    "current_unit_sources": 3,
+    "material_sources": 257,
+    "prepared_checkpoints": 2,
+    "assembly_failure_count": 0,
+    "model_calls": 0
+  },
+  "implementation_receipt": {
+    "sha256": "e12a7ec3f7d502b0ddc3f56e50e0d187a041f96b7f89fa4b3fafb8185374eb54",
+    "passed": 910,
+    "subtests_passed": 449,
+    "current_source_hashes_matched": 239
+  },
+  "probe_script_sha256": "a66e669cf32796e09efcef902dcc84fa500a0867da70c22b478d3e5c48c25ca5"
+}

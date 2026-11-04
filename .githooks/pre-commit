@@ -1,0 +1,21 @@
+#!/bin/sh
+# Test the active P1 release for every staged P1/guard/principle change.
+set -eu
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+if ! git diff --cached --name-only | LC_ALL=C grep -Eq '^(scripts/cohort_construction/p1_source_quality/|\.githooks/pre-commit$|AGENTS\.md$)'; then
+    exit 0
+fi
+# Working-tree tests must represent the files being committed. Partial staging
+# of parser/guard code is refused, rather than testing a different code state.
+if ! git diff --quiet -- scripts/cohort_construction/p1_source_quality .githooks/pre-commit AGENTS.md; then
+    echo 'P1 regression guard: unstaged source/guard/principle edits differ from staged code. Stage the intended complete change before committing.' >&2
+    exit 1
+fi
+if test -n "$(git ls-files --others --exclude-standard -- scripts/cohort_construction/p1_source_quality .githooks)"; then
+    echo 'P1 regression guard: untracked source/guard files must be staged or removed from the change.' >&2
+    exit 1
+fi
+test_python=$(git config --get pdac.testPython || true)
+if test -z "$test_python"; then test_python=python3; fi
+exec "$test_python" scripts/cohort_construction/p1_source_quality/regression_guard/run_checks.py --staged

@@ -1,0 +1,37 @@
+{
+  "version": "n01-checkpoint-casebook-v0.1-20261022",
+  "base_commit": "b760c919938156670605a58ac80efbd64482cede",
+  "scope": "Single reviewed checkpoint reconstruction; no general episode segmentation or agent execution",
+  "tests": 8,
+  "test_command": [
+    "/opt/anaconda3/bin/python3.12",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "scripts/cohort_construction/p2_checkpoint_casebook/tests",
+    "-v"
+  ],
+  "test_exit_code": 0,
+  "code_files_sha256": {
+    "scripts/cohort_construction/p2_checkpoint_casebook/README.md": "8d3116b241dd28c467327b8476a97b5f7ee5186378e9050683608f4ac19df100",
+    "scripts/cohort_construction/p2_checkpoint_casebook/__init__.py": "0d6072922654a7ac43ce4e3d5a11ce2d4dcbabde66b96c16f6c8e96514f9465f",
+    "scripts/cohort_construction/p2_checkpoint_casebook/build_n01.py": "d0f30c078813e1c0cae030ae74d7b7005b00655aaed198199b635796f96e845a",
+    "scripts/cohort_construction/p2_checkpoint_casebook/snapshot.py": "0a971376a1a44b10a34d158cbe5c4d9e931082b6c039319786853f4a12f011a2",
+    "scripts/cohort_construction/p2_checkpoint_casebook/tests/test_snapshot.py": "ddcd968193fb8235b4fafa38cedaf726daabf768e7e4adb3a285ca1c5596b01a"
+  },
+  "private_outputs_sha256": {
+    "N01-决策前资料草稿.md": "1e13e745696db9e27acb979e4fb68150be72ddbdab6497fce21ac1cb710b23a8",
+    "N01-当次选择与后续-研究者查看.md": "7e5a919c6db8f7cfedf8a507e88fddd5eadb1d9053524039b7d532b621be6434",
+    "agent_state_reconstruction.json": "a9a0d20a68465f36cd7a0501b58e7f85ff36278c371e8a7735b81baf861e192a",
+    "build_receipt.json": "21bcd78f832ebf71f9b7a2fa67a3180908c0673ff72c1e8fbd814164f5978acd",
+    "reviewer_only_followup.json": "a440db2b9cef85f3ee69e2cdf981464419d2a8a50d272004f644702e3500d7dd",
+    "reviewer_source_audit.json": "494da8dfa878c7630770112cf88ad933d2305089c4e3d0afc2014fec53063377",
+    "test_output.txt": "55c12613e539bd5950d59f18bad62bf5400f999ec7fecd98e7ffdf28a100c5fe"
+  },
+  "source_and_integration_checks": "See private build_receipt: 7 clinical blocks, 2 raw imaging reports, 138 prior lab results; both clocks agree on adjacent clinical source IDs; current choice and future sources excluded.",
+  "formal_blind_evaluation_ready": false,
+  "availability_certified": false,
+  "clinical_reference_generated": false,
+  "patient_data_sent_to_models": false
+}

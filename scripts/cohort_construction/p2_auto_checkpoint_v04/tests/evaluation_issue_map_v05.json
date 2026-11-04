@@ -1,0 +1,40 @@
+{
+  "schema_version": "p2-evaluation-regression-issues-v1",
+  "issues": [
+    {
+      "issue_id": "V04-EVALTARGET001",
+      "change_class": "evaluation_definition_and_diagnostic_separation",
+      "problem": "Independent-event filtering was read as mention detection; secondary support overlapping a negative anchor was read as an extra independent event; unsupported global F1 and uncertainty accuracy could be inferred.",
+      "real_development_counterexamples": [
+        "SCALE-03-A-P02/SCALE-06-A-P03/SCALE-10-B-P04: retained repeat mentions, not absent mentions",
+        "SCALE-04-B-N03: source table as secondary action support in one event; primary anchor elsewhere"
+      ],
+      "required_tests": [
+        "test_L001_repeated_record_retains_mention_but_not_independent_decision",
+        "test_L002_scope_no_is_still_a_detected_mention",
+        "test_L003_source_hash_mismatch_cannot_align",
+        "test_L004_secondary_table_support_does_not_become_primary_extra_event",
+        "test_L005_primary_negative_is_diagnostic_not_semantic_gold",
+        "test_L006_one_large_event_mentions_two_targets_but_newcp_assignment_one",
+        "test_L007_missing_case_keeps_fixed_denominator_unknown",
+        "test_L008_discovery_only_does_not_count_final_failure",
+        "test_L009_legacy_uncertainty_schema_is_not_measured",
+        "test_L010_all_structured_dimensions_complete_without_accuracy_claim",
+        "test_L011_uncertain_dimension_without_explanation_is_missing_documentation",
+        "test_L012_raw_quote_presence_is_not_verified_source_binding",
+        "test_L013_validated_rejection_detected_but_not_retained_event",
+        "test_L014_needed_registered_without_actual_request_receipt_is_unknown",
+        "test_L015_needed_missing_target_is_end_to_end_miss",
+        "test_L016_unlabelled_output_does_not_create_precision_or_false_positive",
+        "test_L017_new_checkpoint_documentation_is_structural_not_semantic_accuracy",
+        "test_L018_reinterpretation_requires_own_supported_quote",
+        "test_L019_unsupported_predecessor_and_missing_availability_not_complete",
+        "test_L020_id_only_change_is_not_reconstruction_difference",
+        "test_L021_function_change_preserves_mention_but_changes_classification",
+        "test_L022_masked_availability_quote_uses_raw_verified_span_mapping"
+      ],
+      "legacy_preservation": "Frozen references and old evaluate.py/contract_scorecard.py unchanged. New report embeds old raw output unchanged. Protocol metric_contract_v05.json frozen before v05 patient model run.",
+      "semantic_accuracy_limit": "This change improves metric interpretability. It does not create new clinical gold or certify newness, identity, predecessor or leakage semantics."
+    }
+  ]
+}

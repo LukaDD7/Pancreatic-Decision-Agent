@@ -1,0 +1,92 @@
+{
+  "version": "p2-dynamic-pathway-relations-v0.1-20261021",
+  "broad_hits_retained": 30409,
+  "filtering_patients": false,
+  "categories": {
+    "D01_BILIARY_CONDITION": {
+      "relation_hint_hits": 90,
+      "patients": 56,
+      "families": {
+        "FIRST_SENIOR_ROUND": 32,
+        "WARD_ROUND": 17,
+        "DISCHARGE": 4,
+        "OTHER": 10,
+        "POSTOP": 8,
+        "FIRST_COURSE": 7,
+        "TRANSFER_IN": 3,
+        "PREOP_BRIEF": 3,
+        "PREOP_DISCUSSION": 2,
+        "ADMISSION": 1,
+        "CONSULT": 3
+      }
+    },
+    "D02_MEDICAL_OPTIMIZATION": {
+      "relation_hint_hits": 41,
+      "patients": 28,
+      "families": {
+        "FIRST_SENIOR_ROUND": 13,
+        "WARD_ROUND": 11,
+        "DISCHARGE": 8,
+        "OTHER": 5,
+        "POSTOP": 1,
+        "CONSULT": 3
+      }
+    },
+    "D03_TREAT_THEN_REASSESS": {
+      "relation_hint_hits": 243,
+      "patients": 134,
+      "families": {
+        "PREOP_DISCUSSION": 111,
+        "OTHER": 12,
+        "ADMISSION": 36,
+        "PREOP_BRIEF": 4,
+        "DISCHARGE": 30,
+        "FIRST_SENIOR_ROUND": 4,
+        "FIRST_COURSE": 32,
+        "TRANSFER_IN": 2,
+        "WARD_ROUND": 4,
+        "CONSULT": 1,
+        "MDT": 2,
+        "POSTOP": 5
+      }
+    },
+    "D04_RESPONSE_AND_DISPOSITION": {
+      "relation_hint_hits": 9,
+      "patients": 5,
+      "families": {
+        "FIRST_COURSE": 2,
+        "PREOP_BRIEF": 1,
+        "OTHER": 1,
+        "ADMISSION": 1,
+        "WARD_ROUND": 1,
+        "MDT": 2,
+        "PREOP_DISCUSSION": 1
+      }
+    },
+    "D05_EVIDENCE_BEFORE_DISPOSITION": {
+      "relation_hint_hits": 110,
+      "patients": 81,
+      "families": {
+        "PREOP_DISCUSSION": 21,
+        "FIRST_SENIOR_ROUND": 52,
+        "WARD_ROUND": 5,
+        "FIRST_COURSE": 18,
+        "OTHER": 5,
+        "DISCHARGE": 2,
+        "ADMISSION": 2,
+        "PREOP_BRIEF": 1,
+        "CONSULT": 1,
+        "TRANSFER_IN": 2,
+        "POSTOP": 1
+      }
+    }
+  },
+  "sample": {
+    "seed": 20261022,
+    "hits": 20,
+    "patients": 18
+  },
+  "held_out_validation": false,
+  "independent_decision_count": null,
+  "rule_sha256": "c31f7055771d621acfb6cd788f8adfc3f7a0b3a582ca296a92010bbcd36fb301"
+}

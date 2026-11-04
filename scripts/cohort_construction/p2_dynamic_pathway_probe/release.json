@@ -1,0 +1,67 @@
+{
+  "version": "p2-dynamic-pathway-probe-v0.1-20261021",
+  "base_commit": "0c5ac20104f19fa6adea06d3acb242d0911f2b74",
+  "phase_order": [
+    "predefined_cooccurrence_retrieval",
+    "fixed_development_sample",
+    "relation_rules_after_inspection",
+    "second_development_sample",
+    "purposeful_biliary_query",
+    "source_context_review",
+    "five_analyst_selected_new_patients"
+  ],
+  "test_command": [
+    "/opt/anaconda3/bin/python3.12",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/tests",
+    "-v"
+  ],
+  "tests": 26,
+  "test_exit_code": 0,
+  "test_output_sha256": "e41181f382e692f2d7e631b077f4d0478b9082221a05d4ff66aeaa84a4da3686",
+  "source_code_sha256": {
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/README.md": "7d0312dd9019e570dbd81ee0a106863475ceb80bb9d9308bc39095322469ce8e",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/__init__.py": "8c15700b51595bacee0939579df610c5d071c828ded4eb30cbdd42310dddce11",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/prioritize.py": "5f9c0b83e1d84a15b8a24cf374c797c4545f9e06752e6910df58ba834bb8295f",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/relation_rules.json": "c31f7055771d621acfb6cd788f8adfc3f7a0b3a582ca296a92010bbcd36fb301",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/render_review.py": "c8559c3dde8724321cc23a070a5917090812fb27c2c310d32bd922bccf4438b2",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/retrieval.py": "947b1b0c4fd9265bd5021a54a631b40f3cc0b5d16bbe94541f99246fe1a53995",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/review_context.py": "56e7a0ca8c681aef863dc2bce56cb95ed82d80546d769d53660a1602261e8008",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/rules.json": "08d9b877c88ca5a47af8b867362c1ff4414e978ef1af419c54a6d93183b46092",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/run.py": "d4649604488bf867bea75ec2c49bf19dab95cd6727d01e3fe4574ac4da926a26",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/targeted.py": "2fc824c5e9547479046e656e3d44d0c2b0b3738a5632fbdd6c4b088c8923e495",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/tests/test_context.py": "c8b3672fdd2752abe182ace06b3576a20760292a5d55cf52632ed667b8bc09bd",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/tests/test_prioritize.py": "6003ff97b3841718c184ba043d037222c0bba2c4adf8f845bb9023efb887ec52",
+    "scripts/cohort_construction/p2_dynamic_pathway_probe/tests/test_retrieval.py": "30cafd56aae2e877ca1708948edc0672d473d210e85f9802add7e9995d660108"
+  },
+  "private_outputs_sha256": {
+    "aggregate.json": "9f2c4f59a8f38eba710800763ad423c81509ad001ad9ff977748942a19c15914",
+    "context_manifest.json": "4af2c978a324b7d8e5783abc0e00a1c804e4ec2b4eb8c49da090e4a340e7c785",
+    "development_review_ledger.json": "11a66cc377e4838a1f61802fd4e7f2a529fd10ee1cdaa17234870975d9b673a0",
+    "development_sample.json": "990544f9b5f9d6a270dea25bc3ea14da065c5524f6014c9a8800de1d0b718524",
+    "five_case_review.json": "dd37105f1ba20a80ea2f4e2e258dc33a5b1e4c4ad997f307e9961e3e0184c359",
+    "hits.jsonl": "f2fbd4524f54bcf642750acc1adc060f860f4f74a0bc8a6f75ca27eb73256477",
+    "matched_notes.jsonl": "c94d6cc9b4b0c45d93d15b44c455fdcc7be04049ebebb83fc29c8c49687510c9",
+    "prioritized_hits.jsonl": "5879130ae782f3090c8ad6f1554b7562f6fbb53c7ad17de1959237de5811333c",
+    "relation_aggregate.json": "121554c0f49e584bddd4fd57db3b7b2673370ae7f1ec2b43ecba92b78a19bac3",
+    "relation_sample.json": "e131287bec324e9dd1be463eba0bf7868bc6cc0ab4149dcab52f2f36a482cacd",
+    "review_patient_context.jsonl": "21ba93c0d75162b26e04b7aae99a2db38ba663a31deea73772fcc37ac04afd3d",
+    "run_manifest.json": "67218ce85a3744e7ef681ff299339d0e93d93ba4283bff4925af7640b6cda038",
+    "sample_patient_context.jsonl": "e378c5b39be970f0709d5234e6bfe3e6140857eefdacf5a4565aaba443a09209",
+    "sample_record_context_flags.json": "885da2aa3ccb27d8596f3eba2b6dd525f40c707451dac500bf682df4d4830049",
+    "targeted_biliary_queue.json": "d5d306dae5cde780344ece5fc8e3f69b1d7b430aed18d749e9dbd96fb81c5fa9",
+    "test_output.txt": "e41181f382e692f2d7e631b077f4d0478b9082221a05d4ff66aeaa84a4da3686",
+    "五个新患者-动态手术路径原文卡-v0.1-20261021.md": "443981ceedae1aeef1571b0a0308747ab894396c94b87f8f134ee33bd35e5ecb"
+  },
+  "clinical_validation": false,
+  "unchanged": [
+    "P0 membership",
+    "P1",
+    "old P2 code/results",
+    "study manuscript",
+    "expert reference"
+  ]
+}

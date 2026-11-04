@@ -1,0 +1,46 @@
+{
+  "receipt_version": "0.1.0",
+  "created_at": "2026-10-28T13:08:51.769305+00:00",
+  "status": "PASS",
+  "synthetic_only": true,
+  "scope": "Strict supported FHIR R4 Questionnaire/QuestionnaireResponse subset and existing frozen-packet submission binding; not a complete FHIR validator or clinical validation",
+  "tests": [
+    {
+      "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /opt/anaconda3/bin/python3 -m pytest scripts/cohort_construction/p2_checkpoint_packet/tests scripts/cohort_construction/p2_checkpoint_review/tests -q",
+      "passed": 69,
+      "subtests_passed": 375,
+      "review_package_passed": 32,
+      "review_package_subtests_passed": 360
+    }
+  ],
+  "differential_comparison": {
+    "case_count": 325,
+    "python_accepted": 78,
+    "python_rejected": 247,
+    "validity_differences": 0,
+    "error_label_differences": 3,
+    "receipt": "differential_receipt_20261028.json",
+    "input_path": "JS parseJsonUnique for every original JSON document; preserves integer lexical tokens"
+  },
+  "source_sha256": {
+    "scripts/cohort_construction/p2_checkpoint_review/README.md": "7d244a150416587046db520799d405cc344c3d8e96c90ab21ab0581ebc28d844",
+    "scripts/cohort_construction/p2_checkpoint_review/__init__.py": "ebcb14ba664c2f0e6003ec6b6aa7263971eb93064f12f4102b1accf7686ad17c",
+    "scripts/cohort_construction/p2_checkpoint_review/regression_issue_map.json": "0be72df5f94bbf88204f6a1401c919e270f2ad0db96f578c1c97c79a54f199ad",
+    "scripts/cohort_construction/p2_checkpoint_review/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scripts/cohort_construction/p2_checkpoint_review/tests/differential_review.py": "4210d4bfbfcdcd6904fbd80334c0e5654b85c7e52040a8a662c2ad9f9131e34f",
+    "scripts/cohort_construction/p2_checkpoint_review/tests/fixtures/cross_language_cases.json": "cb4c972b08f5d831d70bf6000efd50152213be46a905030f4000c5790e141ece",
+    "scripts/cohort_construction/p2_checkpoint_review/tests/fixtures/differential_mutations.json": "e1e08ef68c4fc04edb4596e9d5a9e4825d5100950183505e87bb8476b68173f5",
+    "scripts/cohort_construction/p2_checkpoint_review/tests/fixtures/raw_json_number_cases.json": "bf2a1dbecb11134b56e2a3b802eee27640f2b4ade3309a2276394804ee570cbe",
+    "scripts/cohort_construction/p2_checkpoint_review/tests/test_validation.py": "19fab61aa63fd11ba201f2298818061d9205ee96145e35353bb7dbf95daf5ad8",
+    "scripts/cohort_construction/p2_checkpoint_review/validation.py": "f5703fb57e749664a8d0e15b56b98f69fa1a3d606a29bf0353d90c888b37a831"
+  },
+  "primary_references": [
+    "https://hl7.org/fhir/R4/questionnaire-definitions.html",
+    "https://hl7.org/fhir/R4/questionnaireresponse-definitions.html",
+    "https://hl7.org/fhir/R4/codesystem-questionnaire-enable-operator.html",
+    "https://hl7.org/fhir/R5/codesystem-questionnaire-enable-operator.html",
+    "https://hl7.org/fhir/R4/datatypes.html#dateTime"
+  ],
+  "clinical_protocol_frozen": false,
+  "new_model_requests": 0
+}

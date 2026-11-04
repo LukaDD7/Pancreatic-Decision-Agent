@@ -1,0 +1,631 @@
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/README.md b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/README.md
+index 6f0c3e7..f1a807e 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/README.md
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/README.md
+@@ -1,38 +1,37 @@
+-# P1 v0.3.1：研究相关性与记录可用性
++# P1 v0.3.2：存储迁移与安全输出
+ 
+-本版本重新从冻结 P0 全体检查资料。自动纳入条件是：身份索引已核对，且至少有一条可回溯的、具有实质研究相关内容的记录。其余进入待核；程序零命中不自动排除。P1 状态、ABC 覆盖及质量标记不构成 P2 的绝对入口门槛。
++本版本仅迁移 v0.3.1 的存储与运行保护；纳入规则、提取正则、质量标记、P1/P2 关系和 Episode 规则均未改变。P1 仍负责研究相关性与记录可用性；程序标签不是临床 Reference，状态不构成 P2 绝对门槛。
++
++## 迁移范围与版本边界
++
++- 冻结 v0.2 的结果、证明和输入 manifest 继续只读使用，位置为 `private/p1_quality_v0.2/`。输入文件的存在不改变历史结果的证据等级。
++- 影像输入仍以 v0.2 manifest 的 SHA-256 核验；共享的字节相同缓存位于 `private/p1_quality_v0.3/source_cache/`，文件名绑定预期 hash。缓存不存在或不是预期 hash 时读取并核验冻结原件，不凭存在复用；不同版本内容不覆盖同一缓存文件。
++- 临床 parquet 直接读取原件并核验 SHA-256，不再要求不存在的 `local_artifacts/source_cache_20261020/clinical_cache_manifest.json`。为复现旧版临床/引用输出顺序，`--prior-run private/p1_quality_v0.3.1/results` 仅恢复其 `input_hashes` 已绑定的输入顺序；两版输入集合和 hash 必须一致，不用旧输出充当临床真值。若冻结 manifest 内保留 `/local_artifacts/` 绝对路径，只在相对后缀的 `private/` 文件实际存在且 hash 一致时采用；不因此推断原文件内容或临床事实改变。
++- 每次运行创建新目录 `private/p1_quality_v0.3.2/<run-id>/`，目录 0700、新文件 0600、独占创建。已有目录和公共发布 JSON 不得覆盖；开发重复运行使用 `--no-public-release` 和新的 `--run-id`。
++- 本次已完成本地无模型重放与坐标核验；不包含临床算法修复、临床 Reference 创建或真实远程模型运行。旧存储文件未删除，历史结果继续保存在各版本目录。
+ 
+ ## 文件职责
+ 
+-- `rules.json`：机器可读规则、检索词和版本边界。没有必需的 ABC 维度或必需血管列表。
+-- `labels.py`：逐条保存解剖、测量和转移相关表述；处理否定、对象边界、历史/当前范围。标签是可审阅的检索索引，不是临床 GT。
+-- `references.py`：区分检查计划与已有引用；按检查号、日期、模态生成引用核对状态，不取最近检查冒充原报告。
+-- `run.py`：校验全部冻结影像输入及全量临床缓存；逐患者汇总、与 v0.2 比较、输出本地个体台账及公开聚合数。
+-- `verify.py`：核对证据坐标、冻结源覆盖、运行代码哈希和分流，生成开发样本原文卡及聚合验证回执。
+-- `tests/test_rules.py`：已知反例和分流、引用行为的合成回归测试。
++- `rules.json`：继承 v0.3.1 规则；仅版本及新输出名改变。
++- `labels.py`、`references.py`：继承提取和引用核对逻辑，不是临床 GT。
++- `run.py`：读取冻结输入并输出新运行；`verify.py`：对新运行核验坐标与输入 hash，分别保留回执。
++- `tests/`：原有 54 项提取、引用与 CLI 回归，加 `S03` 迁移正对照及不可覆盖反例。
+ 
+-在独立本地版本库根目录运行：
++在项目虚拟环境中运行：
+ 
+ ```bash
+-/opt/anaconda3/bin/python3.12 -m unittest discover -s scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests -v
+-/opt/anaconda3/bin/python3.12 -m scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.run --repo "$PWD"
+-/opt/anaconda3/bin/python3.12 -m scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.verify --repo "$PWD"
++.venv/bin/python -m unittest discover -s scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests -v
++.venv/bin/python -m scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.run \
++  --repo "$PWD" --run-id results \
++  --prior-run private/p1_quality_v0.3.1/results
++.venv/bin/python -m scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.verify \
++  --repo "$PWD" --run-id results --no-public-receipt
+ ```
+ 
+-需要本地忽略目录中的 v0.2 冻结输出、临床缓存及原项目影像输入。首次运行将完整影像输入复制到非 iCloud 缓存，逐文件匹配 v0.2 的输入 SHA-256。后续运行使用已核验缓存，不重新触发下载。
++正式默认 `run-id=results` 只适用于该目录尚不存在时。重复开发运行保留旧公共 aggregate/receipt，使用 `--no-public-release` 和 `--no-public-receipt`；这些选项不跳过私有坐标与输入核验。未先通过新实现完整合成守卫和输入核验，不应启动真实队列运行。
+ 
+ ## 核验强度与保留限制
+ 
+-影像原始来源核验沿用 v0.2 已保存的逐来源证明，前提是索引输入字节哈希完全一致；本次不声称重新从原始记录簇独立核对。临床记录使用完整 L1 源文件、患者关联、物理行与原文哈希回溯。所有处理视图均与源记录关联，不写回或替换原文。
+-
+-ABC 按全历史记录中“是否检出”标记，不能解释为同一时点状态或临床明确缺失。临床标题识别、目标语境及 ABC 词表属于本版操作化启发式，尚未经医生独立验证；未知标题/未命中/来源未核实都保留待核机会。正文中仍可能存在复制、家族史或所指对象不明确的内容，不能把检索命中解释为当前决策。
+-
+-局部阴阳表述差异只标记 `DIFFERING_LOCAL_DESCRIPTIONS_REVIEW`，不确认真实冲突或选择真值。角度与尺寸保留原始逐条表达，不生成整个人的切除性判断。术后为上下文线索，不是 P1 否决条件。
+-
+-引用的日期/检查号匹配是初筛；只有明确检查号且可核验原报告的唯一检查组才标 `FOUND_EXACT`，仍不证明报告当时可见。仅日期匹配为候选，查不到和未独立核验分开。未来检查计划、线索不足引用均单列。
+-
+-## 输出与安全范围
+-
+-患者、影像、临床原文索引、引用台账和开发样本仅写入忽略的 `local_artifacts/p1_quality_v0.3.1/results/`。源数据读取失败或全量覆盖与冻结运行不一致时不得发布完整重跑结论。公开 `docs/` 只保存聚合结果、合成案例和哈希回执。旧实现与旧队列不改写，P2 代码与既有统计不在本版本修改范围内。
++影像原始来源核验仍沿用 v0.2 已保存证明，仅在索引输入字节 hash 完全一致时继承，不是新一轮原始记录簇独立核对。临床记录使用完整 L1 源文件、患者关联、物理行和原文 hash 回溯。处理视图不替换原文；ABC 是全历史检索覆盖，不是同一时点状态；差异、未检出、无法判断、未找到和未来计划均保留各自语义。
+ 
+-本版相对 v0.3 的修复及完整回归索引见 `docs/P1-v0.3.1-变更原因与回归覆盖-20261021.md`。统一保护入口为 `regression_guard/run_checks.py`：54项当前测试与51项历史测试，并核对31个已知问题的必需用例。
++统一保护入口为 `scripts/cohort_construction/p1_source_quality/regression_guard/run_checks.py`；它同时运行冻结 v0.2 的 51 项历史测试。新增存储问题 `S03` 必须登记并执行，不能只运行旧快照。
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/__init__.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/__init__.cpython-314.pyc
+index 1fc43f3..f76d04e 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/__init__.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/__init__.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/labels.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/labels.cpython-314.pyc
+index d6d764a..7e58307 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/labels.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/labels.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/references.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/references.cpython-314.pyc
+index 95eddf3..74e8894 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/references.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/references.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/run.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/run.cpython-314.pyc
+index b47d189..3fb835c 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/__pycache__/run.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/run.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/verify.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/verify.cpython-314.pyc
+new file mode 100644
+index 0000000..b0690bc
+Binary files /dev/null and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/__pycache__/verify.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/release.json b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/release.json
+index a548ba6..079c6bd 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/release.json
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/release.json
+@@ -1,35 +1,42 @@
+ {
+-  "version": "p1-relevance-usability-v0.3.1",
++  "version": "p1-relevance-usability-v0.3.2",
++  "release_scope": "Storage migration and owner-only exclusive artifacts; no parser or cohort-rule change",
++  "implementation_replaces_prior_release_json": "Copied v0.3.1 release.json was placeholder and was not valid v0.3.2 evidence",
+   "parent_commit": "e689ebc1bebf7ca5d9c3588d1c2bffc127ab3e2e",
+   "code_sha256": {
+-    "README.md": "6a607e90e492b4acf531df69ebc13963c3d72665b56b5240366a33b60513efbd",
++    "README.md": "8d17b810470fd9b4a9def9644d44cc85917a29e193e3a015aa4397f25add5ee5",
+     "__init__.py": "4411c9d7ac3944608ed0cfd22194ac6bace4780ba84ce9cdf9679404e72448d4",
+     "labels.py": "d56b9ba381ff35e9f3ead49d153146831af23c7a69db312edd54169b62ed9e44",
+     "references.py": "809f389d60b3ef17349643418df923b97b6ed6824822e8700cad3e8c2c958b3b",
+-    "rules.json": "97b43fabab8616aeb67d91294635f107f98d99a2101470eeb580d3ce5527de0f",
+-    "run.py": "9dc9dce8e5390855e4ba0af41dd87fe9db12102a1f958897590ca923c16497a7",
+-    "tests/test_known_regressions.py": "3fffd1958ee88a7d1d0e4bd78a00bd29ab8e9901ecf31bf93a37e539027d6095",
+-    "tests/test_pipeline_regressions.py": "1e66651c3236830066f948e4ba612464ac9fdcc5eafbc2c7baa59b3b1e72ad09",
+-    "tests/test_rules.py": "37824c7575814e20869b7a3e65619a41ccd3fdfa47b7a43da58e00247a31b19c",
+-    "verify.py": "e45d5a9a90e8d72a13abbdb3cabb8f1f2461a852e68584880004a93c891cc1f4"
++    "rules.json": "7afc1002b15c8921302d8a3dc3b6fd6b6c120d8602560718efdb5e711905d02d",
++    "run.py": "5705ad51694aeb27c254abda31d94fdd8a60327bf424f20895a268f217f02413",
++    "tests/test_known_regressions.py": "7d3a32226ce2b158d2b5cdf8f484fcea81b12efa30bc41f7809e3eabaa613613",
++    "tests/test_pipeline_regressions.py": "3d4b91a191f4ec3ce96b311fd4896fb78f7f94e36987363e93b7a8a72c413baa",
++    "tests/test_rules.py": "e8d10a556453c29ff6d3e7f6132f7d4449d3370e511b5f5c951b147fc3cd9dc6",
++    "verify.py": "9072b9515edeea02cae42bc8063143f242ecd93f559128e2dde7af291b619da4"
+   },
+   "guard_sha256": {
+     "README.md": "742749723b605a4c6b4ebf3e60565fc9070defffcb6d6433a7e57d5237db71f6",
+-    "active_release.json": "9cbb29ef896c2fe18d99653e98c991a233cf7f0c8eb052ac0f9dfd538df5f388",
++    "active_release.json": "506f5f766d518a736e8f1a2643c58a9045fb0e1b155dd2ae716b1b3c158ff4a1",
+     "check_mutations.py": "1f798521695e285ca33566e4812aceed4d59bce325bcd91e01d18207b9bb8ff5",
+-    "known_cases.json": "9645b9de75d292f63a60f5bdbe579925aef67a3e0f6ef4d53b2e7c885bc0abb0",
++    "known_cases.json": "73f9358ea51cf3d433398a285ead5fbcdef54a26b5c8b75daaf0716940f5da3c",
+     "run_checks.py": "6cb11e84bb8f3901c207c8ab17cccfac7f2f655c1d456173c906ac8adb7e75e8"
+   },
+-  "pre_commit_sha256": "3ec8864d08cebe24fbb0b5542d41b78854120358c0210487263e262b0bcde46a",
+   "tests": {
+-    "active": 54,
++    "active": 55,
+     "legacy": 51,
+-    "total": 105,
+-    "known_cases": 31,
++    "total": 106,
++    "known_cases": 32,
+     "mutations_caught": 4
+   },
+-  "summary_sha256": "9f44b4a4b945fb97cebefbbbc0ba5ea498206f285755ce23380df5fde509fd82",
+-  "output_diff_sha256": "b093b095385d70646cd35f4ace6d8fd048b77efd93877c42444512defb9f38ca",
++  "receipts": {
++    "guard": "receipts/p1_regression_guard_v0.3.2_r2_20261101.json",
++    "mutation": "receipts/p1_regression_mutations_v0.3.2_r2_20261101.json",
++    "private_verification": "private/p1_quality_v0.3.2/results-migrated-prior-order-r2-20261101/verification_receipt.json"
++  },
++  "verified_run": "private/p1_quality_v0.3.2/results-migrated-prior-order-r2-20261101",
++  "summary_sha256": "d34feef8d2ae7a6c73ee54a020c3545df89d18fc273ed4c680bf362e2099d371",
++  "output_diff_sha256": "10200d0813713e37365c40c3ffeb76de12ec57771744e6dc39bb24bb90928030",
+   "patient_states": {
+     "INCLUDE_V3": 2690,
+     "REVIEW_V3": 17
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/rules.json b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/rules.json
+index 6ea725a..3cbbcde 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/rules.json
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/rules.json
+@@ -1,5 +1,5 @@
+ {
+-  "version": "p1-relevance-usability-v0.3.1",
++  "version": "p1-relevance-usability-v0.3.2",
+   "P0_n": 2707,
+   "study_window_annotation_only": [
+     "2021-01-01",
+@@ -51,7 +51,7 @@
+   },
+   "other_object_boundary_pattern": "腹主动脉|主动脉|下腔静脉|肝固有动脉|肝动脉|肠系膜下动脉|肠系膜下静脉|肝脏|肝内|肝实质|淋巴结|胆总管|胆管|胰管|腹膜|网膜|脾脏|肾脏",
+   "scope_note": "ABC are nonexclusive coverage labels across supplied history, not a contemporaneous clinical state; source and quote coordinates remain available",
+-  "artifact_directory": "p1_quality_v0.3.1",
+-  "public_release_stem": "p1-relevance-usability-v0.3.1-20261021",
+-  "receipt_stem": "p1_relevance_usability_v0.3.1_20261021"
++  "artifact_directory": "p1_quality_v0.3.2",
++  "public_release_stem": "p1-relevance-usability-v0.3.2-20261101",
++  "receipt_stem": "p1_relevance_usability_v0.3.2_20261101"
+ }
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/run.py b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/run.py
+index d107bf8..41f4027 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/run.py
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/run.py
+@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
+ import argparse
+ import hashlib
+ import json
++import os
+ import random
+ import re
+ import sys
+@@ -19,6 +20,76 @@ from .labels import coverage, digest, normalize, parse_image
+ from .references import citations, dateof, exam_number, link, modality
+ 
+ 
++def private_mkdir(path, *, parents=False, exist_ok=False):
++    """Create owner-only output directories without changing existing roots."""
++    path = Path(path)
++    if parents and not path.exists():
++        private_mkdir(path.parent, parents=True, exist_ok=True)
++    path.mkdir(mode=0o700, exist_ok=exist_ok)
++    if path.stat().st_mode & 0o077:
++        raise PermissionError('P1_PRIVATE_DIRECTORY_PERMISSIONS_TOO_BROAD: ' + str(path))
++
++
++def private_open(path, mode):
++    """Create a private artifact atomically; never overwrite a prior release."""
++    if 'x' not in mode:
++        raise ValueError('P1_PRIVATE_ARTIFACT_REQUIRES_EXCLUSIVE_CREATE')
++    descriptor = os.open(Path(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++    return os.fdopen(descriptor, mode, encoding=None if 'b' in mode else 'utf-8',
++                     newline=None if 'b' in mode else '')
++
++
++def private_root(repo):
++    """The physical private/ root must also be the Git-ignored project path."""
++    root = (repo / 'private').resolve()
++    if not root.is_dir():
++        raise FileNotFoundError('P1_PRIVATE_ROOT_REQUIRED: ' + str(root))
++    if (Path(repo) / '.gitignore').is_file():
++        if '/private/' not in (Path(repo) / '.gitignore').read_text(encoding='utf-8').splitlines():
++            raise ValueError('P1_PRIVATE_ROOT_MUST_BE_GIT_IGNORED')
++    return root
++
++
++def private_path(repo, *parts):
++    path = private_root(repo).joinpath(*parts).resolve()
++    if not path.is_relative_to(private_root(repo)):
++        raise ValueError('P1_PRIVATE_OUTPUT_PATH_REQUIRED')
++    return path
++
++
++def legacy_path(path):
++    """Resolve an already migrated frozen input without using old storage layout."""
++    value = str(path)
++    marker = '/local_artifacts/'
++    if marker in value:
++        prefix, suffix = value.split(marker, 1)
++        candidate = Path(prefix) / 'private' / suffix
++        if candidate.is_file():
++            return candidate.resolve()
++    return Path(path).resolve()
++
++
++def clinical_inputs(manifest, prior_run=None):
++    """Read frozen clinical originals without the stale cache manifest.
++
++    The prior release's input_hashes records the old cache-manifest insertion
++    order. Retaining that order makes a storage-only replay comparable, while
++    each original still requires the independent frozen v0.2 byte hash.
++    """
++    originals = [original for original in manifest if original.endswith('.parquet')]
++    if prior_run is not None:
++        previous = json.loads((prior_run/'run_manifest.json').read_text())
++        ordered = [original for original in previous.get('input_hashes', {}) if original.endswith('.parquet')]
++        if len(ordered) != len(set(ordered)) or set(ordered) != set(originals):
++            raise ValueError('P1_PRIOR_CLINICAL_INPUT_ORDER_MISMATCH')
++        for original in ordered:
++            if previous['input_hashes'][original] != manifest[original]['sha256']:
++                raise ValueError('P1_PRIOR_CLINICAL_INPUT_HASH_MISMATCH')
++        return ordered
++    return originals
++
++
++
+ def read_jsonl(path):
+     with path.open(encoding='utf-8') as stream:
+         for line in stream:
+@@ -27,11 +98,13 @@ def read_jsonl(path):
+ 
+ 
+ def write_json(path, value):
+-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
++    with private_open(path, 'x') as stream:
++        json.dump(value, stream, ensure_ascii=False, indent=2)
++        stream.write('\n')
+ 
+ 
+ def write_jsonl(path, values):
+-    with path.open('w', encoding='utf-8') as stream:
++    with private_open(path, 'x') as stream:
+         for value in values:
+             stream.write(json.dumps(value, ensure_ascii=False)+'\n')
+ 
+@@ -62,18 +135,27 @@ def ensure_images(repo, frozen_manifest):
+     hash matches the frozen input manifest, never from file presence alone.
+     """
+     # Immutable byte-identical source cache is shared; derived outputs are not.
+-    output = repo/'local_artifacts/p1_quality_v0.3/source_cache'
++    output = private_path(repo, 'p1_quality_v0.3', 'source_cache')
+     paths = [p for p in frozen_manifest if p.endswith('/imaging_reports_all_sources.jsonl')]
+     def copy_one(original):
+-        src = Path(original)
+-        target = output/src.parent.parent.parent.name/src.parent.name/src.name
++        src = legacy_path(original)
+         expected = frozen_manifest[original]['sha256']
++        # Include the frozen content hash in the cache identity. A later
++        # legitimate source revision must not collide with earlier bytes.
++        target = output/src.parent.parent.parent.name/src.parent.name/(expected + '-' + src.name)
+         if target.exists() and sha(target) == expected:
+             return original, target, expected
+         raw = src.read_bytes()
+         assert hashlib.sha256(raw).hexdigest() == expected, 'Frozen imaging input changed'
+-        target.parent.mkdir(parents=True, exist_ok=True)
+-        target.write_bytes(raw)
++        private_mkdir(target.parent, parents=True, exist_ok=True)
++        try:
++            with private_open(target, 'xb') as stream:
++                stream.write(raw)
++        except FileExistsError:
++            # A concurrent identical cache fill is valid only for exact bytes;
++            # a mismatched existing cache must never be silently reused.
++            if sha(target) != expected:
++                raise ValueError('P1_SOURCE_CACHE_HASH_MISMATCH: ' + str(target))
+         return original, target, expected
+     records = []
+     with ThreadPoolExecutor(max_workers=8) as pool:
+@@ -87,16 +169,27 @@ def ensure_images(repo, frozen_manifest):
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[4])
++    parser.add_argument('--run-id', default='results',
++        help='New output directory under this version; existing outputs are never overwritten')
++    parser.add_argument('--no-public-release', action='store_true',
++        help='Synthetic/repeat development run without publishing the aggregate summary')
++    parser.add_argument('--prior-run', type=Path,
++        help='Prior release directory used only to preserve frozen clinical input order')
+     args = parser.parse_args()
++    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.run_id) or '..' in args.run_id:
++        raise ValueError('P1_RUN_ID_INVALID')
+     repo = args.repo.resolve()
+     here = Path(__file__).resolve().parent
+     code_hashes_at_start = {p.name: sha(p) for p in sorted(here.glob('*.py'))}
+     rules_hash_at_start = sha(here/'rules.json')
+     rules = json.loads((here/'rules.json').read_text())
+-    output = repo/'local_artifacts'/rules['artifact_directory']/'results'
+-    output.mkdir(parents=True, exist_ok=True)
++    output = private_path(repo, rules['artifact_directory'], args.run_id)
++    public_summary = repo/'docs'/(rules['public_release_stem']+'.json')
++    if not args.no_public_release and public_summary.exists():
++        raise FileExistsError('P1_PUBLIC_SUMMARY_REQUIRES_NEW_VERSION: '+str(public_summary))
++    private_mkdir(output, parents=True)
+     start = time.monotonic()
+-    oldbase = repo/'local_artifacts/p1_quality_v0.2/results'
++    oldbase = private_path(repo, 'p1_quality_v0.2', 'results')
+     old = {p['patient_uid']: p for p in read_jsonl(oldbase/'patient_quality.jsonl')}
+     manifest = json.loads((oldbase/'input_manifest.json').read_text())
+     assert len(old) == rules['P0_n']
+@@ -184,16 +277,15 @@ def main():
+         if cv['target_context'] and len(set(r['parsed']['represented_vessels']) & {'SMA','CA','CHA','PV','SMV'}) < 5:
+             p['flags']['TARGET_IMAGE_WITH_PARTIAL_OR_UNRECOGNIZED_VESSEL_COVERAGE'] += 1
+     print(json.dumps({'stage': 'images_parsed', 'input_rows': raw_image_rows, 'content_versions': len(images)}), flush=True)
+-    clinical_manifest_path = repo/'local_artifacts/source_cache_20261020/clinical_cache_manifest.json'
+-    clinical_manifest = json.loads(clinical_manifest_path.read_text())
++    clinical_paths = clinical_inputs(manifest, args.prior_run)
+     notes, refs = [], []
+     decode_errors = []
+     title_include = re.compile(rules['clinical_document_pattern'], re.I)
+     title_exclude = re.compile(rules['nonphysician_title_pattern'])
+-    for original, meta in clinical_manifest['files'].items():
+-        path = Path(meta['cached_path'])
++    for original in clinical_paths:
++        path = legacy_path(original)
+         actual = sha(path)
+-        assert actual == meta['sha256'] == manifest[original]['sha256']
++        assert actual == manifest[original]['sha256']
+         hashes[original] = actual
+         for source_row_number, row in enumerate(pq.read_table(path).to_pylist()):
+             uid = row['patient_uid']
+@@ -300,11 +392,15 @@ def main():
+     write_json(output/'summary.json', summary)
+     write_json(output/'run_manifest.json', {'version': rules['version'], 'python': sys.version, 'pyarrow': pyarrow.__version__,
+                'input_hashes': hashes, 'frozen_patient_sha256': sha(oldbase/'patient_quality.jsonl'),
++               'prior_run_order_reference': str(args.prior_run) if args.prior_run else None,
+                'frozen_report_sha256': sha(oldbase/'report_quality.jsonl'),
+                'script_hashes': code_hashes_at_start, 'rules_sha256': rules_hash_at_start,
+                'original_data_modified': False, 'labels_are_GT': False, 'sample_purpose': 'development, not independent validation'})
+     public_summary = repo/'docs'/(rules['public_release_stem']+'.json')
+-    write_json(public_summary, summary)
++    if not args.no_public_release:
++        if public_summary.exists():
++            raise FileExistsError('P1_PUBLIC_SUMMARY_REQUIRES_NEW_VERSION: '+str(public_summary))
++        write_json(public_summary, summary)
+     print(json.dumps(summary, ensure_ascii=False), flush=True)
+ 
+ 
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_known_regressions.cpython-314-pytest-9.0.3.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_known_regressions.cpython-314-pytest-9.0.3.pyc
+new file mode 100644
+index 0000000..d8df83d
+Binary files /dev/null and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_known_regressions.cpython-314-pytest-9.0.3.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/__pycache__/test_known_regressions.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_known_regressions.cpython-314.pyc
+index 3c56b7e..f38c5bf 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/__pycache__/test_known_regressions.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_known_regressions.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_pipeline_regressions.cpython-314-pytest-9.0.3.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_pipeline_regressions.cpython-314-pytest-9.0.3.pyc
+new file mode 100644
+index 0000000..e25e95c
+Binary files /dev/null and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_pipeline_regressions.cpython-314-pytest-9.0.3.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/__pycache__/test_pipeline_regressions.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_pipeline_regressions.cpython-314.pyc
+index c47a9db..ae50c99 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/__pycache__/test_pipeline_regressions.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_pipeline_regressions.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_rules.cpython-314-pytest-9.0.3.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_rules.cpython-314-pytest-9.0.3.pyc
+new file mode 100644
+index 0000000..9c35b58
+Binary files /dev/null and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_rules.cpython-314-pytest-9.0.3.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/__pycache__/test_rules.cpython-314.pyc b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_rules.cpython-314.pyc
+index 8dee7dd..db103b0 100644
+Binary files a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/__pycache__/test_rules.cpython-314.pyc and b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/__pycache__/test_rules.cpython-314.pyc differ
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/test_known_regressions.py b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/test_known_regressions.py
+index 5c4636c..f23c224 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/test_known_regressions.py
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/test_known_regressions.py
+@@ -7,7 +7,7 @@ import json
+ from pathlib import Path
+ import re
+ import unittest
+-from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.labels import (
++from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.labels import (
+     coverage, measurement_statements, normalize, parse_image, relationship, vessel_statements)
+ 
+ RULES = json.loads((Path(__file__).resolve().parents[1]/'rules.json').read_text())
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/test_pipeline_regressions.py b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/test_pipeline_regressions.py
+index 445becb..9eb979a 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/test_pipeline_regressions.py
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/test_pipeline_regressions.py
+@@ -14,9 +14,9 @@ import tempfile
+ import unittest
+ import pyarrow as pa
+ import pyarrow.parquet as pq
+-from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.labels import normalize
++from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.labels import normalize
+ 
+-MODULE='scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.run'
++MODULE='scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.run'
+ REPO=Path(__file__).resolve().parents[5]
+ 
+ 
+@@ -38,7 +38,8 @@ def read_lines(path):
+ def fixture():
+     with tempfile.TemporaryDirectory(prefix='pdac-synthetic-regression-') as tmp:
+         root=Path(tmp)
+-        old=root/'local_artifacts/p1_quality_v0.2/results'
++        (root/'.gitignore').write_text('/private/\n')
++        old=root/'private/p1_quality_v0.2/results'
+         old.mkdir(parents=True)
+         (root/'docs').mkdir();(root/'receipts').mkdir()
+         manifest={}; patients=[]; image_path=None
+@@ -78,7 +79,6 @@ def fixture():
+         pq.write_table(pa.Table.from_pylist(raw_notes),clinical)
+         metadata={'cached_path':str(clinical),'bytes':clinical.stat().st_size,'sha256':hashlib.sha256(clinical.read_bytes()).hexdigest()}
+         manifest[str(clinical)]={k:metadata[k] for k in ['bytes','sha256']}
+-        dump(root/'local_artifacts/source_cache_20261020/clinical_cache_manifest.json',{'files':{str(clinical):metadata}})
+         dump(old/'input_manifest.json',manifest)
+         dump(old/'summary.json',{'imaging_input_rows':len(rows)})
+         dump_lines(old/'patient_quality.jsonl',patients)
+@@ -86,19 +86,60 @@ def fixture():
+         yield root,image_path,rows,manifest,patients
+ 
+ 
+-def run_cli(root):
++def run_cli(root,run_id='results',prior_run=None):
+     env=os.environ.copy();env['PYTHONPATH']=str(REPO)
+-    return subprocess.run([sys.executable,'-m',MODULE,'--repo',str(root)],cwd=REPO,env=env,
+-                          capture_output=True,text=True,timeout=90)
++    command=[sys.executable,'-m',MODULE,'--repo',str(root),'--run-id',run_id,'--no-public-release']
++    if prior_run is not None:command.extend(['--prior-run',str(prior_run)])
++    return subprocess.run(command,cwd=REPO,env=env,capture_output=True,text=True,timeout=90)
+ 
+ 
+ class PipelineRegressionTests(unittest.TestCase):
++    def test_S03_migrated_storage_is_private_and_legacy_cache_is_not_required(self):
++        with fixture() as (root,image_path,rows,manifest,patients):
++            (root/'private').chmod(0o700)
++            # A pre-existing storage parent may legitimately need its owner-only
++            # mode restored during migration; this must not loosen the root gate.
++            old=root/'private/p1_quality_v0.2/results'
++            legacy=root/'local_artifacts'/image_path.relative_to(root)
++            migrated=root/'private'/image_path.relative_to(root)
++            migrated.parent.mkdir(parents=True)
++            migrated.write_bytes(image_path.read_bytes())
++            manifest[str(legacy)]=manifest.pop(str(image_path))
++            dump(old/'input_manifest.json',manifest)
++            result=run_cli(root)
++            self.assertEqual(result.returncode,0,result.stderr)
++            output=root/'private/p1_quality_v0.3.2/results'
++            self.assertFalse((root/'local_artifacts/source_cache_20261020').exists())
++            for path in (output, output/'patient_quality.jsonl',output/'image_annotations.jsonl'):
++                self.assertEqual(path.stat().st_mode & 0o077,0)
++            old={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in (root/'private/p1_quality_v0.2/results').iterdir() if p.is_file()}
++            repeat=run_cli(root)
++            self.assertNotEqual(repeat.returncode,0)
++            self.assertIn('FileExistsError',repeat.stderr)
++            self.assertEqual(old,{p:hashlib.sha256(p.read_bytes()).hexdigest() for p in old})
++            self.assertFalse((root/'docs/p1-relevance-usability-v0.3.2-20261101.json').exists())
++            unchanged=run_cli(root,'different-run')
++            self.assertEqual(unchanged.returncode,0,unchanged.stderr)
++            previous=root/'private/p1_quality_v0.3.2/different-run'
++            replay=run_cli(root,'prior-order-replay',previous)
++            self.assertEqual(replay.returncode,0,replay.stderr)
++            ordered=root/'private/p1_quality_v0.3.2/prior-order-replay'
++            self.assertEqual((ordered/'clinical_annotations.jsonl').read_bytes(),(previous/'clinical_annotations.jsonl').read_bytes())
++            prior=json.loads((previous/'run_manifest.json').read_text())
++            prior['input_hashes'][next(key for key in prior['input_hashes'] if key.endswith('.parquet'))]='0'*64
++            dump(previous/'run_manifest.json',prior)
++            mismatch=run_cli(root,'prior-order-rejected',previous)
++            self.assertNotEqual(mismatch.returncode,0)
++            self.assertIn('P1_PRIOR_CLINICAL_INPUT_HASH_MISMATCH',mismatch.stderr)
++
+     def test_W11_W12_D8_actual_pipeline_and_order_invariance(self):
+         with fixture() as (root,image_path,rows,manifest,patients):
++            (root/'private').chmod(0o700)
++            old=root/'private/p1_quality_v0.2/results'
+             before={p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in manifest}
+             result=run_cli(root)
+             self.assertEqual(result.returncode,0,result.stderr)
+-            out=root/'local_artifacts/p1_quality_v0.3.1/results'
++            out=root/'private/p1_quality_v0.3.2/results'
+             first=read_lines(out/'image_annotations.jsonl')
+             p={r['patient_uid']:r for r in read_lines(out/'patient_quality.jsonl')}
+             self.assertEqual(p['SYNTHETIC-0000']['state'],'INCLUDE_V3')
+@@ -113,31 +154,45 @@ class PipelineRegressionTests(unittest.TestCase):
+             self.assertTrue(all(r['p2_access']=='NOT_DETERMINED_BY_P1_STATE' for r in p.values()))
+             # A run must not rewrite any source file.
+             self.assertEqual(before,{k:hashlib.sha256(Path(k).read_bytes()).hexdigest() for k in before})
+-            dump_lines(image_path,list(reversed(rows)))
+-            manifest[str(image_path)]['sha256']=hashlib.sha256(image_path.read_bytes()).hexdigest()
+-            dump(root/'local_artifacts/p1_quality_v0.2/results/input_manifest.json',manifest)
+-            again=run_cli(root)
++            # A different frozen input gets its own cache key path; never replace
++            # an existing cache merely because the fixture manifest changed.
++            reordered=root/'synthetic_input_reordered/batch_fixture/patients'/image_path.parent.name/image_path.name
++            dump_lines(reordered,list(reversed(rows)))
++            manifest[str(reordered)]=manifest.pop(str(image_path))
++            manifest[str(reordered)]['sha256']=hashlib.sha256(reordered.read_bytes()).hexdigest()
++            dump(old/'input_manifest.json',manifest)
++            again=run_cli(root,'reversed-input')
+             self.assertEqual(again.returncode,0,again.stderr)
+-            self.assertEqual(first,read_lines(out/'image_annotations.jsonl'))
++            out=root/'private/p1_quality_v0.3.2/reversed-input'
++            reordered_images=read_lines(out/'image_annotations.jsonl')
++            def strip_storage_paths(values):
++                return [{k:v for k,v in row.items() if k!='source_refs'} for row in values]
++            self.assertEqual(strip_storage_paths(first),strip_storage_paths(reordered_images))
++            self.assertTrue(all(any(ref['original_input_path']==str(reordered) for ref in row['source_refs'])
++                                for row in reordered_images if row['patient_uid']=='SYNTHETIC-0000'))
+             self.assertEqual(p,{r['patient_uid']:r for r in read_lines(out/'patient_quality.jsonl')})
+ 
+     def test_source_hash_mismatch_aborts_instead_of_publishing(self):
+         with fixture() as (root,image_path,rows,manifest,patients):
++            (root/'private').chmod(0o700)
++            old=root/'private/p1_quality_v0.2/results'
+             manifest[str(image_path)]['sha256']='0'*64
+-            dump(root/'local_artifacts/p1_quality_v0.2/results/input_manifest.json',manifest)
++            dump(old/'input_manifest.json',manifest)
+             result=run_cli(root)
+             self.assertNotEqual(result.returncode,0)
+             self.assertIn('Frozen imaging input changed',result.stderr)
+-            self.assertFalse((root/'docs/p1-relevance-usability-v0.3.1-20261021.json').exists())
++            self.assertFalse((root/'docs/p1-relevance-usability-v0.3.2-20261101.json').exists())
+ 
+     def test_incomplete_source_row_coverage_aborts(self):
+         with fixture() as (root,image_path,rows,manifest,patients):
++            (root/'private').chmod(0o700)
++            old=root/'private/p1_quality_v0.2/results'
+             patients[1]['clinical_source_rows']+=1
+-            dump_lines(root/'local_artifacts/p1_quality_v0.2/results/patient_quality.jsonl',patients)
++            dump_lines(old/'patient_quality.jsonl',patients)
+             result=run_cli(root)
+             self.assertNotEqual(result.returncode,0)
+             self.assertIn('Full-P0 source row coverage',result.stderr)
+-            self.assertFalse((root/'docs/p1-relevance-usability-v0.3.1-20261021.json').exists())
++            self.assertFalse((root/'docs/p1-relevance-usability-v0.3.2-20261101.json').exists())
+ 
+ 
+ if __name__=='__main__':
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/test_rules.py b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/test_rules.py
+index bb77864..7725973 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/tests/test_rules.py
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/tests/test_rules.py
+@@ -2,10 +2,10 @@
+ import json
+ from pathlib import Path
+ import unittest
+-from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.labels import (
++from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.labels import (
+     coverage, measurement_statements, metastatic_state, normalize, parse_image, vessel_statements)
+-from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.references import citations, exam_number, link
+-from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_1.run import classify
++from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.references import citations, exam_number, link
++from scripts.cohort_construction.p1_source_quality.p1_quality_v0_3_2.run import classify
+ 
+ RULES = json.loads((Path(__file__).resolve().parents[1]/'rules.json').read_text())
+ 
+diff --git a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/verify.py b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/verify.py
+index 27e9a30..400ff12 100644
+--- a/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_1/verify.py
++++ b/scripts/cohort_construction/p1_source_quality/p1_quality_v0_3_2/verify.py
+@@ -4,23 +4,26 @@ from pathlib import Path
+ import argparse
+ import json
+ from .labels import normalize
+-from .run import read_jsonl, sha, write_json
++from .run import private_path, read_jsonl, sha, write_json
+ 
+ 
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[4])
++    parser.add_argument('--run-id', default='results')
++    parser.add_argument('--no-public-receipt', action='store_true',
++        help='Verify a repeat development run without replacing its version receipt')
+     args = parser.parse_args()
+     repo = args.repo.resolve()
+     here = Path(__file__).resolve().parent
+     rules = json.loads((here/'rules.json').read_text())
+-    base = repo/'local_artifacts'/rules['artifact_directory']/'results'
++    base = private_path(repo, rules['artifact_directory'], args.run_id)
+     manifest = json.loads((base/'run_manifest.json').read_text())
+     # Only files imported by the runner at its release time are hashed there.
+     for name, expected in manifest['script_hashes'].items():
+         assert sha(here/name) == expected, 'Runtime/code mismatch: '+name
+     assert sha(here/'rules.json') == manifest['rules_sha256']
+-    old = repo/'local_artifacts/p1_quality_v0.2/results'
++    old = private_path(repo, 'p1_quality_v0.2', 'results')
+     assert sha(old/'patient_quality.jsonl') == manifest['frozen_patient_sha256']
+     assert sha(old/'report_quality.jsonl') == manifest['frozen_report_sha256']
+     images = list(read_jsonl(base/'image_annotations.jsonl'))
+@@ -71,8 +74,14 @@ def main():
+                'development_sample_patients':len(cards),'clinical_validation_completed':False,
+                'output_hashes':{n:sha(base/n) for n in ['patient_quality.jsonl','image_annotations.jsonl','clinical_annotations.jsonl','reference_links.jsonl','summary.json','run_manifest.json','development_sample.json','development_source_cards.json']}}
+     write_json(base/'verification_receipt.json',receipt)
++    if args.no_public_receipt:
++        print(json.dumps({k:v for k,v in receipt.items() if k!='output_hashes'},ensure_ascii=False))
++        return
+     public = {**receipt,'output_hashes':receipt['output_hashes']}
+-    write_json(repo/'receipts'/(rules['receipt_stem']+'.json'),public)
++    public_path = repo/'receipts'/(rules['receipt_stem']+'.json')
++    if public_path.exists():
++        raise FileExistsError('P1_PUBLIC_RECEIPT_REQUIRES_NEW_VERSION: '+str(public_path))
++    write_json(public_path,public)
+     print(json.dumps({k:v for k,v in receipt.items() if k!='output_hashes'},ensure_ascii=False))
+ 
+ 

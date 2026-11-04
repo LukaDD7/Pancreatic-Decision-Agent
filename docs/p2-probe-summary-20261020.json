@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-20",
+  "seed": 20261020,
+  "sample_patients": 30,
+  "stratum_counts": {
+    "one_exam_group": 10,
+    "multiple_exam_groups": 10,
+    "targeted_quality_or_time_boundary": 10
+  },
+  "clinical_parquet_files_in_frozen_manifest": 265,
+  "clinical_parquet_files_dataless_skipped": 255,
+  "readable_clinical_source_rows": 10788,
+  "passed_patients_in_readable_file_pool": 112,
+  "parquet_files_read": 10,
+  "pancreas_note_rows": 878,
+  "unique_full_text_notes_within_patient": 864,
+  "patients_with_signal": {
+    "surgery_assessment": 30,
+    "negative_surgery_broad": 25,
+    "negative_surgery_scoped": 3,
+    "additional_evidence": 19,
+    "neoadjuvant": 10,
+    "reassessment": 8,
+    "redirect_therapy": 19,
+    "mdt": 30
+  },
+  "patients_with_multiple_surgical_signal_days": 30,
+  "patients_with_identical_surgical_context_across_recorded_days": 3,
+  "patients_with_body_clock": 30,
+  "qualified_report_versions": 93,
+  "qualified_image_report_versions_with_original_record_loaded": 0,
+  "image_patient_files_dataless_skipped": 30,
+  "image_field_names": [],
+  "nonempty_explicit_image_report_time_fields": {},
+  "source_read_errors": [],
+  "meaning": "Convenience sample from currently hydrated files, stratified and enriched for quality/time boundaries; not whole-cohort exploration, episode validation or population prevalence. Unreadable cloud placeholders are not missing clinical data. Recorded dates and body clocks do not prove information availability.",
+  "signal_patterns": {
+    "surgery_assessment": "手术(?:指征|机会|可能|条件|评估|治疗)|(?:可|能|拟|考虑|建议|暂不|不宜|不适合|无法|不能|不具备)[^。；;\\n]{0,12}(?:手术|切除)|可切除|切除性|根治性?切除",
+    "negative_surgery_broad": "(?:不宜|不适合|无法|不能|无|不具备|未达|不考虑|暂不)[^。；;\\n]{0,10}(?:手术|切除)|失去[^。；;\\n]{0,8}手术",
+    "negative_surgery_scoped": "(?:不宜|不适合|无法|不能|不考虑|暂不|难以)(?:行|进行|接受|实施)?[^。；;\\n]{0,8}(?:手术|切除)|(?:无|不具备|失去|丧失)(?:根治性?)?(?:手术|切除)(?:指征|机会|条件)|(?:不具备|未达)(?:根治性?)?手术(?:条件|指征)",
+    "additional_evidence": "(?:完善|进一步|补充|建议|拟行|待)[^。；;\\n]{0,18}(?:MRI|MR|CT|活检|穿刺|腹腔镜|PET|分期|病理)",
+    "neoadjuvant": "新辅助|\\bNAT\\b",
+    "reassessment": "(?:新辅助|化疗|治疗)后[^。；;\\n]{0,25}(?:评估|手术|切除)|(?:再|重新|复)[^。；;\\n]{0,4}(?:评估|分期)",
+    "redirect_therapy": "(?:建议|拟|行|予以|继续|转)[^。；;\\n]{0,12}(?:新辅助|化疗|系统治疗|姑息治疗)|姑息性",
+    "mdt": "\\bMDT\\b|多学科|术前讨论"
+  },
+  "input_file_hashes_verified_on_20261020": 10
+}

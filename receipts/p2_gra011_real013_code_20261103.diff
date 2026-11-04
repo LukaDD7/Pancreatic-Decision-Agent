@@ -1,0 +1,981 @@
+--- before/scripts/cohort_construction/p2_checkpoint_reconstruction_audit/reconstruction.py
++++ after/scripts/cohort_construction/p2_checkpoint_reconstruction_audit/reconstruction.py
+@@ -13,6 +13,10 @@
+ )
+ from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
+ from .audit import DIMENSIONS, build_graph_audit_request, validate_graph_audit
++
++REQUEST_FORMAT = 'candidate-graph-reconstruction-request-0.2.0'
++LEGACY_REQUEST_FORMAT = 'candidate-graph-reconstruction-request-0.1.0'
++EVENT_CONTRACT = 'candidate-reconstruction-material-event-0.1.0'
+ 
+ FORMAT = 'candidate-graph-reconstruction-response-0.2.0'
+ CHAIN_FORMAT = 'candidate-graph-reconstruction-chain-0.2.0'
+@@ -76,6 +80,29 @@
+     ],
+ }
+ 
++# Historical requests retain their original validation semantics. New requests
++# bind the downstream event contract explicitly; no field is inferred from an
++# old event merely because its event_id was reused.
++LEGACY_GRAPH_RECONSTRUCTION_SCHEMA = deepcopy(GRAPH_RECONSTRUCTION_SCHEMA)
++_EVENT_PROPERTIES = {
++    'source_ids': {'type': 'array', 'minItems': 1, 'uniqueItems': True,
++                   'items': {'type': 'string', 'minLength': 1}},
++    'choice_time': {'type': ['string', 'object', 'null']},
++    'time_basis': {'type': 'string', 'minLength': 1},
++    'time_validation': {'type': ['object', 'string']},
++    'kind': {'type': 'string', 'minLength': 1},
++    'phase': {'type': 'string', 'minLength': 1},
++    'record_function': {'type': 'string', 'minLength': 1},
++    'choice_boundary_citations': _CITATION_GROUPS,
++    'prechoice_citations': _CITATION_GROUPS,
++    'postchoice_citations': _CITATION_GROUPS,
++    'validated_observation_citations': _CITATION_GROUPS,
++    'availability_validation': {'type': 'array', 'items': {'type': 'object'}},
++}
++_EVENT_SCHEMA = GRAPH_RECONSTRUCTION_SCHEMA['properties']['graph']['properties']['events']['items']
++_EVENT_SCHEMA['required'].extend(_EVENT_PROPERTIES)
++_EVENT_SCHEMA['properties'].update(deepcopy(_EVENT_PROPERTIES))
++
+ INSTRUCTIONS = '''你是与候选图审核请求分离的候选图重建者，不是医生Reference评审者。
+ 输入保存旧候选图、同一声明范围的完整原文、发现/复核阶段LLM提案和独立图审核者的revision_requests。审核意见是需要核对的修订请求，不是ground truth。
+ 请独立阅读完整原文，只针对本次范围输出一个完整新候选图。不得用后续结局改写当时信息，不得把缺失推断为阴性，不得把自动审核PASS称为临床确认。
+@@ -85,6 +112,8 @@
+ 逐字复制response_binding的protocol_version、graph_sha256、request_sha256。完整新图使用status=RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT；graph只含events、relations、episodes、graph_version，事件必须含event_id、source_id、checkpoint_status和action_citations.valid/invalid/ambiguous，关系必须含source_event_id、target_event_id，Episode必须含episode_id、event_ids、checkpoint_ids。
+ 无法在现有原文上形成可核验新图时使用status=RECONSTRUCTION_HOLD、graph=null，并在rationale说明具体阻塞；不得输出占位对象，也不得把HOLD写成重建完成。仅按schema输出JSON。'''
+ 
++INSTRUCTIONS += '''\n新版event_contract要求每个事件显式保留source_ids（完整声明来源数组，必须包含source_id）、choice_time、time_basis、time_validation、kind、phase、record_function、choice_boundary_citations、prechoice_citations、postchoice_citations、validated_observation_citations和availability_validation。所有引文集合均须有valid/invalid/ambiguous数组；只有可逐字唯一定位的原文可放valid，未解决引文保留invalid/ambiguous，不能晋升为支持。时间未知时choice_time=null、time_basis=unknown，time_validation显式说明待核；未找到引文时返回空集合，不得复制旧事件的时间或遮蔽判断来填空。availability_validation是提案，不能自称程序或临床认证。程序重建evidence_context和actual_model_evidence，不得把模型生成的证据上下文作为原文。无法提供可核验的完整事件契约时返回RECONSTRUCTION_HOLD。'''
++
+ 
+ def graph_reconstruction_client(client):
+     def ask(task, payload, schema):
+@@ -98,7 +127,7 @@
+         request_sha256=request['response_binding']['request_sha256'])
+ 
+ 
+-def build_graph_reconstruction_request(audit_request, audit_response):
++def build_graph_reconstruction_request(audit_request, audit_response, *, legacy=False):
+     """Bind a separate revision task to the complete original audit scope."""
+     audit_response = validate_graph_audit(audit_request, deepcopy(audit_response))
+     if audit_response['status'] != 'AUTO_GRAPH_AUDIT_REVISE':
+@@ -107,7 +136,7 @@
+     if (not revisions or any(item['request_kind'] not in REQUEST_KINDS
+             or item['required_reconstruction'] is not True for item in revisions)):
+         raise ValueError('GRAPH_RECONSTRUCTION_INPUT_UNRESOLVED')
+-    request = dict(format='candidate-graph-reconstruction-request-0.1.0',
++    request = dict(format=LEGACY_REQUEST_FORMAT if legacy else REQUEST_FORMAT,
+         task=TASK, input_graph=deepcopy(audit_request['candidate_graph']),
+         complete_originals_supplied=deepcopy(audit_request['audit_scope']['complete_originals_supplied']),
+         processing_units=deepcopy(audit_request['processing_units']),
+@@ -126,13 +155,17 @@
+         original_clinical_text_may_not_be_rewritten=True,
+         clinical_release_permitted=False)
+     request['response_binding'] = _request_binding(audit_request)
++    if not legacy:
++        request['event_contract_version'] = EVENT_CONTRACT
+     return request
+ 
+ 
+ def _validate_response(request, response):
+     from jsonschema import Draft202012Validator, ValidationError
+     try:
+-        Draft202012Validator(GRAPH_RECONSTRUCTION_SCHEMA).validate(response)
++        schema = (LEGACY_GRAPH_RECONSTRUCTION_SCHEMA
++            if request['format'] == LEGACY_REQUEST_FORMAT else GRAPH_RECONSTRUCTION_SCHEMA)
++        Draft202012Validator(schema).validate(response)
+     except ValidationError as exc:
+         raise ValueError('GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID') from exc
+     if any(response.get(key) != request['response_binding'][key]
+@@ -159,6 +192,11 @@
+     from .chain import _reconstruction_input
+     if not isinstance(request, dict) or request.get('task') != TASK:
+         raise ValueError('GRAPH_RECONSTRUCTION_REQUEST_INVALID')
++    if (request.get('format') not in (REQUEST_FORMAT, LEGACY_REQUEST_FORMAT)
++            or (request['format'] == REQUEST_FORMAT
++                and request.get('event_contract_version') != EVENT_CONTRACT)
++            or (request['format'] == LEGACY_REQUEST_FORMAT and 'event_contract_version' in request)):
++        raise ValueError('GRAPH_RECONSTRUCTION_EVENT_CONTRACT_VERSION_INVALID')
+     audit_request = build_graph_audit_request(request['input_graph'],
+         request['complete_originals_supplied'], **_reconstruction_input(request))
+     if audit_request['response_binding'] != request['response_binding']:
+@@ -180,6 +218,37 @@
+             request['complete_originals_supplied'], **_reconstruction_input(request)):
+         raise ValueError('GRAPH_RECONSTRUCTION_REQUEST_CONTENT_INVALID')
+     return request
++
++
++def _validate_material_event(event, sources):
++    declared = event['source_ids']
++    if event['source_id'] not in declared:
++        raise ValueError('GRAPH_RECONSTRUCTION_PRIMARY_SOURCE_NOT_DECLARED')
++    if any(sid not in sources for sid in declared):
++        raise ValueError('GRAPH_RECONSTRUCTION_DECLARED_SOURCE_UNKNOWN')
++    originals = [sources[sid] for sid in declared]
++    allowed = {sid: [(0, len(sources[sid]['text']))] for sid in declared}
++
++    def verify(collection):
++        resolved = resolve_citations(collection['valid'], originals, allowed)
++        if resolved['invalid'] or resolved['ambiguous']:
++            raise ValueError('GRAPH_RECONSTRUCTION_MATERIAL_CITATION_NOT_VERIFIABLE')
++        # Invalid and ambiguous proposals remain provenance, never evidence.
++        return dict(valid=resolved['valid'], invalid=deepcopy(collection['invalid']),
++                    ambiguous=deepcopy(collection['ambiguous']))
++
++    for name in ('choice_boundary_citations', 'prechoice_citations',
++                 'postchoice_citations', 'validated_observation_citations'):
++        event[name] = verify(event[name])
++    for item in event['availability_validation']:
++        for name in ('validated_observation', 'validated_basis'):
++            if name in item:
++                from jsonschema import Draft202012Validator, ValidationError
++                try:
++                    Draft202012Validator(_CITATION_GROUPS).validate(item[name])
++                except ValidationError as exc:
++                    raise ValueError('GRAPH_RECONSTRUCTION_AVAILABILITY_CITATIONS_INVALID') from exc
++                item[name] = verify(item[name])
+ 
+ 
+ def validate_graph_reconstruction(request, response):
+@@ -212,7 +281,13 @@
+             final_graph_audit=old['final_graph_audit'])
+         sources = {source['source_id']: source for source in request['complete_originals_supplied']}
+         for event in graph['events']:
++            if request['format'] == REQUEST_FORMAT:
++                _validate_material_event(event, sources)
++            unresolved_actions = {key: deepcopy(event.get('action_citations', {}).get(key, []))
++                for key in ('invalid', 'ambiguous')}
+             _valid_actions(event, sources)
++            if request['format'] == REQUEST_FORMAT:
++                event['action_citations'].update(unresolved_actions)
+             event['evidence_context'] = rebuild_reconstruction_context(event, list(sources.values()))
+             event['actual_model_evidence'] = deepcopy(event['evidence_context']['blocks'])
+         graph = freeze_candidate_graph(graph['events'], graph['relations'], graph['episodes'],
+@@ -224,6 +299,13 @@
+         raise ValueError('GRAPH_RECONSTRUCTION_GRAPH_ASSEMBLY_INVALID') from exc
+     if graph['graph_sha256'] == old['graph_sha256']:
+         raise ValueError('GRAPH_RECONSTRUCTION_REQUIRES_NEW_GRAPH_HASH')
++    if request['format'] == REQUEST_FORMAT:
++        from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import normalize_sources, prepare_candidate_materials
++        _, failures = prepare_candidate_materials(graph, normalize_sources(list(sources.values())),
++            decision_task_id='RECONSTRUCTION-CONTRACT-CHECK',
++            visibility_policy_version='UNREVIEWED-NO-CLINICAL-PERMISSION')
++        if failures:
++            raise ValueError('GRAPH_RECONSTRUCTION_DOWNSTREAM_MATERIAL_CONTRACT_INVALID')
+     receipt = dict(format=FORMAT, reconstruction_id=response['reconstruction_id'],
+         input_graph_sha256=old['graph_sha256'], output_graph_sha256=graph['graph_sha256'],
+         state='RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT',
+@@ -369,7 +451,8 @@
+     except (KeyError, TypeError, ValueError) as exc:
+         raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_REQUEST_INVALID') from exc
+     if expected_request is not None:
+-        expected = build_graph_reconstruction_request(expected_request[0], expected_request[1])
++        expected = build_graph_reconstruction_request(expected_request[0], expected_request[1],
++            legacy=chain['request']['format'] == LEGACY_REQUEST_FORMAT)
+         if chain['request'] != expected:
+             raise ValueError('GRAPH_RECONSTRUCTION_PARENT_REQUEST_BINDING_MISMATCH')
+     if expected_provider is not None:
+--- before/scripts/cohort_construction/p2_checkpoint_reconstruction_audit/regression_issue_map.json
++++ after/scripts/cohort_construction/p2_checkpoint_reconstruction_audit/regression_issue_map.json
+@@ -225,6 +225,29 @@
+         "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA008_010_real_batch_uses_separate_reconstruction_and_replays_failed_chain",
+         "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits"
+       ]
++    },
++    {
++      "issue_id": "CE-GRA-011",
++      "description": "重建四字段事件可通过旧Schema却无法进入材料装配；来源、时点和引文交接必须显式版本化",
++      "implementation_status": "implemented_with_synthetic_regression",
++      "counterexamples": [
++        "仅含旧Schema四个必需字段",
++        "缺source_ids及时间/引文集合",
++        "主来源不在声明清单或引用未知原文",
++        "非原文引文被用作遮蔽或时点依据"
++      ],
++      "controls": [
++        "完整Schema最小事件经过生产Client、批次、重建、新图审核和材料调用",
++        "多来源及未知时点保留",
++        "旧请求契约只用于历史重放，不自动补写源资料"
++      ],
++      "required_tests": [
++        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_missing_scope_and_four_field_responses_rejected_early",
++        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_schema_minimum_complete_event_assembles_without_inventing_time",
++        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_source_scope_and_all_material_citations_are_verified",
++        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_legacy_event_contract_replays_without_upgrading_history",
++        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_GRA011_production_client_batch_reconstruction_reaches_material_review"
++      ]
+     }
+   ]
+ }
+--- before/scripts/cohort_construction/p2_checkpoint_real_validation/batch.py
++++ after/scripts/cohort_construction/p2_checkpoint_real_validation/batch.py
+@@ -17,6 +17,7 @@
+ )
+ 
+ from .budget import BatchModelBudget, _journal_write
++from .inventory import FORMAT as INVENTORY_FORMAT, freeze_inventory, validate_inventory
+ 
+ 
+ def _persist_receipt(output, name, value):
+@@ -211,7 +212,11 @@
+         if contract.get(key) != batch_contract.get(key):
+             raise ValueError('REAL_BATCH_AUTHORIZATION_BATCH_MISMATCH')
+     config = _authorized_config(base_config, contract)
+-    write(output / 'effective-batch-authorization.json', contract)
++    preflight = read(preflight_output / 'batch-preflight.json')
++    effective_contract = dict(contract, execution_inventory_version=INVENTORY_FORMAT)
++    inventory = freeze_inventory(preflight, batch_contract, effective_contract, initial_budget_state)
++    write(output / 'effective-batch-authorization.json', effective_contract)
++    write(output / 'batch-execution-inventory.json', inventory)
+     write(output / 'implementation-snapshot.json', implementation_snapshot())
+     ledger = BatchModelBudget(output, max_requests=contract['max_requests'],
+         max_http_attempts=contract['max_http_attempts'],
+@@ -237,17 +242,30 @@
+             raise ValueError('REAL_BATCH_SUBSET_AUTHORIZATION_INVALID')
+         selected_ids = set(subset)
+     records = []
++    _journal_write(output / 'batch-progress.json', dict(batch_id=contract['batch_id'],
++        cases=[], model_usage=ledger.snapshot()))
++
++    def save_progress():
++        progress = dict(batch_id=contract['batch_id'], cases=records, model_usage=ledger.snapshot())
++        _journal_write(output / 'batch-progress.json', progress)
++        events = output / 'batch-progress-events'
++        private_mkdir(events, exist_ok=True)
++        write(events / ('%06d.json' % len(records)), progress)
++
+     for case in preflight['cases']:
+         case_id = case['case_id']
+         if subset is not None and case_id not in selected_ids:
+             records.append(dict(case_id=case_id, state='NOT_ATTEMPTED_OUTSIDE_AUTHORIZED_SUBSET',
+                 reason_code='EXPLICIT_MODEL_SWITCH_SUBSET_ONLY'))
++            save_progress()
+             continue
+         if case['status'] not in _GRAPH_ELIGIBLE:
+             records.append(dict(case_id=case_id, state='PREFLIGHT_HOLD', reason_codes=case['reason_codes']))
++            save_progress()
+             continue
+         if ledger.requests >= ledger.max_requests or ledger.http_attempts >= ledger.max_http_attempts:
+             records.append(dict(case_id=case_id, state='NOT_ATTEMPTED_BATCH_BUDGET_EXHAUSTED'))
++            save_progress()
+             continue
+         request = read(preflight_output / 'preflight' / case_id / 'execution-request.json')
+         graph = read(preflight_output / 'preflight' / case_id / 'graph.json')
+@@ -305,12 +323,7 @@
+             records.append(dict(case_id=case_id, episode_id=request['episode_id'],
+                 state='ORCHESTRATION_HOLD', reason_code=type(exc).__name__, detail=str(exc)[:500]))
+         ledger.persist()
+-        progress = dict(batch_id=contract['batch_id'], cases=records,
+-            model_usage=ledger.snapshot())
+-        _journal_write(output / 'batch-progress.json', progress)
+-        events = output / 'batch-progress-events'
+-        private_mkdir(events, exist_ok=True)
+-        write(events / ('%06d.json' % len(records)), progress)
++        save_progress()
+     result = replay_batch(output)
+     _persist_receipt(output, 'batch-execution-receipt.json', result)
+     return result
+@@ -345,11 +358,12 @@
+         response_sha256=after.get('receipt', {}).get('response_sha256'))
+ 
+ 
+-def replay_batch(output, *, verify_implementation=True):
++def replay_batch(output, *, verify_implementation=True, persist=True):
+     """Recompute completed chains; replay never constructs a provider Client."""
+     output = Path(output)
+     progress = read(output / 'batch-progress.json')
+     ledger = read(output / 'model-call-ledger.json')
++    inventory_receipt = validate_inventory(output, progress, ledger)
+     replayed = []
+     for case in progress['cases']:
+         item = deepcopy(case)
+@@ -444,7 +458,10 @@
+         clinical_reference_created=False, formal_human_sampling_completed=False,
+         statistical_qualification_assessed=False, doctor_assignment_created=False,
+         clinical_release_permitted=False)
+-    _persist_receipt(output, 'batch-replay-receipt.json', aggregate)
++    aggregate['case_inventory'] = inventory_receipt
++    aggregate['verified_case_count'] = sum(row.get('replay_verified') is True for row in replayed)
++    if persist:
++        _persist_receipt(output, 'batch-replay-receipt.json', aggregate)
+     return aggregate
+ 
+ 
+--- before/scripts/cohort_construction/p2_checkpoint_real_validation/inventory.py
++++ after/scripts/cohort_construction/p2_checkpoint_real_validation/inventory.py
+@@ -0,0 +1,137 @@
++"""Independent batch inventory and settled-call coverage, never clinical labels."""
++from collections import Counter
++from copy import deepcopy
++import re
++
++from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
++from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import read
++
++FORMAT = 'checkpoint-real-execution-inventory-0.1.0'
++ELIGIBLE = frozenset({'READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION',
++    'READY_GRAPH_AUDIT_WITH_MATERIAL_PREPARATION_HOLD'})
++
++
++def _ids(rows):
++    if not isinstance(rows, list):
++        raise ValueError('REAL_BATCH_CASE_INVENTORY_INVALID')
++    ids = [row.get('case_id') if isinstance(row, dict) else None for row in rows]
++    if (any(not isinstance(sid, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', sid)
++            or sid in ('.', '..') for sid in ids) or len(ids) != len(set(ids))):
++        raise ValueError('REAL_BATCH_CASE_IDENTITY_INVALID')
++    return ids
++
++
++def freeze_inventory(preflight, batch_contract, authorization, initial_budget_state=None):
++    ids = _ids(preflight['cases'])
++    if not ids:
++        raise ValueError('REAL_BATCH_EMPTY_FROZEN_INVENTORY')
++    subset = authorization.get('execution_subset')
++    authorized = ids if subset is None else _ids([dict(case_id=sid) for sid in subset])
++    if not authorized or not set(authorized).issubset(ids):
++        raise ValueError('REAL_BATCH_AUTHORIZED_CASE_INVENTORY_INVALID')
++    if subset is not None and not set(authorized).issubset(
++            row['case_id'] for row in preflight['cases'] if row['status'] in ELIGIBLE):
++        raise ValueError('REAL_BATCH_AUTHORIZED_CASE_INVENTORY_INVALID')
++    inherited = (initial_budget_state or {}).get('records', [])
++    _settled_calls(inherited)
++    result = dict(format=FORMAT, batch_id=batch_contract['batch_id'],
++        manifest_sha256=batch_contract['manifest_sha256'],
++        preflight_sha256=canonical_sha256(preflight),
++        batch_contract_sha256=canonical_sha256(batch_contract),
++        authorization_sha256=canonical_sha256(authorization),
++        cases=deepcopy(preflight['cases']), authorized_case_ids=authorized,
++        inherited_record_count=len(inherited), inherited_records_sha256=canonical_sha256(inherited))
++    result['inventory_sha256'] = canonical_sha256(result)
++    return result
++
++
++def _settled_calls(records):
++    """Pair every recorded provider plan with one settlement, including failures."""
++    pending = Counter()
++    called = set()
++    for row in records:
++        if not row.get('provider_request_performed'):
++            continue
++        sid = row.get('context', {}).get('case_id')
++        _ids([dict(case_id=sid)])
++        called.add(sid)
++        key = canonical_sha256({name: row.get(name) for name in
++            ('context', 'stage', 'task', 'request_sha256', 'target', 'precondition', 'expected_gain')})
++        if row.get('outcome') == 'PROVIDER_IO_STARTED_OR_UNSETTLED':
++            pending[key] += 1
++        elif row.get('outcome', '').startswith(('EXECUTION_FAILED:', 'RESPONSE_RETURNED_')):
++            if pending[key] <= 0:
++                raise ValueError('REAL_BATCH_LEDGER_SETTLEMENT_WITHOUT_PLAN')
++            pending[key] -= 1
++        else:
++            raise ValueError('REAL_BATCH_LEDGER_OUTCOME_INVALID')
++    if any(pending.values()):
++        raise ValueError('REAL_BATCH_LEDGER_UNSETTLED_CALLS')
++    return called
++
++
++def validate_inventory(output, progress, ledger):
++    ids = _ids(progress.get('cases'))
++    called = _settled_calls(ledger['records'])
++    authorization = read(output / 'effective-batch-authorization.json')
++    if progress.get('batch_id') != authorization.get('batch_id'):
++        raise ValueError('REAL_BATCH_PROGRESS_BATCH_BINDING_MISMATCH')
++    path = output / 'batch-execution-inventory.json'
++    inventory = read(path) if path.is_file() else None
++    if authorization.get('execution_inventory_version') is not None:
++        if authorization['execution_inventory_version'] != FORMAT or inventory is None:
++            raise ValueError('REAL_BATCH_EXECUTION_INVENTORY_REQUIRED')
++    if inventory is not None:
++        if (inventory.get('format') != FORMAT or inventory.get('inventory_sha256') !=
++                canonical_sha256({k: v for k, v in inventory.items() if k != 'inventory_sha256'})
++                or inventory['authorization_sha256'] != canonical_sha256(authorization)
++                or inventory['batch_id'] != progress['batch_id']
++                or inventory['manifest_sha256'] != authorization['manifest_sha256']):
++            raise ValueError('REAL_BATCH_EXECUTION_INVENTORY_BINDING_INVALID')
++        expected = _ids(inventory['cases'])
++        authorized = inventory['authorized_case_ids']
++        if authorized != authorization.get('execution_subset', expected):
++            raise ValueError('REAL_BATCH_EXECUTION_AUTHORIZED_INVENTORY_CHANGED')
++        if ids != expected:
++            raise ValueError('REAL_BATCH_PROGRESS_CASE_INVENTORY_MISMATCH')
++        inherited_count = inventory['inherited_record_count']
++        if (type(inherited_count) is not int or inherited_count < 0
++                or inherited_count > len(ledger['records'])
++                or canonical_sha256(ledger['records'][:inherited_count]) != inventory['inherited_records_sha256']):
++            raise ValueError('REAL_BATCH_INHERITED_LEDGER_BINDING_CHANGED')
++        scope = 'FROZEN_PREFLIGHT_AND_AUTHORIZATION'
++    else:
++        # Legacy runs did not freeze an execution inventory. Do not create one
++        # retrospectively or infer a full cohort denominator from progress rows.
++        authorized = authorization.get('execution_subset', ids)
++        if not set(authorized).issubset(ids) or not ids:
++            raise ValueError('REAL_BATCH_PROGRESS_AUTHORIZED_CASE_MISSING')
++        expected = ids
++        scope = 'LEGACY_AUTHORIZATION_LEDGER_AND_ARTIFACTS_ONLY'
++    if not called.issubset(ids):
++        raise ValueError('REAL_BATCH_LEDGER_CASE_MISSING_FROM_PROGRESS')
++    if not called.issubset(authorized):
++        raise ValueError('REAL_BATCH_LEDGER_CASE_OUTSIDE_AUTHORIZATION')
++    artifacts = set()
++    # Either artifact root may be absent in a legitimate non-reconstruction run.
++    for name in ('episodes', 'automatic-revisions'):
++        if (output / name).is_dir():
++            artifacts.update(p.name for p in (output / name).iterdir() if p.is_dir())
++    if not artifacts.issubset(ids):
++        raise ValueError('REAL_BATCH_ARTIFACT_CASE_MISSING_FROM_PROGRESS')
++    if not artifacts.issubset(authorized):
++        raise ValueError('REAL_BATCH_ARTIFACT_CASE_OUTSIDE_AUTHORIZATION')
++    rows = {row['case_id']: row for row in progress['cases']}
++    for sid in called:
++        if not rows[sid].get('run_sha256') or not rows[sid].get('episode_id'):
++            raise ValueError('REAL_BATCH_CALLED_CASE_RUN_EVIDENCE_REQUIRED')
++        if rows[sid]['state'].startswith(('NOT_ATTEMPTED', 'PREFLIGHT_HOLD')):
++            raise ValueError('REAL_BATCH_CALLED_CASE_MARKED_UNATTEMPTED')
++    for sid in set(expected) - set(authorized):
++        if rows[sid].get('state') != 'NOT_ATTEMPTED_OUTSIDE_AUTHORIZED_SUBSET':
++            raise ValueError('REAL_BATCH_OUTSIDE_SUBSET_STATE_INVALID')
++    return dict(scope=scope, frozen_case_count=len(expected) if inventory else None,
++        authorized_case_count=len(authorized), attempted_case_count=len(called),
++        case_result_count=len(ids), inventory_sha256=inventory['inventory_sha256'] if inventory else None,
++        outside_authorized_subset_count=len(set(expected) - set(authorized)),
++        recorded_calls_settled=True)
+--- before/scripts/cohort_construction/p2_checkpoint_real_validation/regression_issue_map.json
++++ after/scripts/cohort_construction/p2_checkpoint_real_validation/regression_issue_map.json
+@@ -6,73 +6,160 @@
+       "issue_id": "CE-REAL-001",
+       "description": "固定十例不因缺源、空候选或审核结果替换；开发Episode范围只按确定性ID选择",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["候选Episode为空时补造Episode", "按预期PASS选择Episode"],
+-      "controls": ["空候选保留HOLD", "按episode_id字典序选择一个Episode"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL001_selection_is_lexical_and_never_replaces_empty_candidates"]
++      "counterexamples": [
++        "候选Episode为空时补造Episode",
++        "按预期PASS选择Episode"
++      ],
++      "controls": [
++        "空候选保留HOLD",
++        "按episode_id字典序选择一个Episode"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL001_selection_is_lexical_and_never_replaces_empty_candidates"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-002",
+       "description": "每次真实provider请求须有事前增益；失败与缓存对账且共享批次预算不被续跑重置",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["失败请求不计预算", "缓存命中重复扣减", "供应商价格未提供时成本写成零"],
+-      "controls": ["调用前记录预期增益", "按receipt核销缓存和实际HTTP尝试", "预留额度不低于该次配置的最大HTTP尝试", "价格不可得保持null"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL002_batch_budget_counts_failures_cache_and_preserves_call_gain"]
++      "counterexamples": [
++        "失败请求不计预算",
++        "缓存命中重复扣减",
++        "供应商价格未提供时成本写成零"
++      ],
++      "controls": [
++        "调用前记录预期增益",
++        "按receipt核销缓存和实际HTTP尝试",
++        "预留额度不低于该次配置的最大HTTP尝试",
++        "价格不可得保持null"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL002_batch_budget_counts_failures_cache_and_preserves_call_gain"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-008",
+       "description": "远程开发传输仍使用三次重试及固定三次预算预留，未落实明确的十次重试要求；预算也不能在剩余额度少于单次最大尝试时启动调用",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["Client配置十次但预算仍按三次预留", "缓存或失败结算仍按三次退回额度", "旧180次总预算不足以支持60请求各十次尝试"],
+-      "controls": ["fixed-ten新合同显式每请求十次、60请求总上限600次", "Client与预算使用同一十次参数", "旧三次合同不能用于新运行；新运行不覆盖已完成旧批次"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases", "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_client_transport.TransportTests.test_CE_NET003_ten_attempt_limit_is_explicit_and_preserves_request_and_diagnostics"]
++      "counterexamples": [
++        "Client配置十次但预算仍按三次预留",
++        "缓存或失败结算仍按三次退回额度",
++        "旧180次总预算不足以支持60请求各十次尝试"
++      ],
++      "controls": [
++        "fixed-ten新合同显式每请求十次、60请求总上限600次",
++        "Client与预算使用同一十次参数",
++        "旧三次合同不能用于新运行；新运行不覆盖已完成旧批次"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases",
++        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_client_transport.TransportTests.test_CE_NET003_ten_attempt_limit_is_explicit_and_preserves_request_and_diagnostics"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-009",
+       "description": "固定十例DeepSeek部分请求持续HTTP 400后，用户明确要求只将剩余病例切换Kimi重跑；适配器须避免静默全批换模型、替换病例或把不同模型结果合并为同一性能实验",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["无显式subset直接把全批DeepSeek改成Kimi", "subset包含不存在或重复病例", "未声明显式模型切换和禁止病例替换"],
+-      "controls": ["只有具备明确execution_subset、model_switch_is_explicit和no_case_replacement的合同才允许Kimi", "子集逐项绑定原固定十例且只执行所选病例", "未选病例记录NOT_ATTEMPTED，不冒充已完成；不同模型结果分目录保存"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases"]
++      "counterexamples": [
++        "无显式subset直接把全批DeepSeek改成Kimi",
++        "subset包含不存在或重复病例",
++        "未声明显式模型切换和禁止病例替换"
++      ],
++      "controls": [
++        "只有具备明确execution_subset、model_switch_is_explicit和no_case_replacement的合同才允许Kimi",
++        "子集逐项绑定原固定十例且只执行所选病例",
++        "未选病例记录NOT_ATTEMPTED，不冒充已完成；不同模型结果分目录保存"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-003",
+       "description": "真实自动材料PASS不能替代独立SemanticAudit或未冻结Questionnaire；无packet时不得调用交付审计",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["PENDING草案冒充人工PASS", "无真实交付对象仍生成Ready", "篡改delivery gate原因"],
+-      "controls": ["DELIVERY_GATE_HOLD保留材料链并失败关闭", "无模型重放核验门禁", "不创建真实医生分配或临床发布"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL003_real_delivery_gate_stops_before_packet_or_human_factory"]
++      "counterexamples": [
++        "PENDING草案冒充人工PASS",
++        "无真实交付对象仍生成Ready",
++        "篡改delivery gate原因"
++      ],
++      "controls": [
++        "DELIVERY_GATE_HOLD保留材料链并失败关闭",
++        "无模型重放核验门禁",
++        "不创建真实医生分配或临床发布"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL003_real_delivery_gate_stops_before_packet_or_human_factory"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-004",
+       "description": "真实远程许可仅绑定本批合同、固定模型和私有输出，不修改生产默认授权",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["切换未批准模型", "修改默认配置对象", "批次许可扩展为医生发布"],
+-      "controls": ["逐字段核验批次合同", "生产默认配置保持禁止", "发布与医生分配保持false"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases"]
++      "counterexamples": [
++        "切换未批准模型",
++        "修改默认配置对象",
++        "批次许可扩展为医生发布"
++      ],
++      "controls": [
++        "逐字段核验批次合同",
++        "生产默认配置保持禁止",
++        "发布与医生分配保持false"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-005",
+       "description": "批次进度快照更新不能覆盖逐次进度事件，也不能因第二例完成而中断剩余病例",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["第二例结束后以独占写入覆盖batch-progress.json", "进度写失败将此前模型调用记为整批完成"],
+-      "controls": ["每次病例终态保留不可变进度事件", "当前进度快照原子更新", "旧中断目录保留不覆盖"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL005_progress_snapshots_preserve_every_case_event"]
++      "counterexamples": [
++        "第二例结束后以独占写入覆盖batch-progress.json",
++        "进度写失败将此前模型调用记为整批完成"
++      ],
++      "controls": [
++        "每次病例终态保留不可变进度事件",
++        "当前进度快照原子更新",
++        "旧中断目录保留不覆盖"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL005_progress_snapshots_preserve_every_case_event"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-006",
+       "description": "运行后治理代码变化不能把已保存运行误标为临床通过，也不能阻止按历史实现快照核验临床链",
+       "implementation_status": "implemented_with_synthetic_regression",
+-      "counterexamples": ["运行中修改注册表后重放拒绝所有已完成病例", "关闭当前实现核验时省略链hash和原始材料绑定"],
+-      "controls": ["严格模式默认要求当前实现快照", "历史重放明确记录未认证当前快照且仍核验临床链"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL006_historical_replay_keeps_chain_validation_and_provenance"]
++      "counterexamples": [
++        "运行中修改注册表后重放拒绝所有已完成病例",
++        "关闭当前实现核验时省略链hash和原始材料绑定"
++      ],
++      "controls": [
++        "严格模式默认要求当前实现快照",
++        "历史重放明确记录未认证当前快照且仍核验临床链"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL006_historical_replay_keeps_chain_validation_and_provenance"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-007",
+       "description": "默认fixed-ten输出位于历史符号链接下的外置私有目录时，逻辑项目private根不能直接作为物理门禁根",
+       "implementation_status": "implemented_with_synthetic_and_offline_real_preflight_regression",
+-      "counterexamples": ["默认输出解析至外置private子目录，却被逻辑private根拒绝", "任意系统/private/var路径被误认为研究私有根"],
+-      "controls": ["默认输入输出从同一已迁移的p2_checkpoint_next私有目录解析", "显式测试仍绑定独立物理根", "2026-11-01真实fixed-ten离线preflight已完成；未执行模型调用", "默认修复不授权远程执行"],
+-      "required_tests": ["scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL007_relocated_default_output_stays_inside_migrated_private_parent"]
++      "counterexamples": [
++        "默认输出解析至外置private子目录，却被逻辑private根拒绝",
++        "任意系统/private/var路径被误认为研究私有根"
++      ],
++      "controls": [
++        "默认输入输出从同一已迁移的p2_checkpoint_next私有目录解析",
++        "显式测试仍绑定独立物理根",
++        "2026-11-01真实fixed-ten离线preflight已完成；未执行模型调用",
++        "默认修复不授权远程执行"
++      ],
++      "required_tests": [
++        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL007_relocated_default_output_stays_inside_migrated_private_parent"
++      ]
+     },
+     {
+       "issue_id": "CE-REAL-010",
+@@ -144,6 +231,32 @@
+         "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA008_010_real_batch_uses_separate_reconstruction_and_replays_failed_chain",
+         "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits"
+       ]
++    },
++    {
++      "issue_id": "CE-REAL-013",
++      "description": "首次/恢复replay只遍历进度行而漏核台账病例；冻结完整执行清单并核对授权、结算和实际产物",
++      "implementation_status": "implemented_with_synthetic_regression",
++      "counterexamples": [
++        "无既存回执且进度清单为空/丢行/重复",
++        "有调用无终态或未结算",
++        "仅余子集外病例",
++        "跳过尾部未授权病例未保存进度",
++        "删除新运行清单后退回旧兼容路径"
++      ],
++      "controls": [
++        "完整失败病例仍可重放",
++        "保留固定、授权、尝试和已核验数量",
++        "继承已结算台账的新目录续跑",
++        "未知旧总体分母不补造",
++        "既有回执与授权绑定不放宽"
++      ],
++      "required_tests": [
++        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_first_replay_rejects_missing_duplicate_or_unattempted_called_cases",
++        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_subset_preserves_final_skipped_rows_and_clear_denominators",
++        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_unsettled_calls_and_missing_inventory_cannot_bypass_replay",
++        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_versioned_settled_budget_recovery_and_legacy_coverage",
++        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_existing_receipt_and_authorization_binding_remain_protected"
++      ]
+     }
+   ]
+ }
+--- before/scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py
++++ after/scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py
+@@ -0,0 +1,111 @@
++"""CE-GRA-011: schema-minimum responses must be consumable, or fail early."""
++from copy import deepcopy
++
++import pytest
++from jsonschema import Draft202012Validator, ValidationError
++
++from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import prepare_candidate_materials
++from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly import fictional_graph
++from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
++from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.reconstruction import (
++    GRAPH_RECONSTRUCTION_SCHEMA, LEGACY_REQUEST_FORMAT, build_graph_reconstruction_request,
++    run_graph_reconstruction, validate_graph_reconstruction, validate_graph_reconstruction_chain,
++)
++from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_graph_reconstruction import fixtures, proposed, provider_receipt
++
++
++def test_CE_GRA011_missing_scope_and_four_field_responses_rejected_early():
++    _, a, b = fixtures()
++    request = build_graph_reconstruction_request(a, b)
++    required = GRAPH_RECONSTRUCTION_SCHEMA['properties']['graph']['properties']['events']['items']['required']
++    for field in required:
++        response = proposed(request)
++        response['graph']['events'][0].pop(field)
++        with pytest.raises(ValidationError):
++            Draft202012Validator(GRAPH_RECONSTRUCTION_SCHEMA).validate(response)
++        with pytest.raises(ValueError, match='RESPONSE_SCHEMA_INVALID'):
++            validate_graph_reconstruction(request, response)
++    response = proposed(request)
++    response['graph']['events'] = [{k: e[k] for k in
++        ('event_id', 'source_id', 'checkpoint_status', 'action_citations')}
++        for e in response['graph']['events']]
++    chain = run_graph_reconstruction(a, b, lambda *args: (response, provider_receipt()))
++    assert chain['state'] == 'RECONSTRUCTION_HOLD'
++    assert chain['failure']['reason_code'] == 'GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID'
++    assert validate_graph_reconstruction_chain(chain)['failure_replayed']
++
++
++def test_CE_GRA011_schema_minimum_complete_event_assembles_without_inventing_time():
++    _, sources = fictional_graph()
++    _, a, b = fixtures()
++    request = build_graph_reconstruction_request(a, b)
++    response = proposed(request)
++    fields = GRAPH_RECONSTRUCTION_SCHEMA['properties']['graph']['properties']['events']['items']['required']
++    for event in response['graph']['events']:
++        for key in list(event):
++            if key not in fields:
++                del event[key]
++        event.update(choice_time=None, time_basis='unknown', time_validation='UNRESOLVED')
++    original = deepcopy(response)
++    Draft202012Validator(GRAPH_RECONSTRUCTION_SCHEMA).validate(response)
++    graph, _ = validate_graph_reconstruction(request, response)
++    assert response == original  # Raw model proposal is never rewritten.
++    tasks, failures = prepare_candidate_materials(graph, sources,
++        decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC-UNREVIEWED')
++    assert len(tasks) == 2 and not failures
++    for event in graph['events']:
++        assert event['choice_time'] is None and event['time_validation'] == 'UNRESOLVED'
++        assert event['evidence_context']['uncertainty']['choice_time_unknown']
++    assert all(not task['task_context']['clinical_visibility_certified'] for task in tasks)
++
++
++def test_CE_GRA011_source_scope_and_all_material_citations_are_verified():
++    _, a, b = fixtures()
++    request = build_graph_reconstruction_request(a, b)
++    response = proposed(request)
++    event = response['graph']['events'][0]
++    event['source_ids'] = ['DOC-01', 'DOC-02']
++    event['prechoice_citations']['valid'] = [dict(source_id='DOC-02', quote='虚构复评：已完成补充影像。')]
++    event['prechoice_citations']['invalid'] = [dict(source_id='DOC-01', quote='不存在的历史提案')]
++    graph, _ = validate_graph_reconstruction(request, response)
++    current = graph['events'][0]
++    assert current['source_ids'] == ['DOC-01', 'DOC-02']
++    assert current['prechoice_citations']['invalid'] == event['prechoice_citations']['invalid']
++    assert len(current['prechoice_citations']['valid']) == 1
++    for scope, error in ((['DOC-02'], 'PRIMARY_SOURCE_NOT_DECLARED'),
++                         (['DOC-01', 'UNKNOWN'], 'DECLARED_SOURCE_UNKNOWN')):
++        changed = deepcopy(response)
++        changed['graph']['events'][0]['source_ids'] = scope
++        with pytest.raises(ValueError, match=error):
++            validate_graph_reconstruction(request, changed)
++    for field in ('choice_boundary_citations', 'prechoice_citations', 'postchoice_citations',
++                  'validated_observation_citations'):
++        changed = deepcopy(response)
++        changed['graph']['events'][0][field]['valid'] = [dict(source_id='DOC-01', quote='非原文')]
++        with pytest.raises(ValueError, match='MATERIAL_CITATION_NOT_VERIFIABLE'):
++            validate_graph_reconstruction(request, changed)
++    changed = deepcopy(response)
++    changed['graph']['events'][0]['availability_validation'] = [dict(
++        validated_basis=dict(valid=[dict(source_id='UNKNOWN', quote='未知原文')], invalid=[], ambiguous=[]))]
++    with pytest.raises(ValueError, match='MATERIAL_CITATION_NOT_VERIFIABLE'):
++        validate_graph_reconstruction(request, changed)
++
++
++def test_CE_GRA011_legacy_event_contract_replays_without_upgrading_history():
++    _, a, b = fixtures()
++    request = build_graph_reconstruction_request(a, b, legacy=True)
++    response = proposed(request)
++    for event in response['graph']['events']:
++        event.pop('source_ids')
++    graph, receipt = validate_graph_reconstruction(request, response)
++    chain = run_graph_reconstruction(a, b,
++        lambda *args: (proposed(build_graph_reconstruction_request(a, b)), provider_receipt()))
++    chain.update(request=request, response=response, graph=graph, validation_receipt=receipt)
++    chain['provider_response_binding']['response_content_sha256'] = canonical_sha256(response)
++    chain['chain_sha256'] = canonical_sha256({k: v for k, v in chain.items() if k != 'chain_sha256'})
++    before = deepcopy(chain)
++    assert chain['request']['format'] == LEGACY_REQUEST_FORMAT
++    assert validate_graph_reconstruction_chain(chain, expected_request=(a, b))['replay_verified']
++    assert chain == before and 'source_ids' not in chain['graph']['events'][0]
++    with pytest.raises(ValueError, match='RESPONSE_SCHEMA_INVALID'):
++        validate_graph_reconstruction(build_graph_reconstruction_request(a, b), response)
+--- before/scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py
++++ after/scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py
+@@ -0,0 +1,198 @@
++"""CE-REAL-013: independent case inventory, partial replay and recovery controls."""
++from copy import deepcopy
++
++import pytest
++
++from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly import _pass_only, fictional_graph
++from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import read
++from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch, replay_batch
++from scripts.cohort_construction.p2_checkpoint_real_validation.budget import _journal_write
++from scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation import CONFIG, _receipt, _write_synthetic_batch_case
++from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit import passing_graph_response
++
++
++def synthetic_batch(root, *, extra_cases=False, initial_budget=None):
++    root.mkdir(mode=0o700, parents=True, exist_ok=True)
++    graph, sources = fictional_graph()
++    preflight, authorization = _write_synthetic_batch_case(root, graph, sources, sources)
++    if extra_cases:
++        value = read(preflight / 'batch-preflight.json')
++        value['cases'].extend(dict(case_id=sid, status='PREFLIGHT_HOLD', reason_codes=['SYNTHETIC'])
++            for sid in ('SCALE-02', 'SCALE-03'))
++        _journal_write(preflight / 'batch-preflight.json', value)
++
++    class Client:
++        def ask(self, task, payload, schema, system_instructions):
++            response = passing_graph_response(payload) if task.endswith('independent_audit') else _pass_only(payload)
++            return response, _receipt('SYNTHETIC-' + task)
++
++    output = root / 'execution'
++    result = execute_batch(preflight_output=preflight, authorization=authorization,
++        base_config=CONFIG, model_client_factory=lambda *args: Client(), output=output,
++        initial_budget_state=initial_budget, private_root=root)
++    return output, result
++
++
++@pytest.fixture
++def completed(tmp_path):
++    return synthetic_batch(tmp_path / 'batch')
++
++
++def test_CE_REAL013_first_replay_rejects_missing_duplicate_or_unattempted_called_cases(completed):
++    output, baseline = completed
++    assert baseline['replay_verified'] and baseline['verified_case_count'] == 1
++    path = output / 'batch-progress.json'
++    progress = read(path)
++    # Prove the inventory check itself works without an old receipt as a guard.
++    (output / 'batch-replay-receipt.json').unlink()
++    rows = progress['cases']
++    for changed_rows, error in (([], 'CASE_INVENTORY_MISMATCH'),
++            ([dict(case_id='SCALE-02', state='NOT_ATTEMPTED_OUTSIDE_AUTHORIZED_SUBSET')], 'CASE_INVENTORY_MISMATCH'),
++            (rows + rows, 'CASE_IDENTITY_INVALID'),
++            ([dict(rows[0], state='NOT_ATTEMPTED_BATCH_BUDGET_EXHAUSTED')], 'CALLED_CASE_MARKED_UNATTEMPTED'),
++            ([dict(rows[0], run_sha256=None)], 'CALLED_CASE_RUN_EVIDENCE_REQUIRED')):
++        _journal_write(path, dict(progress, cases=changed_rows))
++        with pytest.raises(ValueError, match=error):
++            replay_batch(output)
++    _journal_write(path, progress)
++    assert replay_batch(output) == baseline
++
++
++def test_CE_REAL013_subset_preserves_final_skipped_rows_and_clear_denominators(tmp_path):
++    output, result = synthetic_batch(tmp_path / 'subset', extra_cases=True)
++    assert result['fixed_case_count'] == 3 and result['verified_case_count'] == 1
++    assert result['case_inventory']['frozen_case_count'] == 3
++    assert result['case_inventory']['authorized_case_count'] == 1
++    assert result['case_inventory']['attempted_case_count'] == 1
++    assert result['case_inventory']['outside_authorized_subset_count'] == 2
++    assert len(read(output / 'batch-progress.json')['cases']) == 3
++    assert len(list((output / 'batch-progress-events').glob('*.json'))) == 3
++    progress = read(output / 'batch-progress.json')
++    _journal_write(output / 'batch-progress.json', dict(progress, cases=progress['cases'][:1]))
++    with pytest.raises(ValueError, match='CASE_INVENTORY_MISMATCH'):
++        replay_batch(output, persist=False)
++
++
++def test_CE_REAL013_unsettled_calls_and_missing_inventory_cannot_bypass_replay(completed):
++    output, _ = completed
++    path = output / 'model-call-ledger.json'
++    original = read(path)
++    changed = deepcopy(original)
++    changed['records'].pop()  # Keep the last pre-I/O plan; drop its settlement.
++    _journal_write(path, changed)
++    with pytest.raises(ValueError, match='LEDGER_UNSETTLED_CALLS'):
++        replay_batch(output, persist=False)
++    _journal_write(path, original)
++    inventory = output / 'batch-execution-inventory.json'
++    inventory.rename(output / 'preserved-inventory.json')
++    with pytest.raises(ValueError, match='EXECUTION_INVENTORY_REQUIRED'):
++        replay_batch(output, persist=False)
++    (output / 'preserved-inventory.json').rename(inventory)
++    assert replay_batch(output)['replay_verified']
++
++
++def test_CE_REAL013_versioned_settled_budget_recovery_and_legacy_coverage(tmp_path):
++    parent, _ = synthetic_batch(tmp_path / 'parent')
++    inherited = read(parent / 'model-call-ledger.json')
++    child, result = synthetic_batch(tmp_path / 'child', initial_budget=inherited)
++    assert result['replay_verified']
++    assert result['model_usage']['requests'] > inherited['requests']
++    frozen = read(child / 'batch-execution-inventory.json')
++    assert frozen['inherited_record_count'] == len(inherited['records'])
++    assert read(parent / 'model-call-ledger.json') == inherited
++    partial = deepcopy(inherited)
++    partial['records'].pop()
++    with pytest.raises(ValueError, match='LEDGER_UNSETTLED_CALLS'):
++        synthetic_batch(tmp_path / 'unsettled-child', initial_budget=partial)
++    # A legacy receipt cannot prove a frozen denominator, but must still cover
++    # every authorized and called case; it does not skip orphan calls.
++    (child / 'batch-execution-inventory.json').rename(child / 'preserved-inventory.json')
++    authorization = read(child / 'effective-batch-authorization.json')
++    authorization.pop('execution_inventory_version')
++    _journal_write(child / 'effective-batch-authorization.json', authorization)
++    legacy = replay_batch(child, persist=False)
++    assert legacy['case_inventory']['frozen_case_count'] is None
++    assert legacy['replay_verified']
++    progress = read(child / 'batch-progress.json')
++    _journal_write(child / 'batch-progress.json', dict(progress, cases=[]))
++    with pytest.raises(ValueError, match='AUTHORIZED_CASE_MISSING'):
++        replay_batch(child, persist=False)
++
++
++def test_CE_REAL013_existing_receipt_and_authorization_binding_remain_protected(completed):
++    output, baseline = completed
++    assert replay_batch(output) == baseline
++    auth_path = output / 'effective-batch-authorization.json'
++    auth = read(auth_path)
++    _journal_write(auth_path, dict(auth, execution_subset=['SCALE-02']))
++    with pytest.raises(ValueError, match='INVENTORY_BINDING_INVALID'):
++        replay_batch(output, persist=False)
++    _journal_write(auth_path, auth)
++    receipt_path = output / 'batch-replay-receipt.json'
++    _journal_write(receipt_path, dict(baseline, verified_case_count=999))
++    with pytest.raises(ValueError, match='RECEIPT_CHANGED_REQUIRES_NEW_OUTPUT'):
++        replay_batch(output)
++
++
++def test_CE_GRA011_production_client_batch_reconstruction_reaches_material_review(tmp_path, monkeypatch):
++    """Use actual transport Schema and batch orchestration; mock HTTP only."""
++    import json
++    from unittest.mock import Mock
++    from scripts.cohort_construction.model_api import ModelAPISettings
++    from scripts.cohort_construction.p2_auto_checkpoint_v04 import client as transport
++    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.reconstruction import GRAPH_RECONSTRUCTION_SCHEMA
++    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_graph_reconstruction import proposed
++    root = tmp_path / 'production-client'
++    root.mkdir(mode=0o700)
++    graph, sources = fictional_graph()
++    preflight, authorization = _write_synthetic_batch_case(root, graph, sources, sources)
++    graph_calls, material_calls = [], []
++
++    def post(*args, **kwargs):
++        payload = json.loads(kwargs['json']['messages'][1]['content'])
++        request = payload['input']
++        if payload['task'] == 'checkpoint_candidate_reconstruction_independent_audit':
++            graph_calls.append(request)
++            response = passing_graph_response(request)
++            if len(graph_calls) == 1:
++                response.update(status='AUTO_GRAPH_AUDIT_REVISE', revision_requests=[dict(
++                    request_id='SYNTHETIC-CONTRACT', request_kind='EVENT_RECONSTRUCTION',
++                    reason='虚构事件接口修订', affected_event_ids=['EVENT-01'],
++                    affected_episode_ids=['EPISODE-01'], required_reconstruction=True,
++                    evidence=[dict(source_id='DOC-02', exact_quote='决定：暂缓切除并补充病理证据。')])])
++        elif payload['task'] == 'checkpoint_candidate_graph_bounded_reconstruction':
++            response = proposed(request)
++            required = GRAPH_RECONSTRUCTION_SCHEMA['properties']['graph']['properties']['events']['items']['required']
++            for event in response['graph']['events']:
++                for key in list(event):
++                    if key not in required:
++                        del event[key]
++                event.update(choice_time=None, time_basis='unknown', time_validation='UNRESOLVED')
++        else:
++            assert payload['task'] == 'checkpoint_material_full_source_and_doctor_view_review'
++            material_calls.append(request)
++            response = _pass_only(request)
++        http = Mock()
++        http.json.return_value = dict(choices=[dict(finish_reason='stop',
++            message=dict(content=json.dumps(response, ensure_ascii=False)))])
++        return http
++
++    session = Mock()
++    session.post.side_effect = post
++    monkeypatch.setattr(transport._thread, 'session', session, raising=False)
++    monkeypatch.setattr(transport.time, 'sleep', lambda *args: None)
++    monkeypatch.setattr('requests.sessions.Session.send', lambda *args, **kwargs: pytest.fail('REAL_HTTP_FORBIDDEN'))
++    settings = ModelAPISettings('synthetic', 'https://example.invalid/v1', 'synthetic')
++    output = root / 'execution'
++    result = execute_batch(preflight_output=preflight, authorization=authorization,
++        base_config=dict(CONFIG, model_temperature=0, max_output_tokens=16000),
++        model_client_factory=lambda cache, config: transport.Client(cache, config, settings),
++        output=output, private_root=root)
++    assert len(graph_calls) == 2 and len(material_calls) == 2
++    fresh = read(output / 'automatic-revisions/SCALE-01/generation-0001/run.json')
++    assert not fresh['assembly_failures']
++    assert fresh['graph_audit_chain']['state'] == 'AUTO_GRAPH_AUDIT_PASS'
++    assert set(fresh['material_chains']) == {'EVENT-01', 'EVENT-02'}
++    assert all(event['choice_time'] is None for event in fresh['input_contract']['graph']['events'])
++    assert result['replay_verified'] and result['verified_case_count'] == 1
++    assert not result['clinical_release_permitted']

@@ -1,0 +1,52 @@
+{
+  "version": "0.6",
+  "clinical_gold": false,
+  "scope": "synthetic_same_source_discovery_feedback_and_explicit_support_routing",
+  "issues": [
+    {
+      "id": "CE-AUD-003",
+      "problem": "Support document type labels prevent complete nonempty source text from entering primary discovery, even if patient-specific management is recorded.",
+      "implementation": "Explicit include_support_documents=True enables whole-document units; default False preserves frozen v0.5 routing.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_discovery_feedback.py",
+      "required_tests": [
+        "test_CE_AUD_003_default_support_routing_remains_frozen_v05",
+        "test_CE_AUD_003_explicit_support_routing_preserves_complete_source",
+        "test_CE_AUD_003_empty_documents_stay_out_and_have_routing_receipt",
+        "test_CE_AUD_003_support_routing_requires_boolean_config"
+      ],
+      "origin": "synthetic_counterexamples"
+    },
+    {
+      "id": "CE-AUD-007",
+      "problem": "Zero discoveries or mechanically invalid discovery action/decision-clause citations have no bounded same-input correction path before evidence compilation.",
+      "implementation": "At most one same-source feedback invocation; preserve initial on invalid revision or errors; zero discoveries remain valid.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_discovery_feedback.py",
+      "required_tests": [
+        "test_CE_AUD_007_zero_event_recheck_can_still_return_zero",
+        "test_CE_AUD_007_zero_event_recheck_can_find_source_bound_record",
+        "test_CE_AUD_007_bad_action_quote_repaired_with_same_input",
+        "test_CE_AUD_007_bad_decision_clause_quote_triggers_repair",
+        "test_CE_AUD_007_ambiguous_decision_clause_rechecked_without_first_match",
+        "test_CE_AUD_007_disabled_does_not_call_model",
+        "test_CE_AUD_007_valid_nonzero_discovery_does_not_request_feedback",
+        "test_CE_AUD_007_empty_decision_clause_keeps_uncertainty_without_forced_repair",
+        "test_CE_AUD_007_initial_other_quote_issues_are_not_new_feedback_clinical_gates",
+        "test_CE_AUD_007_feedback_limit_is_strict_zero_or_one",
+        "test_CE_AUD_007_duplicate_initial_local_id_triggers_recheck",
+        "test_CE_AUD_007_duplicate_revised_local_id_retains_initial",
+        "test_CE_AUD_007_unknown_or_catalog_only_quote_source_retains_initial",
+        "test_CE_AUD_007_action_quote_cannot_create_event_in_prior_document",
+        "test_CE_AUD_007_remaining_mechanical_error_retains_initial_without_third_call",
+        "test_CE_AUD_007_provider_error_preserves_initial_and_sanitizes_message",
+        "test_CE_AUD_007_bound_failure_request_hash_is_recorded",
+        "test_CE_AUD_007_invalid_schema_or_compile_exception_retains_initial",
+        "test_CE_AUD_007_client_context_mutation_rejected_and_input_unchanged",
+        "test_CE_AUD_007_changed_compiled_unit_or_duplicate_event_id_rejected"
+      ],
+      "origin": "synthetic_counterexamples"
+    }
+  ],
+  "integration_tests": [
+    "test_real_engine_recompiles_revised_anchors_before_event_context"
+  ]
+}

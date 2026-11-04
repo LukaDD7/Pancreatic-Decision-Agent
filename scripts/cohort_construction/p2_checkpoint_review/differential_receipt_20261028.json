@@ -1,0 +1,52 @@
+{
+  "schema_version": "0.1.0",
+  "synthetic_only": true,
+  "random_seed": 20261028,
+  "case_count": 325,
+  "python_accepted": 78,
+  "python_rejected": 247,
+  "status": "PASS",
+  "validity_differences": [],
+  "error_label_differences": [
+    {
+      "case": "date_0000-01-01",
+      "python": {
+        "valid": false,
+        "code": "INVALID_DATE"
+      },
+      "javascript": {
+        "valid": false,
+        "code": "FULL_DATE_REQUIRED"
+      }
+    },
+    {
+      "case": "scalar_string_13",
+      "python": {
+        "valid": false,
+        "code": "INVALID_UNICODE_STRING"
+      },
+      "javascript": {
+        "valid": false,
+        "code": "INVALID_UNICODE"
+      }
+    },
+    {
+      "case": "scalar_string_14",
+      "python": {
+        "valid": false,
+        "code": "INVALID_UNICODE_STRING"
+      },
+      "javascript": {
+        "valid": false,
+        "code": "INVALID_UNICODE"
+      }
+    }
+  ],
+  "source_sha256": {
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/scripts/cohort_construction/p2_checkpoint_review/tests/fixtures/cross_language_cases.json": "cb4c972b08f5d831d70bf6000efd50152213be46a905030f4000c5790e141ece",
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/scripts/cohort_construction/p2_checkpoint_review/tests/fixtures/differential_mutations.json": "e1e08ef68c4fc04edb4596e9d5a9e4825d5100950183505e87bb8476b68173f5",
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/scripts/cohort_construction/p2_checkpoint_review/tests/fixtures/raw_json_number_cases.json": "bf2a1dbecb11134b56e2a3b802eee27640f2b4ade3309a2276394804ee570cbe",
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/scripts/cohort_construction/p2_checkpoint_review_app/assets/reviewer.js": "54c98f744f4f1a96d89c99af194514fd62a0244b06af0655b37139b814276447",
+    "/Users/lucachangretta/Documents/ChatGPT/不可逆胰腺癌根治术决策智能体/scripts/cohort_construction/p2_checkpoint_review/validation.py": "f5703fb57e749664a8d0e15b56b98f69fa1a3d606a29bf0353d90c888b37a831"
+  }
+}

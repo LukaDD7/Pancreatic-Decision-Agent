@@ -1,0 +1,2110 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/packet-binding",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-packet-binding",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/packet-binding",
+        "version": "0.1.0-draft",
+        "name": "ResearchPacketBinding",
+        "title": "Research local draft packet-binding",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "slicing": {
+                "discriminator": [
+                  {
+                    "type": "value",
+                    "path": "url"
+                  }
+                ],
+                "rules": "closed"
+              }
+            },
+            {
+              "id": "Extension.extension:schema-version",
+              "path": "Extension.extension",
+              "sliceName": "schema-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:schema-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:schema-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "schema-version"
+            },
+            {
+              "id": "Extension.extension:schema-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:packet-id",
+              "path": "Extension.extension",
+              "sliceName": "packet-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:packet-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:packet-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "packet-id"
+            },
+            {
+              "id": "Extension.extension:packet-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:packet-version",
+              "path": "Extension.extension",
+              "sliceName": "packet-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:packet-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:packet-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "packet-version"
+            },
+            {
+              "id": "Extension.extension:packet-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:state",
+              "path": "Extension.extension",
+              "sliceName": "state",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:state.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:state.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "state"
+            },
+            {
+              "id": "Extension.extension:state.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:fhir-version",
+              "path": "Extension.extension",
+              "sliceName": "fhir-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:fhir-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:fhir-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "fhir-version"
+            },
+            {
+              "id": "Extension.extension:fhir-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:checkpoint-id",
+              "path": "Extension.extension",
+              "sliceName": "checkpoint-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:checkpoint-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:checkpoint-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "checkpoint-id"
+            },
+            {
+              "id": "Extension.extension:checkpoint-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:decision-task-id",
+              "path": "Extension.extension",
+              "sliceName": "decision-task-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:decision-task-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:decision-task-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "decision-task-id"
+            },
+            {
+              "id": "Extension.extension:decision-task-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version",
+              "path": "Extension.extension",
+              "sliceName": "visibility-policy-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "visibility-policy-version"
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256",
+              "path": "Extension.extension",
+              "sliceName": "clinical-content-sha256",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "clinical-content-sha256"
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:packet-sha256",
+              "path": "Extension.extension",
+              "sliceName": "packet-sha256",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:packet-sha256.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:packet-sha256.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "packet-sha256"
+            },
+            {
+              "id": "Extension.extension:packet-sha256.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:compiler-version",
+              "path": "Extension.extension",
+              "sliceName": "compiler-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:compiler-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:compiler-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "compiler-version"
+            },
+            {
+              "id": "Extension.extension:compiler-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:compiled-partition-sha256",
+              "path": "Extension.extension",
+              "sliceName": "compiled-partition-sha256",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:compiled-partition-sha256.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:compiled-partition-sha256.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "compiled-partition-sha256"
+            },
+            {
+              "id": "Extension.extension:compiled-partition-sha256.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:semantic-audit-id",
+              "path": "Extension.extension",
+              "sliceName": "semantic-audit-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:semantic-audit-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:semantic-audit-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "semantic-audit-id"
+            },
+            {
+              "id": "Extension.extension:semantic-audit-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/packet-binding"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "max": "0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/submission-binding",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-submission-binding",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/submission-binding",
+        "version": "0.1.0-draft",
+        "name": "ResearchSubmissionBinding",
+        "title": "Research local draft submission-binding",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "slicing": {
+                "discriminator": [
+                  {
+                    "type": "value",
+                    "path": "url"
+                  }
+                ],
+                "rules": "closed"
+              }
+            },
+            {
+              "id": "Extension.extension:schema-version",
+              "path": "Extension.extension",
+              "sliceName": "schema-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:schema-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:schema-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "schema-version"
+            },
+            {
+              "id": "Extension.extension:schema-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:submission-id",
+              "path": "Extension.extension",
+              "sliceName": "submission-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:submission-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:submission-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "submission-id"
+            },
+            {
+              "id": "Extension.extension:submission-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:reviewer-assignment-id",
+              "path": "Extension.extension",
+              "sliceName": "reviewer-assignment-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:reviewer-assignment-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:reviewer-assignment-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "reviewer-assignment-id"
+            },
+            {
+              "id": "Extension.extension:reviewer-assignment-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:submitted-at",
+              "path": "Extension.extension",
+              "sliceName": "submitted-at",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:submitted-at.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:submitted-at.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "submitted-at"
+            },
+            {
+              "id": "Extension.extension:submitted-at.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:packet-id",
+              "path": "Extension.extension",
+              "sliceName": "packet-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:packet-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:packet-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "packet-id"
+            },
+            {
+              "id": "Extension.extension:packet-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:packet-version",
+              "path": "Extension.extension",
+              "sliceName": "packet-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:packet-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:packet-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "packet-version"
+            },
+            {
+              "id": "Extension.extension:packet-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:packet-sha256",
+              "path": "Extension.extension",
+              "sliceName": "packet-sha256",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:packet-sha256.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:packet-sha256.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "packet-sha256"
+            },
+            {
+              "id": "Extension.extension:packet-sha256.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256",
+              "path": "Extension.extension",
+              "sliceName": "clinical-content-sha256",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "clinical-content-sha256"
+            },
+            {
+              "id": "Extension.extension:clinical-content-sha256.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:checkpoint-id",
+              "path": "Extension.extension",
+              "sliceName": "checkpoint-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:checkpoint-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:checkpoint-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "checkpoint-id"
+            },
+            {
+              "id": "Extension.extension:checkpoint-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:decision-task-id",
+              "path": "Extension.extension",
+              "sliceName": "decision-task-id",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:decision-task-id.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:decision-task-id.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "decision-task-id"
+            },
+            {
+              "id": "Extension.extension:decision-task-id.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version",
+              "path": "Extension.extension",
+              "sliceName": "visibility-policy-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "visibility-policy-version"
+            },
+            {
+              "id": "Extension.extension:visibility-policy-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:questionnaire-canonical",
+              "path": "Extension.extension",
+              "sliceName": "questionnaire-canonical",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:questionnaire-canonical.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:questionnaire-canonical.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "questionnaire-canonical"
+            },
+            {
+              "id": "Extension.extension:questionnaire-canonical.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:questionnaire-version",
+              "path": "Extension.extension",
+              "sliceName": "questionnaire-version",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:questionnaire-version.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:questionnaire-version.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "questionnaire-version"
+            },
+            {
+              "id": "Extension.extension:questionnaire-version.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.extension:questionnaire-sha256",
+              "path": "Extension.extension",
+              "sliceName": "questionnaire-sha256",
+              "min": 1,
+              "max": "1"
+            },
+            {
+              "id": "Extension.extension:questionnaire-sha256.extension",
+              "path": "Extension.extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.extension:questionnaire-sha256.url",
+              "path": "Extension.extension.url",
+              "fixedUri": "questionnaire-sha256"
+            },
+            {
+              "id": "Extension.extension:questionnaire-sha256.value[x]",
+              "path": "Extension.extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/submission-binding"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "max": "0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-questionnaire",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire",
+        "version": "0.1.0-draft",
+        "name": "ResearchQuestionnaire",
+        "title": "Research local draft questionnaire",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/Questionnaire"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-sha256",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-questionnaire-sha256",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-sha256",
+        "version": "0.1.0-draft",
+        "name": "ResearchQuestionnaireSha256",
+        "title": "Research local draft questionnaire-sha256",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-sha256"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-frozen",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-questionnaire-frozen",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-frozen",
+        "version": "0.1.0-draft",
+        "name": "ResearchQuestionnaireFrozen",
+        "title": "Research local draft questionnaire-frozen",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-frozen"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "boolean"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-canonical-json",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-questionnaire-canonical-json",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-canonical-json",
+        "version": "0.1.0-draft",
+        "name": "ResearchQuestionnaireCanonicalJson",
+        "title": "Research local draft questionnaire-canonical-json",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-canonical-json"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/material",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-material",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/material",
+        "version": "0.1.0-draft",
+        "name": "ResearchMaterial",
+        "title": "Research local draft material",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/material"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/DocumentReference"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/episode-id",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-episode-id",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/episode-id",
+        "version": "0.1.0-draft",
+        "name": "ResearchEpisodeId",
+        "title": "Research local draft episode-id",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/episode-id"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-id",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-source-id",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-id",
+        "version": "0.1.0-draft",
+        "name": "ResearchSourceId",
+        "title": "Research local draft source-id",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "DocumentReference"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-id"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-version",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-source-version",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-version",
+        "version": "0.1.0-draft",
+        "name": "ResearchSourceVersion",
+        "title": "Research local draft source-version",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "DocumentReference"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-version"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/content-sha256",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-content-sha256",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/content-sha256",
+        "version": "0.1.0-draft",
+        "name": "ResearchContentSha256",
+        "title": "Research local draft content-sha256",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "DocumentReference"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/content-sha256"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/response",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-response",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/response",
+        "version": "0.1.0-draft",
+        "name": "ResearchResponse",
+        "title": "Research local draft response",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/response"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-canonical-json",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-response-canonical-json",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-canonical-json",
+        "version": "0.1.0-draft",
+        "name": "ResearchResponseCanonicalJson",
+        "title": "Research local draft response-canonical-json",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-canonical-json"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-content-sha256",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-response-content-sha256",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-content-sha256",
+        "version": "0.1.0-draft",
+        "name": "ResearchResponseContentSha256",
+        "title": "Research local draft response-content-sha256",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/response-content-sha256"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-research-payload-json",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json",
+        "version": "0.1.0-draft",
+        "name": "ResearchResearchPayloadJson",
+        "title": "Research local draft research-payload-json",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-json"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-research-payload-sha256",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256",
+        "version": "0.1.0-draft",
+        "name": "ResearchResearchPayloadSha256",
+        "title": "Research local draft research-payload-sha256",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/research-payload-sha256"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-audience",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience",
+        "version": "0.1.0-draft",
+        "name": "ResearchAudience",
+        "title": "Research local draft audience",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/audience"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-assertion-status",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status",
+        "version": "0.1.0-draft",
+        "name": "ResearchAssertionStatus",
+        "title": "Research local draft assertion-status",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/assertion-status"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "string"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-episode",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-candidate-episode",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-episode",
+        "version": "0.1.0-draft",
+        "name": "ResearchCandidateEpisode",
+        "title": "Research local draft candidate-episode",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-episode"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/Basic"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/member-management-record",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-member-management-record",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/member-management-record",
+        "version": "0.1.0-draft",
+        "name": "ResearchMemberManagementRecord",
+        "title": "Research local draft member-management-record",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/member-management-record"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/Basic"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-checkpoint",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-candidate-checkpoint",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-checkpoint",
+        "version": "0.1.0-draft",
+        "name": "ResearchCandidateCheckpoint",
+        "title": "Research local draft candidate-checkpoint",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/candidate-checkpoint"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/Basic"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/relation-type",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-relation-type",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/relation-type",
+        "version": "0.1.0-draft",
+        "name": "ResearchRelationType",
+        "title": "Research local draft relation-type",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/relation-type"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "code"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-management-record",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-source-management-record",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-management-record",
+        "version": "0.1.0-draft",
+        "name": "ResearchSourceManagementRecord",
+        "title": "Research local draft source-management-record",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-management-record"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/Basic"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "fullUrl": "https://checkpoint-research.invalid/fhir/StructureDefinition/target-management-record",
+      "resource": {
+        "resourceType": "StructureDefinition",
+        "id": "research-target-management-record",
+        "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/target-management-record",
+        "version": "0.1.0-draft",
+        "name": "ResearchTargetManagementRecord",
+        "title": "Research local draft target-management-record",
+        "status": "draft",
+        "experimental": true,
+        "description": "Project-local draft exchange extension. Not published or clinically validated. See package contracts and README for binding and audience restrictions.",
+        "fhirVersion": "4.0.1",
+        "kind": "complex-type",
+        "abstract": false,
+        "context": [
+          {
+            "type": "element",
+            "expression": "Basic"
+          }
+        ],
+        "type": "Extension",
+        "baseDefinition": "http://hl7.org/fhir/StructureDefinition/Extension",
+        "derivation": "constraint",
+        "differential": {
+          "element": [
+            {
+              "id": "Extension",
+              "path": "Extension"
+            },
+            {
+              "id": "Extension.extension",
+              "path": "Extension.extension",
+              "max": "0"
+            },
+            {
+              "id": "Extension.url",
+              "path": "Extension.url",
+              "fixedUri": "https://checkpoint-research.invalid/fhir/StructureDefinition/target-management-record"
+            },
+            {
+              "id": "Extension.value[x]",
+              "path": "Extension.value[x]",
+              "min": 1,
+              "max": "1",
+              "type": [
+                {
+                  "code": "Reference",
+                  "targetProfile": [
+                    "http://hl7.org/fhir/StructureDefinition/Basic"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

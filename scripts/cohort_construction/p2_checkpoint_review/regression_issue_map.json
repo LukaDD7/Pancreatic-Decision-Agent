@@ -1,0 +1,118 @@
+{
+  "schema_version": "0.1.0",
+  "issues": [
+    {
+      "issue_id": "CE-REVIEW-001",
+      "problem": "Unsupported form features or defaults can silently change a blind-review form",
+      "required_tests": [
+        "test_prefill_and_unknown_fields_are_rejected_not_ignored",
+        "test_unknown_top_level_resource_metadata_rejected",
+        "test_unsupported_types_and_repetitions_rejected",
+        "test_choice_multiple_answers_one_item_and_input_immutable",
+        "test_display_flags_child_questions_and_duplicate_options_rejected"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-002",
+      "problem": "Response binding alone does not validate actual answer type, option identity or completion",
+      "required_tests": [
+        "test_exact_code_system_and_version_are_enforced",
+        "test_coding_display_is_not_identity_and_missing_system_fails",
+        "test_strict_primitive_types_bool_is_never_integer",
+        "test_number_and_date_limits_fail_closed",
+        "test_binding_lifecycle_and_partial_draft",
+        "test_choice_string_options",
+        "test_datetime_validation"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-003",
+      "problem": "Empty values and incorrect conditional evaluation can bypass required answers or admit disabled answers",
+      "required_tests": [
+        "test_empty_and_whitespace_strings_do_not_answer_required",
+        "test_false_boolean_is_real_answer_and_enables_exists",
+        "test_disabled_question_and_descendants_cannot_be_present",
+        "test_not_equal_multiple_choice_means_no_equal_answer",
+        "test_order_conditions_and_all_any",
+        "test_invalid_conditions_and_cyclic_or_forward_reference_rejected",
+        "test_group_omission_cannot_bypass_required_descendant"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-004",
+      "problem": "Duplicated, unknown or wrongly nested response items can detach answers from displayed questions",
+      "required_tests": [
+        "test_multiple_answer_limits_duplicates_and_single_value",
+        "test_unknown_link_duplicate_item_and_wrong_tree",
+        "test_nested_group_and_display_cannot_receive_answers",
+        "test_response_order_text_and_maxlength"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-005",
+      "problem": "Submission receiver must verify the packet and frozen form before assessing response answers",
+      "required_tests": [
+        "test_submission_verifies_packet_binding_before_answers",
+        "test_choice_multiple_answers_one_item_and_input_immutable"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-006",
+      "problem": "enableWhen != must reject an equal answer even when a different selected answer also exists",
+      "required_tests": [
+        "test_not_equal_multiple_choice_means_no_equal_answer",
+        "test_order_conditions_and_all_any"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-007",
+      "problem": "A required group with display-only or empty nodes cannot establish actual completion in this supported application subset",
+      "required_tests": [
+        "test_required_group_requires_real_answer_not_display_or_empty_item",
+        "test_nested_group_and_display_cannot_receive_answers"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-008",
+      "problem": "Invalid Unicode and JS prototype-shaped IDs must not bypass or break form validation",
+      "required_tests": [
+        "test_unpaired_surrogate_rejected_and_real_astral_character_accepted",
+        "test_cross_language_contract_fixtures"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-009",
+      "problem": "Python dateTime normalization can accept an invalid offset and both runtimes must restrict timezone offsets to the FHIR ±14:00 range",
+      "required_tests": [
+        "test_datetime_rejects_offset_normalization_and_out_of_fhir_range",
+        "test_javascript_python_validity_agrees_on_fixed_corpus"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-010",
+      "problem": "Native strip/trim sets and a bare URI scheme can produce conflicting browser/receiver validity",
+      "required_tests": [
+        "test_shared_unicode_blank_set_and_nonempty_uri_suffix",
+        "test_javascript_python_validity_agrees_on_fixed_corpus"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-011",
+      "problem": "JSON number parsing can erase forbidden decimal/exponent lexical tokens from integer fields",
+      "required_tests": [
+        "test_fixed_seed_mutation_and_raw_number_fixtures",
+        "test_javascript_python_validity_agrees_on_fixed_corpus",
+        "test_strict_primitive_types_bool_is_never_integer"
+      ]
+    },
+    {
+      "issue_id": "CE-REVIEW-012",
+      "problem": "Python 3.14 accepts ISO 8601 24:00 midnight that this FHIR dateTime subset and the browser validator reject",
+      "required_tests": [
+        "test_fixed_seed_mutation_and_raw_number_fixtures",
+        "test_javascript_python_validity_agrees_on_fixed_corpus",
+        "test_datetime_rejects_offset_normalization_and_out_of_fhir_range"
+      ]
+    }
+  ]
+}

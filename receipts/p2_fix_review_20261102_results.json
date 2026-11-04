@@ -1,0 +1,65 @@
+{
+  "synthetic_only": true,
+  "actual_provider_requests": 0,
+  "output_root": "/private/tmp/p2-fix-review-probes-b20za5na",
+  "initial_pass_still_missing_recovered_source": {
+    "reproduced": true,
+    "terminal": "HOLD",
+    "missing": [
+      "ASSEMBLY_SELECTED_SOURCE_MISSING"
+    ],
+    "full_source_count": 4,
+    "supplied_to_pipeline_count": 3
+  },
+  "fresh_audit_scope_expanded_and_pass_blocked": {
+    "reproduced": true,
+    "first_source_count": 3,
+    "new_source_count": 4,
+    "uncovered": [
+      "DOC-BUDGET"
+    ],
+    "terminal": "AUTO_GRAPH_AUDIT_HOLD"
+  },
+  "transport_schema_rejection_still_discards_response_and_invocation": {
+    "reproduced": true,
+    "saved_failure": {
+      "stage": "PROVIDER_REQUEST",
+      "error_type": "ModelRequestFailed",
+      "reason_code": "ModelRequestFailed"
+    },
+    "invocation_available_in_client": true,
+    "cache_has_parsed_response": false
+  },
+  "provider_failure_replay_skips_request_validation": {
+    "reproduced": true,
+    "replay_verified_after_request_tampering": true
+  },
+  "failed_chain_not_bound_to_parent_batch_graph": {
+    "reproduced": true,
+    "unrelated_chain_accepted": true
+  },
+  "review_conclusion": "NOT_ALL_FIXED",
+  "existing_targeted_tests": {
+    "passed": 27,
+    "junit_xml": "/private/tmp/p2-fix-review-morm2cwf/baseline.xml",
+    "exit_code": 0
+  },
+  "implementation_receipt_checked": {
+    "passed": 905,
+    "subtests_passed": 449,
+    "current_source_hashes_matched": 239,
+    "receipt_sha256": "ae73b8e213872f495a96e290b10425eaf4e9f3ad76becdb225485b913925d1ae"
+  },
+  "scale01_read_only_mock_pass_probe": {
+    "current_unit_sources": 3,
+    "material_sources": 257,
+    "preflight_failure_count": 0,
+    "pipeline_state": "HOLD",
+    "missing_source_counts": [
+      243,
+      254
+    ],
+    "actual_model_audit_performed": false
+  },
+  "probe_script_sha256": "ae53068fa97f039e8952885f57068174f3814f11e89a08c00a5c2cbf10d04632"
+}

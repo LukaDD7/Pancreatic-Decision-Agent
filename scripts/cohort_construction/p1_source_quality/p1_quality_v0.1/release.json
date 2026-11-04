@@ -1,0 +1,22 @@
+{
+  "algorithm_version": "p1-source-quality-v0.1",
+  "snapshot_origin": "frozen local research run",
+  "code_sha256": {
+    "report_parser.py": "82178de0186167a97aa7f121dfe61a54c7b39f4a1d67c558c9154e42df4fb693",
+    "run_quality.py": "2afa8a7395a493434b68516e68fe204a1b78bc357dc8d0f76d16508967b85131",
+    "quality_rules.json": "0856f4549c13b68082e957ebf3a0197e1e8e3791daa561c09972ceb092083668",
+    "test_report_parser.py": "2eeefc61d6d7279dddb74216dffb88c9a8f272887df41e30dac5a1afd99fcd68"
+  },
+  "P0_n": 2707,
+  "patient_states": {
+    "PASS_V1": 1941,
+    "REVIEW_V1": 672,
+    "NOT_MET_V1": 94
+  },
+  "imaging_input_rows": 38561,
+  "unique_content_report_versions": 31236,
+  "synthetic_regression_tests_passed": 32,
+  "clinical_validation_completed": false,
+  "local_run_manifest_sha256": "5f4d2efaf838ff7cb5dc0264e2d2730f36af6db892b0787c6bd111efe0c0f0ea",
+  "contains_patient_level_data": false
+}

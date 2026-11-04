@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-packet:0.1.0:CompiledPartition",
+  "title": "CompiledPartition",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "compiler_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposal_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposal_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposal_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "coordinate_unit": {
+      "const": "unicode_codepoint"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "length_codepoints": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "disposition": {
+                  "enum": [
+                    "KEEP",
+                    "MASK",
+                    "REVIEW"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "proposal_segment_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 0
+                },
+                "generated_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "disposition",
+                "text",
+                "proposal_segment_ids",
+                "generated_reason"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 0
+          }
+        },
+        "required": [
+          "source_id",
+          "source_version",
+          "source_sha256",
+          "length_codepoints",
+          "segments"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "mechanical_audit": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "segment_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        },
+        "review_segment_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "full_coverage": {
+          "const": true
+        },
+        "mutually_exclusive": {
+          "const": true
+        }
+      },
+      "required": [
+        "status",
+        "issues",
+        "review_segment_count",
+        "full_coverage",
+        "mutually_exclusive"
+      ],
+      "additionalProperties": false
+    },
+    "semantic_audit_status": {
+      "const": "NOT_ASSESSED"
+    },
+    "compiled_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "compiler_version",
+    "manifest_id",
+    "proposal_id",
+    "proposal_version",
+    "proposal_sha256",
+    "target",
+    "coordinate_unit",
+    "sources",
+    "mechanical_audit",
+    "semantic_audit_status",
+    "compiled_sha256"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "target": {
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visibility_policy_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "decision_task_id",
+        "visibility_policy_version"
+      ],
+      "additionalProperties": false
+    },
+    "sourceBinding": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "questionnaireResource": {
+      "type": "object",
+      "properties": {
+        "resourceType": {
+          "const": "Questionnaire"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "const": "active"
+        }
+      },
+      "required": [
+        "resourceType",
+        "url",
+        "version",
+        "status"
+      ],
+      "additionalProperties": true
+    },
+    "questionnaire": {
+      "type": "object",
+      "properties": {
+        "canonical": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "frozen": {
+          "const": true
+        },
+        "resource": {
+          "$ref": "#/$defs/questionnaireResource"
+        }
+      },
+      "required": [
+        "canonical",
+        "version",
+        "sha256",
+        "frozen",
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "material": {
+      "type": "object",
+      "properties": {
+        "material_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "material_id",
+        "source_id",
+        "source_version",
+        "text",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "packetBinding": {
+      "type": "object",
+      "properties": {
+        "packet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packet_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packet_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "clinical_content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      },
+      "required": [
+        "packet_id",
+        "packet_version",
+        "packet_sha256",
+        "clinical_content_sha256",
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    "questionnaireBinding": {
+      "type": "object",
+      "properties": {
+        "canonical": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "canonical",
+        "version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

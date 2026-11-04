@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-22",
+  "base_commit": "c18db725cde0e78a93dcf36383f57fec6f158b86",
+  "new_module": "p2_decision_ir",
+  "reason": "Implement source-linked judgment localization and review relations; expert acceptable actions are independent of historical action/result availability.",
+  "changes": [
+    "new contiguous-source IR and semantic role retrieval",
+    "no 24/48h collapse",
+    "POSTOP/current plan, scheduled/executed, instructions/feedback, historical evidence/current conclusion fixes",
+    "FHIR exact-source crosswalk",
+    "fixed-sample review and node-level migration audit"
+  ],
+  "p0_p1_membership_changed": false,
+  "p1_code_changed": false,
+  "formal_episode_rules_finalized": false,
+  "expert_reference_generated": false,
+  "protocol_edited": false,
+  "confidence_item_removed": false,
+  "final_run": "local_artifacts/p2_decision_ir_v0.1_20261022_run07",
+  "baseline_run": "local_artifacts/p2_decision_ir_v0.1_20261022",
+  "audit": "local_artifacts/p2_decision_ir_v0.1_20261022_audit03",
+  "tests_passed": 95,
+  "review_limit": "32 synthetic IR tests plus 63 dependency tests; 20 original sampled sources reviewed by analyst, not independent clinical validation",
+  "code_diff_file": "docs/p2-decision-ir-v0.1-code.diff",
+  "code_diff_sha256": "368db059b20f67dc41a864330216c006fa1e35b26fd577812d2020d5358b2dc1"
+}

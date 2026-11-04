@@ -1,0 +1,62 @@
+{
+  "final": {
+    "version": "0.1",
+    "pool": "49 previously selected development patients; NOT representative P0 sample",
+    "source_patients": 49,
+    "source_documents": 5199,
+    "statement_nodes": 3036,
+    "roles": {
+      "EXECUTION_MENTION": 1124,
+      "DECISION_CANDIDATE": 1262,
+      "SUPPORT_MENTION": 331,
+      "FEEDBACK_MENTION": 190,
+      "INSTRUCTION_MENTION": 129
+    },
+    "statuses": {
+      "CONTEXT_REVIEW": 2284,
+      "CURRENT_STATEMENT_CANDIDATE": 752
+    },
+    "supportive_care_pathway_link_required": 74,
+    "zero_node_documents": 3743,
+    "review_links": 1719,
+    "current_candidate_patients": 49,
+    "current_candidate_statement_median_per_patient": 12,
+    "legacy_comparison_same_inputs": {
+      "legacy_eligible_documents": 146,
+      "new_current_candidate_documents": 462,
+      "retained": 146,
+      "newly_prioritized": 316,
+      "no_longer_prioritized": 0
+    },
+    "manual_anchor_count": 4,
+    "n01_anchor_hits": 4,
+    "new_review_queue_size": 20,
+    "clinical_decision_count": null,
+    "episode_count": null,
+    "expert_reference_generated": false,
+    "clinical_validation": false
+  },
+  "run01_to_final": {
+    "baseline_nodes": 3037,
+    "current_nodes": 3036,
+    "shared_nodes": 3030,
+    "added_nodes": 6,
+    "no_longer_emitted_nodes": 7,
+    "role_migrations": {
+      "EXECUTION_MENTION -> DECISION_CANDIDATE": 193,
+      "FEEDBACK_MENTION -> INSTRUCTION_MENTION": 19,
+      "SUPPORT_MENTION -> INSTRUCTION_MENTION": 55,
+      "DECISION_CANDIDATE -> INSTRUCTION_MENTION": 55,
+      "EXECUTION_MENTION -> SUPPORT_MENTION": 3
+    },
+    "status_migrations": {
+      "CONTEXT_REVIEW -> CURRENT_STATEMENT_CANDIDATE": 258,
+      "CURRENT_STATEMENT_CANDIDATE -> CONTEXT_REVIEW": 51
+    },
+    "original_sample_rechecked_sources": 20,
+    "n01_fhir_linked_nodes": 35,
+    "n01_fhir_linked_documents": 20,
+    "source_or_cohort_membership_changed": false,
+    "confirmed_episode_count": null
+  }
+}

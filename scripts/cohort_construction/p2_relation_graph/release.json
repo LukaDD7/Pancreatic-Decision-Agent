@@ -1,0 +1,101 @@
+{
+  "version": "decision-graph-0.2",
+  "date": "2026-10-22",
+  "base_commit": "e144b548e4cdf05f25cf7a15a26c69060319e88b",
+  "baseline_run07_unchanged": true,
+  "baseline_nodes_sha256": "81057e68c2833f4a7649d243cc7073a7775922d0ab544f531d424a881ef5d7c9",
+  "code_sha256": {
+    "scripts/cohort_construction/p2_relation_graph/__init__.py": "5ffffa267476089b98b9b44bb15aa32cebb15d3bf672c4c4b1c14515afb36110",
+    "scripts/cohort_construction/p2_relation_graph/core.py": "da89ec0dfec7447ea33939cb93335c72374e0a836120bd75ac4dce74cc00c5ac",
+    "scripts/cohort_construction/p2_relation_graph/demo.py": "ad1163fb5b882911014074d6b3bc29d016bf8fcb66761e54fc685610671a8b37",
+    "scripts/cohort_construction/p2_relation_graph/evaluate.py": "e003ec9b7a39843a4b55d99eb3e9aa5865282d75ee214620faabfcbdcb55a653",
+    "scripts/cohort_construction/p2_relation_graph/model.py": "dd5111a1172914cd8cc958616855de8675466e6d8cba447ee960f9ba9c52ac53",
+    "scripts/cohort_construction/p2_relation_graph/pipeline.py": "e1cb85cb25582e93f2d65a67de9edf64854bc37b1821c9e7561d06c1ee9f838e",
+    "scripts/cohort_construction/p2_relation_graph/regression_catalog.json": "89267ca9bcef85191f3a08cf042d02d2b17be7ba5a2e5abb3200682ec49f0060",
+    "scripts/cohort_construction/p2_relation_graph/run.py": "7624d3a18b7756ec4edd2f80b32153d8ca0362fe1eb7c4efc85775115bd66b21",
+    "scripts/cohort_construction/p2_relation_graph/tests/test_graph.py": "9125a9d4924397575bf5f22533dcb3cc2f24f93c605789794295b878817017f9",
+    "config/model_provider.json": "0cb261c1300e286be3b0f531b2a79c9aebf4d8adc3a12ceeefe4a97c1c3862f1"
+  },
+  "shared_model_api_sha256": "d3b1ea168096b3ae5228651ab84bccf2b39de48c2890fb3a20a6a402a01a8c95",
+  "tests": {
+    "inherited": 95,
+    "new": 25,
+    "passed": 120,
+    "receipt_sha256": "5f6f1b11febfea120b80bd60482b420577e0cd70eb226e7a4cbf14eeaae6aeaa",
+    "p1_guard_passed": 105,
+    "project_tests_passed": 160,
+    "project_receipt_sha256": "e729eff3bc4f54f528bbe8a2aec7f0cb83bb3ed47ce2ed5d1930b06eff5c7289"
+  },
+  "runs": {
+    "private/p2_relation_graph_v0.2_20261022_prepare49_run03": {
+      "summary": {
+        "input_units": 3036,
+        "source_documents": 5199,
+        "mentions": 2789,
+        "mention_roles": {
+          "ActionMention": 1303,
+          "DecisionMention": 1262,
+          "FeedbackMention": 224
+        },
+        "event_hypotheses": 1262,
+        "relation_candidates": 15462,
+        "auxiliary_event_hypotheses": 1527,
+        "relations": {
+          "uncertain": 15462
+        },
+        "normalization_statuses": {
+          "PENDING_SEMANTIC_NORMALIZATION": 3036
+        },
+        "graph_conflicts": 0,
+        "auto_accepted": 0,
+        "clinical_reference_generated": false,
+        "clinical_validation": false,
+        "unprocessed_input_units": 0,
+        "synthetic_only": false
+      },
+      "manifest_sha256": "0f2cfbf069f119190df18cef123e2d27a1133a53e14374b2f09d41b680ab804c",
+      "graph_sha256": "a7d521a906221d862f38dce934bcd1e85fd5c29f18719027d2b33c694961e0b8"
+    },
+    "private/p2_relation_graph_v0.2_20261022_synthetic_run06": {
+      "summary": {
+        "input_units": 2,
+        "source_documents": 2,
+        "mentions": 6,
+        "mention_roles": {
+          "EvidenceMention": 1,
+          "DecisionMention": 5
+        },
+        "event_hypotheses": 5,
+        "relation_candidates": 10,
+        "auxiliary_event_hypotheses": 1,
+        "relations": {
+          "different_event": 3,
+          "uncertain": 3,
+          "supersede": 2,
+          "reaffirm": 1,
+          "informs": 1
+        },
+        "normalization_statuses": {
+          "NORMALIZED": 2
+        },
+        "graph_conflicts": 0,
+        "auto_accepted": 0,
+        "clinical_reference_generated": false,
+        "clinical_validation": false,
+        "unprocessed_input_units": 0,
+        "synthetic_only": true
+      },
+      "manifest_sha256": "a47605b878ceb375b0b097841d95f8afa457aab5cb2a87a544e3724f43245732",
+      "graph_sha256": "53f1dac06507012eb86cba9b7690d2acdee41c48ff7e9f1a9ce6c5245afff74f"
+    }
+  },
+  "provider": "boyu",
+  "model": "kimi-k3",
+  "thinking": "disabled",
+  "real_patient_data_sent_to_model": false,
+  "diff_sha256": "e853141e55f6b99ecc998d60072585367d8d237f7db77a4c26ce44c226fb93eb",
+  "clinical_validation": false,
+  "human_gold_created": false,
+  "calibration_established": false,
+  "auto_accept_enabled": false
+}

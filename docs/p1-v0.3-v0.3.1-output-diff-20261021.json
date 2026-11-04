@@ -1,0 +1,40 @@
+{
+  "from": "p1-relevance-usability-v0.3",
+  "to": "p1-relevance-usability-v0.3.1",
+  "patient_states_before": {
+    "INCLUDE_V3": 2690,
+    "REVIEW_V3": 17
+  },
+  "patient_states_after": {
+    "INCLUDE_V3": 2690,
+    "REVIEW_V3": 17
+  },
+  "changes": {
+    "image_coverage_changed": 377,
+    "image_any_parsed_annotation_changed": 377,
+    "patient_state_changes": 0,
+    "clinical_target_records_added": 1,
+    "clinical_target_records_removed": 0,
+    "image_vessel_statements_changed": 0
+  },
+  "ABC_coverage_before": {
+    "A": 2690,
+    "B": 2466,
+    "C": 2656,
+    "ASSESSMENT_OR_ACQUISITION_CONTEXT": 2659
+  },
+  "ABC_coverage_after": {
+    "A": 2690,
+    "B": 2514,
+    "C": 2656,
+    "ASSESSMENT_OR_ACQUISITION_CONTEXT": 2659
+  },
+  "citation_status_counts_unchanged": true,
+  "interpretation": "Annotation changes, not clinical GT or newly included patients.",
+  "source_output_hashes": {
+    "local_artifacts/p1_quality_v0.3/results/summary.json": "e725ce2d6ce6fd9302c309eacf12f44e3e84c2c904f8c14cc35707270103dcdf",
+    "local_artifacts/p1_quality_v0.3.1/results/summary.json": "9f44b4a4b945fb97cebefbbbc0ba5ea498206f285755ce23380df5fde509fd82",
+    "local_artifacts/p1_quality_v0.3/results/patient_quality.jsonl": "ca90aa9bac79c6a97ca1c77393f4deb8c3347d694c122a6af0bb45dd381bf5f3",
+    "local_artifacts/p1_quality_v0.3.1/results/patient_quality.jsonl": "b5fd28b86a2c8febe7576ba46b884010e6cb5538c8356e2676113b328a3614f6"
+  }
+}

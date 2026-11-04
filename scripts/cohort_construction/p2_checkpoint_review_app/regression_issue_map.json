@@ -1,0 +1,53 @@
+{
+  "version": "0.1.0",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "CE-APP-001",
+      "problem": "Browser and Python disagree on packet hashes or answer semantics, including decimal serialization and Unicode.",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP001_browser_and_python_agree_on_permitted_bundle_hashes",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP001_questionnaire_response_cross_language_fixture_agreement"
+      ]
+    },
+    {
+      "id": "CE-APP-002",
+      "problem": "Extra/future content, external attachments, malformed raw JSON or tampering can bypass a reader that only hides content in the UI.",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP002_unapproved_or_tampered_bundle_is_rejected_before_rendering",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP002_raw_json_parser_does_not_hide_duplicate_or_invalid_values"
+      ]
+    },
+    {
+      "id": "CE-APP-003",
+      "problem": "A delivered HTML may contain masked originals or execute permitted text as markup, or lack a trusted packet assignment.",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP003_delivered_html_contains_only_doctor_materials_and_is_self_contained",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP003_literal_closing_script_is_escaped_in_embedded_permitted_text",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_app.test_CE_APP003_builder_checks_trusted_assignment_and_rejects_research_objects"
+      ]
+    },
+    {
+      "id": "CE-APP-004",
+      "problem": "A rendered form may lose multiple acceptable answers, retain disabled answers or export an opinion that the receiver cannot bind and validate.",
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_browser.test_CE_APP004_actual_browser_export_roundtrips_through_python_and_fhir"
+      ]
+    },
+    {
+      "problem": "Regression registry previously treated file::function references as missing, so known material-review counterexamples were not actually resolved.",
+      "counterexamples": [
+        "Pytest file::function references for all 19 materials tests.",
+        "A nonexistent required test must fail registry precheck."
+      ],
+      "controls": [
+        "Existing unittest dotted references remain valid."
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_issue_registry_resolves_pytest_and_unittest_reference_styles",
+        "scripts.cohort_construction.p2_checkpoint_review_app.tests.test_registry.test_issue_registry_rejects_unknown_test_names"
+      ],
+      "id": "CE-APP-005"
+    }
+  ]
+}

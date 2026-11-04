@@ -1,0 +1,6 @@
+{
+  "package_directory": "p1_quality_v0_3_2",
+  "version": "p1-relevance-usability-v0.3.2",
+  "legacy_test_directory": "p1_quality_v0.2",
+  "known_cases": "known_cases.json"
+}

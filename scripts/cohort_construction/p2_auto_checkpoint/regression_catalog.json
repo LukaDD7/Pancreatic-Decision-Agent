@@ -1,0 +1,326 @@
+{
+  "version": "0.3",
+  "required_test_file": "tests/test_contract.py",
+  "issues": [
+    {
+      "id": "P2SRC-001",
+      "failure": "document-only projection omitted CTA",
+      "required_tests": [
+        "test_prior_cta_added_without_current_plan",
+        "test_report_only_is_not_decision"
+      ]
+    },
+    {
+      "id": "P2SRC-002",
+      "failure": "source creation/exam/sample/report clocks conflated",
+      "required_tests": [
+        "test_late_mri_not_in_prior_state",
+        "test_report_time_not_sample_time",
+        "test_date_only_same_day_unordered",
+        "test_history_date_not_document_clock"
+      ]
+    },
+    {
+      "id": "P2SRC-003",
+      "failure": "operative retrospective content backdated wholesale",
+      "required_tests": [
+        "test_operative_downstream_not_in_prefix",
+        "test_operative_record_time_not_used_as_choice_time"
+      ]
+    },
+    {
+      "id": "P2SRC-004",
+      "failure": "new report or repeated plan automatically made a decision",
+      "required_tests": [
+        "test_report_only_is_not_decision",
+        "test_narrative_mri_result_is_not_order",
+        "test_current_choice_cannot_be_new_evidence"
+      ]
+    },
+    {
+      "id": "P2SRC-008",
+      "failure": "hallucinated quote/source or forced variant selection",
+      "required_tests": [
+        "test_unprovided_or_invented_quote_rejected",
+        "test_two_report_versions_one_exam_group",
+        "test_report_without_exam_number_not_forced_merge"
+      ]
+    },
+    {
+      "id": "P2SRC-009",
+      "failure": "historical diagnostic workup treated only as background",
+      "required_tests": [
+        "test_historical_pet_preserved_with_earlier_date",
+        "test_explicit_mri_plan_detected",
+        "test_future_plan_date_is_not_decision_date"
+      ]
+    },
+    {
+      "id": "P2SRC-010",
+      "failure": "non-CP prior arrhythmia history omitted",
+      "required_tests": [
+        "test_noncp_prior_history_is_included"
+      ]
+    },
+    {
+      "id": "P2SRC-011",
+      "failure": "record time beyond first120 characters not recognized",
+      "required_tests": [
+        "test_record_time_after120_is_found",
+        "test_multiple_record_times_not_chosen",
+        "test_leading_narrative_time"
+      ]
+    },
+    {
+      "id": "P2AUTO-001",
+      "failure": "later candidate context leaked into earlier normalization",
+      "required_tests": [
+        "test_model_normalization_request_is_one_time_context"
+      ]
+    },
+    {
+      "id": "P2AUTO-002",
+      "failure": "two endpoint quotes mistaken for relation evidence",
+      "required_tests": [
+        "test_missing_connection_evidence_not_supported",
+        "test_previous_choice_quote_is_not_new_evidence"
+      ]
+    },
+    {
+      "id": "P2AUTO-003",
+      "failure": "FHIR report converted into fabricated clinical order or source lost in transport",
+      "required_tests": [
+        "test_fhir_report_is_not_order_and_annotations_are_research",
+        "test_fhir_roundtrip_preserves_source_text_and_ignores_annotations",
+        "test_fhir_observation_roundtrip_preserves_raw_cells",
+        "test_native_fhir_timezone_conversion_preserves_order"
+      ]
+    },
+    {
+      "id": "P2AUTO-004",
+      "failure": "unknown titles silently ignored or support forms generate false anchors",
+      "required_tests": [
+        "test_unknown_title_has_action_fallback",
+        "test_support_form_stays_in_coverage"
+      ]
+    },
+    {
+      "id": "P2AUTO-005",
+      "failure": "PII masking changed offsets or destroyed clinical numbers",
+      "required_tests": [
+        "test_redaction_preserves_offsets_and_clinical_values"
+      ]
+    },
+    {
+      "id": "P2AUTO-006",
+      "failure": "fullwidth whitespace in research JSON text violates official FHIR string pattern",
+      "required_tests": [
+        "test_fhir_annotation_preserves_fullwidth_whitespace_losslessly"
+      ]
+    },
+    {
+      "id": "P2AUTO-007",
+      "failure": "fullwidth whitespace in original form title violates FHIR display string pattern",
+      "required_tests": [
+        "test_fhir_title_display_normalization_preserves_raw_title"
+      ]
+    },
+    {
+      "id": "P2AUTO-008",
+      "failure": "entire cumulative history overwhelms interval comparison or unknown ordering becomes first-visible",
+      "required_tests": [
+        "test_evolution_uses_interval_and_cited_prior_state",
+        "test_unordered_previous_not_fake_first_visible"
+      ]
+    },
+    {
+      "id": "P2AUTO-009",
+      "failure": "sentence-start cutoff removes same-sentence exploration or abnormality trigger",
+      "required_tests": [
+        "test_one_sentence_exploration_and_choice_preserve_findings",
+        "test_one_sentence_troponin_and_cta_keep_trigger"
+      ]
+    },
+    {
+      "id": "P2AUTO-010",
+      "failure": "only abbreviated chemotherapy term matched; full Chinese chemical-treatment synonym lost",
+      "required_tests": [
+        "test_chemical_treatment_synonym_not_lost"
+      ]
+    },
+    {
+      "id": "P2AUTO-011",
+      "failure": "indented exploration line missed clinical phase; postop restatement became another current choice",
+      "required_tests": [
+        "test_indented_operative_paragraph_still_has_stage_clock",
+        "test_postop_operative_restatement_is_historical_not_new_point"
+      ]
+    },
+    {
+      "id": "P2AUTO-012",
+      "failure": "action-only triggers miss explicit resectability assessment",
+      "required_tests": [
+        "test_resectability_assessment_without_action_plan_detected",
+        "test_report_only_is_not_decision"
+      ]
+    },
+    {
+      "id": "P2AUTO-013",
+      "failure": "minute-precision source silently ordered as second zero",
+      "required_tests": [
+        "test_minute_source_cannot_be_ordered_before_same_minute_second"
+      ]
+    },
+    {
+      "id": "P2AUTO-014",
+      "failure": "long between-decision interval cannot be processed in one request",
+      "required_tests": [
+        "test_large_interval_pages_keep_verbatim_evidence"
+      ]
+    },
+    {
+      "id": "P2AUTO-015",
+      "failure": "conditional plan without xing verb or radical-operation synonym missed by lexicon",
+      "required_tests": [
+        "test_conditional_surgery_plan_without_xing_verb_detected",
+        "test_radical_operation_synonym_without_qiechu_detected"
+      ]
+    },
+    {
+      "id": "P2AUTO-016",
+      "failure": "independent diagnostic reports never proposed an earlier test-selection candidate",
+      "required_tests": [
+        "test_report_produces_evidence_and_earlier_choice_candidate",
+        "test_same_exam_versions_one_choice_all_results_excluded_from_prechoice",
+        "test_missing_exam_number_preserves_ambiguous_examinations"
+      ]
+    },
+    {
+      "id": "P2AUTO-017",
+      "failure": "examination time or later note time mistaken for unknown earlier choice time; own results leak into its prior state",
+      "required_tests": [
+        "test_hist_pet_keeps_prior_ultrasound_mr_but_not_own_result",
+        "test_future_state_is_not_inferred_pretest_state",
+        "test_report_itself_cannot_satisfy_new_evidence_for_own_choice"
+      ]
+    },
+    {
+      "id": "P2AUTO-018",
+      "failure": "historical performed-test role or unknown indication blocks evidence-evolution evaluation automatically",
+      "required_tests": [
+        "test_historical_role_is_not_discarded_by_screen",
+        "test_reason_unknown_does_not_block_evolving_test_candidate",
+        "test_first_visible_report_without_prestate_is_uncertain"
+      ]
+    },
+    {
+      "id": "P2AUTO-019",
+      "failure": "scope wording implies surgical commitment or actual operation; role confounds source form and CP eligibility",
+      "required_tests": [
+        "test_scope_prompts_include_no_commitment_and_no_surgery",
+        "test_normalization_has_prior_context_and_unknown_choice_time"
+      ]
+    },
+    {
+      "id": "P2AUTO-020",
+      "failure": "comparison prompt does not explicitly identify both events, their separate times, and interval limits",
+      "required_tests": [
+        "test_evolution_explicitly_has_both_events_times_and_question",
+        "test_historical_sequence_can_compare_without_inventing_times"
+      ]
+    },
+    {
+      "id": "P2AUTO-021",
+      "failure": "source-ID sorting chooses later historical restatement; inferred diagnostic decision fabricated as FHIR order",
+      "required_tests": [
+        "test_oldest_record_is_representative_not_source_id_sort",
+        "test_inferred_choice_not_fabricated_fhir_order"
+      ]
+    },
+    {
+      "id": "P2AUTO-022",
+      "failure": "quote proving previous test performance, containing its subsequent result, treated as clinical baseline before that test choice",
+      "required_tests": [
+        "test_previous_test_result_is_new_after_its_choice_not_automatically_baseline",
+        "test_previous_choice_quote_is_not_new_evidence"
+      ]
+    },
+    {
+      "id": "P2PAT-001",
+      "failure": "coarse document and section classes",
+      "required_tests": [
+        "test_body_header_recognizes_nonstandard_admission_title",
+        "test_cta_choice_in_diagnostic_basis_survives"
+      ]
+    },
+    {
+      "id": "P2PAT-002",
+      "failure": "multiple same-document planned-procedure fields",
+      "required_tests": [
+        "test_same_document_fields_bundle_keeps_every_span",
+        "test_changed_plan_and_different_dates_not_bundled",
+        "test_same_action_explicit_reassessment_stays_separate"
+      ]
+    },
+    {
+      "id": "P2PAT-003",
+      "failure": "generic future exploration phrase mistaken for new evidence",
+      "required_tests": [
+        "test_generic_future_phrase_is_support_only",
+        "test_individualized_branch_and_added_finding_survive",
+        "test_generic_readiness_not_dropped_by_document_type",
+        "test_first_visible_real_plan_not_required_to_have_interval_change"
+      ]
+    },
+    {
+      "id": "P2PAT-004",
+      "failure": "baseline omitted and repeated facts called new",
+      "required_tests": [
+        "test_old_score_retrieved_as_same_wording_not_same_measurement",
+        "test_baseline_raw_clinical_note_reaches_model",
+        "test_same_value_explicit_new_assessment_is_not_auto_repeat",
+        "test_old_document_alone_cannot_prove_interval_evolution"
+      ]
+    },
+    {
+      "id": "P2PAT-005",
+      "failure": "first documentation confused with independent reassessment",
+      "required_tests": [
+        "test_summary_as_only_visible_plan_survives",
+        "test_prior_plan_context_is_earlier_not_future",
+        "test_existing_plan_classification_requires_earlier_quote",
+        "test_comparator_stays_on_same_track_without_forced_relation"
+      ]
+    },
+    {
+      "id": "P2PAT-006",
+      "failure": "body/create/exam availability clocks conflated",
+      "required_tests": [
+        "test_time_disagreement_retained_and_future_mr_excluded"
+      ]
+    },
+    {
+      "id": "P2PAT-007",
+      "failure": "postop copy becomes another intraoperative choice",
+      "required_tests": [
+        "test_exact_postop_copy_supports_operative_phase_not_new_choice",
+        "test_evidence_guard_cannot_upgrade_or_force_uncertainty_into_cp"
+      ]
+    },
+    {
+      "id": "P2PAT-008",
+      "failure": "invalid secondary prior-plan citation discarded independently valid current candidate",
+      "required_tests": [
+        "test_bad_prior_quote_does_not_discard_valid_current_choice",
+        "test_existing_plan_classification_requires_earlier_quote",
+        "test_unprovided_or_invented_quote_rejected"
+      ]
+    }
+  ],
+  "limits": "60 legacy tests retained plus 21 document-flow guards. Current and prior-plan citation validity remain separate.",
+  "required_test_files": [
+    "tests/test_contract.py",
+    "tests/test_diagnostic_decisions.py",
+    "tests/test_document_flow.py"
+  ]
+}

@@ -1,0 +1,194 @@
+[
+  {
+    "issue_id": "IR001",
+    "required_test": "test_IR001_negative_judgment_is_a_decision_not_a_dropped_negation",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR002",
+    "required_test": "test_IR002_vascular_observation_not_surgical_judgment",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR003",
+    "required_test": "test_IR003_question_not_affirmative_but_planned_assessment_kept",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR004",
+    "required_test": "test_IR004_risk_template_and_real_risk_are_different",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR005",
+    "required_test": "test_IR005_history_and_current_withdrawal_not_confused",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR006",
+    "required_test": "test_IR006_trial_title_not_current_inoperability",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR007",
+    "required_test": "test_IR007_other_operation_and_consent_review_not_deleted",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR008",
+    "required_test": "test_IR008_narrow_radical_word_not_required",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR009",
+    "required_test": "test_IR009_executed_operation_not_new_plan",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR010",
+    "required_test": "test_IR010_diagnostic_nat_not_new_treatment_plan",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR011",
+    "required_test": "test_IR011_conditional_wait_has_multiple_actions_not_many_points",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR012",
+    "required_test": "test_IR012_repeated_ptcd_after_failure_not_merged",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR013",
+    "required_test": "test_IR013_same_words_different_sources_retained",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR014",
+    "required_test": "test_IR014_cross_patient_never_linked",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR015",
+    "required_test": "test_IR015_same_instant_different_timezone_not_ordered",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR016",
+    "required_test": "test_IR016_source_spans_exact_and_unmutated",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR017",
+    "required_test": "test_IR017_no_history_result_or_reference_gate",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR018",
+    "required_test": "test_IR018_imaging_negative_not_positive_resectability",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR019",
+    "required_test": "test_IR019_postop_posterior_not_future_intent",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR020",
+    "required_test": "test_IR020_date_only_not_padded_to_midnight",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR021",
+    "required_test": "test_IR021_postop_type_does_not_block_a_new_plan",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR022",
+    "required_test": "test_IR022_scheduled_anaesthesia_not_performed",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR023",
+    "required_test": "test_IR023_discharge_threshold_not_observed_feedback",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR024",
+    "required_test": "test_IR024_template_intent_not_current_judgment",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR025",
+    "required_test": "test_IR025_supportive_plan_not_confirmed_resection_decision",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR026",
+    "required_test": "test_IR026_postdischarge_observation_not_instruction",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR027",
+    "required_test": "test_IR027_fhir_link_requires_explicit_patient_alias",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR028",
+    "required_test": "test_IR028_fhir_link_rejects_changed_source_version",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR029",
+    "required_test": "test_IR029_fhir_link_rejects_ambiguous_source",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR030",
+    "required_test": "test_IR030_historical_evidence_does_not_erase_current_conclusion",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR031",
+    "required_test": "test_IR031_scheduled_drainage_biopsy_not_lost_when_execution_removed",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  },
+  {
+    "issue_id": "IR032",
+    "required_test": "test_IR032_link_order_is_stable_across_topic_sets",
+    "file": "tests/test_ir.py",
+    "evidence": "synthetic counterexample and controls; no independent clinical validation"
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "version": "p1-relevance-usability-v0.3.2",
+  "release_scope": "Storage migration and owner-only exclusive artifacts; no parser or cohort-rule change",
+  "implementation_replaces_prior_release_json": "Copied v0.3.1 release.json was placeholder and was not valid v0.3.2 evidence",
+  "parent_commit": "e689ebc1bebf7ca5d9c3588d1c2bffc127ab3e2e",
+  "code_sha256": {
+    "README.md": "8d17b810470fd9b4a9def9644d44cc85917a29e193e3a015aa4397f25add5ee5",
+    "__init__.py": "4411c9d7ac3944608ed0cfd22194ac6bace4780ba84ce9cdf9679404e72448d4",
+    "labels.py": "d56b9ba381ff35e9f3ead49d153146831af23c7a69db312edd54169b62ed9e44",
+    "references.py": "809f389d60b3ef17349643418df923b97b6ed6824822e8700cad3e8c2c958b3b",
+    "rules.json": "7afc1002b15c8921302d8a3dc3b6fd6b6c120d8602560718efdb5e711905d02d",
+    "run.py": "5705ad51694aeb27c254abda31d94fdd8a60327bf424f20895a268f217f02413",
+    "tests/test_known_regressions.py": "7d3a32226ce2b158d2b5cdf8f484fcea81b12efa30bc41f7809e3eabaa613613",
+    "tests/test_pipeline_regressions.py": "3d4b91a191f4ec3ce96b311fd4896fb78f7f94e36987363e93b7a8a72c413baa",
+    "tests/test_rules.py": "e8d10a556453c29ff6d3e7f6132f7d4449d3370e511b5f5c951b147fc3cd9dc6",
+    "verify.py": "9072b9515edeea02cae42bc8063143f242ecd93f559128e2dde7af291b619da4"
+  },
+  "guard_sha256": {
+    "README.md": "742749723b605a4c6b4ebf3e60565fc9070defffcb6d6433a7e57d5237db71f6",
+    "active_release.json": "506f5f766d518a736e8f1a2643c58a9045fb0e1b155dd2ae716b1b3c158ff4a1",
+    "check_mutations.py": "1f798521695e285ca33566e4812aceed4d59bce325bcd91e01d18207b9bb8ff5",
+    "known_cases.json": "73f9358ea51cf3d433398a285ead5fbcdef54a26b5c8b75daaf0716940f5da3c",
+    "run_checks.py": "6cb11e84bb8f3901c207c8ab17cccfac7f2f655c1d456173c906ac8adb7e75e8"
+  },
+  "tests": {
+    "active": 55,
+    "legacy": 51,
+    "total": 106,
+    "known_cases": 32,
+    "mutations_caught": 4
+  },
+  "receipts": {
+    "guard": "receipts/p1_regression_guard_v0.3.2_r2_20261101.json",
+    "mutation": "receipts/p1_regression_mutations_v0.3.2_r3_20261101.json",
+    "private_verification": "private/p1_quality_v0.3.2/results-migrated-prior-order-r2-20261101/verification_receipt.json"
+  },
+  "verified_run": "private/p1_quality_v0.3.2/results-migrated-prior-order-r2-20261101",
+  "summary_sha256": "d34feef8d2ae7a6c73ee54a020c3545df89d18fc273ed4c680bf362e2099d371",
+  "output_diff_sha256": "10200d0813713e37365c40c3ffeb76de12ec57771744e6dc39bb24bb90928030",
+  "patient_states": {
+    "INCLUDE_V3": 2690,
+    "REVIEW_V3": 17
+  },
+  "p2_gate": false,
+  "clinical_validation_completed": false,
+  "implementation_diff": "docs/p1-v0.3.1-v0.3.2-storage-migration.diff"
+}

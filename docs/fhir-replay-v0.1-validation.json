@@ -1,0 +1,32 @@
+{
+  "version": "0.1",
+  "date": "2026-10-22",
+  "source_counts": {
+    "document": 31,
+    "imaging": 6,
+    "lab": 631
+  },
+  "resources_including_provenance": 1338,
+  "checkpoint_origin": "manual reviewed anchors; not automatic detector output",
+  "tests": {
+    "new_replay": 14,
+    "previous_casebook": 8,
+    "all_passed": true
+  },
+  "comparison_to_previous_D03": {
+    "clinical_document_blocks": [
+      7,
+      10
+    ],
+    "original_reports": [
+      2,
+      4
+    ],
+    "raw_lab_rows": [
+      138,
+      138
+    ],
+    "reason": "Includes three admission/education forms, chest radiograph and first drainage report; not additional decisions"
+  },
+  "formal_blind_evaluation_ready": false
+}

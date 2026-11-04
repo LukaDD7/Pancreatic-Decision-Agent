@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-material-governance:0.1.0:CandidateMaterialAssemblyReceipt",
+  "title": "CandidateMaterialAssemblyReceipt",
+  "type": "object",
+  "properties": {
+    "format": {"const": "candidate-material-assembly-receipt-0.1.0"},
+    "assembly_version": {"const": "checkpoint-candidate-material-assembly-0.1.0"},
+    "graph_version": {"type": "string", "minLength": 1},
+    "graph_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "supplied_source_count": {"type": "integer", "minimum": 0},
+    "supplied_sources_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate_episode_count": {"type": "integer", "minimum": 0},
+    "candidate_checkpoint_count": {"type": "integer", "minimum": 0},
+    "prepared_checkpoint_count": {"type": "integer", "minimum": 0},
+    "assembly_hold_count": {"type": "integer", "minimum": 0},
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event_id", "episode_id", "checkpoint_id", "initial_compiled_sha256", "included_source_ids", "candidate_source_ids", "excluded_source_ids", "preparation_sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1},
+          "episode_id": {"type": "string", "minLength": 1},
+          "checkpoint_id": {"type": "string", "minLength": 1},
+          "initial_compiled_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "included_source_ids": {"type": "array", "items": {"type": "string"}},
+          "candidate_source_ids": {"type": "array", "items": {"type": "string"}},
+          "excluded_source_ids": {"type": "array", "items": {"type": "string"}},
+          "preparation_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "failures": {"type": "array", "items": {"type": "object"}},
+    "discovery_coverage": {"type": "array", "items": {"type": "object"}},
+    "graph_clinical_semantics_certified": {"const": false},
+    "material_quality_measured": {"const": false},
+    "budget_omissions_remain_review_candidates": {"const": true},
+    "human_sample_status": {"const": "NOT_ASSESSED"},
+    "doctor_packet_created": {"const": false},
+    "clinical_reference_created": {"const": false},
+    "clinical_release_permitted": {"const": false},
+    "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["format", "assembly_version", "graph_version", "graph_sha256", "supplied_source_count", "supplied_sources_sha256", "candidate_episode_count", "candidate_checkpoint_count", "prepared_checkpoint_count", "assembly_hold_count", "tasks", "failures", "discovery_coverage", "graph_clinical_semantics_certified", "material_quality_measured", "budget_omissions_remain_review_candidates", "human_sample_status", "doctor_packet_created", "clinical_reference_created", "clinical_release_permitted", "receipt_sha256"],
+  "additionalProperties": false
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-material-governance:0.2.0:CandidateEpisodeMaterialSet",
+  "title": "CandidateEpisodeMaterialSet",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "candidate-episode-material-set-0.2.0"
+    },
+    "episode_reference": {
+      "type": "object",
+      "properties": {
+        "episode_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "graph_snapshot": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "episode_id",
+        "candidate_version",
+        "input_sha256",
+        "graph_snapshot"
+      ],
+      "additionalProperties": false
+    },
+    "checkpoint_materials": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "cross_checkpoint_checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "set_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "clinical_release_permitted": {
+      "const": false
+    },
+    "event_graph_modified": {
+      "const": false
+    },
+    "set_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "format",
+    "episode_reference",
+    "checkpoint_materials",
+    "cross_checkpoint_checks",
+    "set_version",
+    "clinical_release_permitted",
+    "event_graph_modified",
+    "set_sha256"
+  ],
+  "additionalProperties": false
+}

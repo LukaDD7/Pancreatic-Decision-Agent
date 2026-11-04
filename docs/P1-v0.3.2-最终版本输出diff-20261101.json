@@ -1,0 +1,66 @@
+{
+  "schema_version": "p1-storage-migration-diff-0.1.0",
+  "old_run": "private/p1_quality_v0.3.1/results",
+  "new_run": "private/p1_quality_v0.3.2/results-migrated-prior-order-r2-20261101",
+  "comparison_scope": "Same frozen input bytes; storage/order replay, not clinical validation",
+  "files": {
+    "patient_quality.jsonl": {
+      "old_sha256": "b5fd28b86a2c8febe7576ba46b884010e6cb5538c8356e2676113b328a3614f6",
+      "new_sha256": "b5fd28b86a2c8febe7576ba46b884010e6cb5538c8356e2676113b328a3614f6",
+      "byte_identical": true,
+      "old_row_count": 2707,
+      "new_row_count": 2707,
+      "positional_differences": 0
+    },
+    "image_annotations.jsonl": {
+      "old_sha256": "112fcb0fc4bbe5c3c77ee8b437b936789469087942cb3beef00d660ace124a0d",
+      "new_sha256": "112fcb0fc4bbe5c3c77ee8b437b936789469087942cb3beef00d660ace124a0d",
+      "byte_identical": true,
+      "old_row_count": 31236,
+      "new_row_count": 31236,
+      "positional_differences": 0
+    },
+    "clinical_annotations.jsonl": {
+      "old_sha256": "63c01a0235d612450639b178d6b5e8ca1e18abe9ea495e9ce3a8f5e5ad2188d8",
+      "new_sha256": "63c01a0235d612450639b178d6b5e8ca1e18abe9ea495e9ce3a8f5e5ad2188d8",
+      "byte_identical": true,
+      "old_row_count": 106162,
+      "new_row_count": 106162,
+      "positional_differences": 0
+    },
+    "reference_links.jsonl": {
+      "old_sha256": "f3c9bf4470eaa1de5954550def00b1a941ba261f73448321e613d6dcee572ba2",
+      "new_sha256": "f3c9bf4470eaa1de5954550def00b1a941ba261f73448321e613d6dcee572ba2",
+      "byte_identical": true,
+      "old_row_count": 103312,
+      "new_row_count": 103312,
+      "positional_differences": 0
+    },
+    "decode_errors.json": {
+      "old_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "new_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "byte_identical": true
+    },
+    "development_sample.json": {
+      "old_sha256": "bc8a65c3cc744d8ed6fd81a399ea03f10e9e3bd9a3b3980249ee6fe9610eee08",
+      "new_sha256": "bc8a65c3cc744d8ed6fd81a399ea03f10e9e3bd9a3b3980249ee6fe9610eee08",
+      "byte_identical": true
+    },
+    "summary.json": {
+      "old_sha256": "9f44b4a4b945fb97cebefbbbc0ba5ea498206f285755ce23380df5fde509fd82",
+      "new_sha256": "d34feef8d2ae7a6c73ee54a020c3545df89d18fc273ed4c680bf362e2099d371",
+      "byte_identical": false,
+      "differing_fields": {
+        "elapsed_seconds": {
+          "old": 71.92,
+          "new": 46.43
+        },
+        "version": {
+          "old": "p1-relevance-usability-v0.3.1",
+          "new": "p1-relevance-usability-v0.3.2"
+        }
+      }
+    }
+  },
+  "clinical_validation_completed": false
+}

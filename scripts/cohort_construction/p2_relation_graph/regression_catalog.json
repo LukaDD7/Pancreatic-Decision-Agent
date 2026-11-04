@@ -1,0 +1,133 @@
+{
+  "version": "0.2",
+  "scope": "synthetic program counterexamples; not clinical gold",
+  "cases": [
+    {
+      "id": "RG001",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG001_source_hash_and_span_must_match",
+      "counterexample_and_control": "source_hash_and_span_must_match"
+    },
+    {
+      "id": "RG002",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG002_ambiguous_and_fabricated_support_rejected",
+      "counterexample_and_control": "ambiguous_and_fabricated_support_rejected"
+    },
+    {
+      "id": "RG003",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG003_absence_is_not_negative_or_identity",
+      "counterexample_and_control": "absence_is_not_negative_or_identity"
+    },
+    {
+      "id": "RG004",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG004_current_plan_is_not_execution",
+      "counterexample_and_control": "current_plan_is_not_execution"
+    },
+    {
+      "id": "RG005",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG005_wrong_action_implementation_rejected",
+      "counterexample_and_control": "wrong_action_implementation_rejected"
+    },
+    {
+      "id": "RG006",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG006_reaffirm_requires_positive_evidence",
+      "counterexample_and_control": "reaffirm_requires_positive_evidence"
+    },
+    {
+      "id": "RG007",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG007_revision_and_supersession_are_distinct",
+      "counterexample_and_control": "revision_and_supersession_are_distinct"
+    },
+    {
+      "id": "RG008",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG008_unknown_or_same_proxy_time_cannot_order_events",
+      "counterexample_and_control": "unknown_or_same_proxy_time_cannot_order_events"
+    },
+    {
+      "id": "RG009",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG009_cross_patient_never_connected",
+      "counterexample_and_control": "cross_patient_never_connected"
+    },
+    {
+      "id": "RG010",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG010_topk_bounded_deterministic_unknown_question_retained",
+      "counterexample_and_control": "topk_bounded_deterministic_unknown_question_retained"
+    },
+    {
+      "id": "RG011",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG011_zero_hit_intervening_source_included_future_excluded",
+      "counterexample_and_control": "zero_hit_intervening_source_included_future_excluded"
+    },
+    {
+      "id": "RG012",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG012_context_truncation_and_unknown_time_are_explicit",
+      "counterexample_and_control": "context_truncation_and_unknown_time_are_explicit"
+    },
+    {
+      "id": "RG013",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG013_transitive_coreference_conflict_blocks_merge",
+      "counterexample_and_control": "transitive_coreference_conflict_blocks_merge"
+    },
+    {
+      "id": "RG014",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG014_contracted_event_cycles_are_flagged",
+      "counterexample_and_control": "contracted_event_cycles_are_flagged"
+    },
+    {
+      "id": "RG015",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG015_normalization_splits_roles_without_changing_source",
+      "counterexample_and_control": "normalization_splits_roles_without_changing_source"
+    },
+    {
+      "id": "RG016",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG016_failed_semantics_preserve_units_and_review",
+      "counterexample_and_control": "failed_semantics_preserve_units_and_review"
+    },
+    {
+      "id": "RG017",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG017_prepare_mode_cannot_claim_semantic_results",
+      "counterexample_and_control": "prepare_mode_cannot_claim_semantic_results"
+    },
+    {
+      "id": "RG018",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG018_metrics_include_unproposed_gold_edges",
+      "counterexample_and_control": "metrics_include_unproposed_gold_edges"
+    },
+    {
+      "id": "RG019",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG019_literal_credentials_and_secret_repr",
+      "counterexample_and_control": "literal_credentials_and_secret_repr"
+    },
+    {
+      "id": "RG020",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG020_transport_rejects_truncation_and_caches_without_key",
+      "counterexample_and_control": "transport_rejects_truncation_and_caches_without_key"
+    },
+    {
+      "id": "RG021",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG021_model_does_not_compute_unicode_offsets",
+      "counterexample_and_control": "model_does_not_compute_unicode_offsets"
+    },
+    {
+      "id": "RG022",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG022_event_context_keeps_all_members",
+      "counterexample_and_control": "event_context_keeps_all_members"
+    },
+    {
+      "id": "RG023",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG023_relation_and_identity_fields_cannot_contradict",
+      "counterexample_and_control": "relation_and_identity_fields_cannot_contradict"
+    },
+    {
+      "id": "RG024",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG024_atomicity_and_cue_coverage_not_silently_certified",
+      "counterexample_and_control": "atomicity_and_cue_coverage_not_silently_certified"
+    },
+    {
+      "id": "RG025",
+      "required_test": "scripts.cohort_construction.p2_relation_graph.tests.test_graph.GraphTests.test_RG025_typed_event_endpoints_are_explicit_nodes",
+      "counterexample_and_control": "typed_event_endpoints_are_explicit_nodes"
+    }
+  ],
+  "inherited_test_receipt": "scripts/cohort_construction/p2_decision_ir/test_receipt.json",
+  "migration": "run all inherited 95 tests with the new RG tests"
+}

@@ -1,0 +1,123 @@
+{
+  "schema_version": "0.1.0",
+  "scope": "p2_checkpoint_ready_pipeline fictional engineering regressions; not clinical validation",
+  "issues": [
+    {
+      "issue_id": "CE-PIPE-001",
+      "description": "部分材料执行中断必须保存已完成的Checkpoint链；续跑不得重算已验证阶段或覆盖父目录",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "父运行仅保存EVENT-01链且EVENT-02尚未执行",
+        "续跑把原始链错误要求为含chain_sha256的receipt",
+        "篡改父合同可见性政策"
+      ],
+      "controls": [
+        "原始链经validate_review_chain完整重放",
+        "累计模型预算包含父运行实际调用",
+        "已保存实现快照、任务、journal和链与父运行一致"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_partial_material_chains_resume_without_recalling_completed_stages",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_resume_requires_explicit_revision_cycle_and_rejects_changed_parent"
+      ]
+    },
+    {
+      "issue_id": "CE-PIPE-002",
+      "description": "图REVISE或材料图问题只生成重建请求；独立新图必须重启所有下游审计",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "相同图版本或hash被当作新图",
+        "材料轮次使用不存在的response字段而取不到review_id",
+        "旧材料或交付PASS迁移到新图"
+      ],
+      "controls": [
+        "图审计与材料图问题分别保留实际handoff",
+        "新图版本与hash均必须改变",
+        "新运行重新执行图、逐Checkpoint材料和交付审计"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_graph_hold_and_revision_never_create_material_or_delivery",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_graph_revision_consumes_new_graph_and_restarts_every_audit",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_material_graph_issue_consumes_new_graph_without_mutating_material"
+      ]
+    },
+    {
+      "issue_id": "CE-PIPE-003",
+      "description": "交付REVISE必须绑定调用者提供的新实际packet/FHIR/HTML版本，不得继承旧审计或自动改HTML",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "相同交付输入hash被用于回修",
+        "无revision_cycle继承REVISE交付链",
+        "重放误把当前PASS子运行当作REVISE父运行",
+        "新实际交付不与原始SemanticAudits重新编译结果比较"
+      ],
+      "controls": [
+        "superseded_parent_run用于重放修订receipt",
+        "新交付重新执行一次交付审计",
+        "相同合格材料与新交付输入hash分别绑定"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_delivery_revision_binds_new_actual_artifacts_and_reaudits",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_resume_requires_explicit_revision_cycle_and_rejects_changed_parent"
+      ]
+    },
+    {
+      "issue_id": "CE-PIPE-004",
+      "description": "持久化运行必须有可重放输入、实现快照、阶段journal和共享预算；自动PASS不创建人工或临床放行",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "图或交付journal未保存",
+        "继承实际交付时未复制文件或缺独立SemanticAudit",
+        "共享预算耗尽仍进入交付或Ready"
+      ],
+      "controls": [
+        "实现快照只含源代码与配置hash，不含私有临床输入",
+        "继承运行重新保存并核验交付文件",
+        "完整虚构管线保持doctor_assignment_created=false与clinical_release_permitted=false"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_actual_staging_pipeline_persists_replays_and_never_releases",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_shared_budget_denies_later_stage_and_resume_replays_parent",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_pipeline_persists_graph_and_delivery_journals_without_rewriting_parent"
+      ]
+    },
+    {
+      "issue_id": "CE-PIPE-005",
+      "description": "逻辑项目路径迁移至实际存储位置后，运行目录与输出文件必须按当前实际私有根目录安全创建",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": ["旧逻辑路径与resolve后的实际private路径不一致", "默认umask使新建私有JSON组/其他用户可读"],
+      "controls": ["当前项目私有目录可创建新运行", "目录0700、文件0600、独占写入不覆盖旧产物"],
+      "required_tests": ["scripts.cohort_construction.p2_checkpoint_material_review_app.tests.test_app.test_CE_MRA008_private_files_are_owner_only_on_relocated_storage", "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_actual_staging_pipeline_persists_replays_and_never_releases", "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_partial_material_chains_resume_without_recalling_completed_stages"]
+    },
+    {
+      "issue_id": "CE-PIPE-006",
+      "description": "图回修重放必须由已绑定的请求hash恢复来源，不得从回执缺失字段推断",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": ["图回修receipt只保存请求hash和parent，重放时索取未保存的origin", "篡改request的origin后仍沿用旧receipt"],
+      "controls": ["保存不可变graph-revision-cycle请求与hash绑定receipt", "重放从保存请求核验hash并恢复origin"],
+      "required_tests": ["scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_graph_revision_consumes_new_graph_and_restarts_every_audit", "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_material_graph_issue_consumes_new_graph_without_mutating_material"]
+    },
+    {
+      "issue_id": "CE-PIPE-007",
+      "description": "图重建handoff不是终态：可自动重建请求应由分离LLM接口生成新图，经确定性核验后开启全新图/材料/交付审核；无法自动解决或预算耗尽才保留人工最终审核",
+      "implementation_status": "implemented_with_synthetic_regression_no_real_rerun",
+      "counterexamples": [
+        "图审核者兼任重建者后直接批准自己生成的图",
+        "旧材料/交付PASS迁移至重建图",
+        "HUMAN_REVIEW或SOURCE_COVERAGE被当作普通局部重建",
+        "自动重建调用和后续审核不受预算限制"
+      ],
+      "controls": [
+        "独立reconstruction task与独立graph audit task分离",
+        "每代运行不可覆盖地保存父运行、重建响应、新图hash及全部新审核链",
+        "只有自动全部门禁完成才进入READY_FOR_HUMAN_FINAL_REVIEW，且不创建临床Reference",
+        "重大未决问题不调用重建器，重建预算有界"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_unresolved_graph_input_never_calls_reconstructor",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA007_separate_reconstruction_revalidates_support_and_requires_new_audit"
+      ]
+    }
+  ]
+}

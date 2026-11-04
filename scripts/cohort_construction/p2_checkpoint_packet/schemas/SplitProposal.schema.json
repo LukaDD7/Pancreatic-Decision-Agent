@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-packet:0.1.0:SplitProposal",
+  "title": "SplitProposal",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "proposal_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proposal_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "source_bindings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceBinding"
+      },
+      "minItems": 1
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "segment_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "disposition": {
+            "enum": [
+              "KEEP",
+              "MASK",
+              "REVIEW"
+            ]
+          },
+          "quote_locator": {
+            "type": "object",
+            "properties": {
+              "exact_quote": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "suffix": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "exact_quote"
+            ],
+            "additionalProperties": false
+          },
+          "resolved_span": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "exact_quote": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "exact_quote"
+            ],
+            "additionalProperties": false
+          },
+          "anchor_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "segment_id",
+          "source_id",
+          "disposition"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "quote_locator"
+            ]
+          },
+          {
+            "required": [
+              "resolved_span"
+            ]
+          },
+          {
+            "required": [
+              "anchor_id"
+            ]
+          }
+        ]
+      },
+      "minItems": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "proposal_id",
+    "proposal_version",
+    "manifest_id",
+    "target",
+    "source_bindings",
+    "segments"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "target": {
+      "type": "object",
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "visibility_policy_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "decision_task_id",
+        "visibility_policy_version"
+      ],
+      "additionalProperties": false
+    },
+    "sourceBinding": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "questionnaireResource": {
+      "type": "object",
+      "properties": {
+        "resourceType": {
+          "const": "Questionnaire"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "const": "active"
+        }
+      },
+      "required": [
+        "resourceType",
+        "url",
+        "version",
+        "status"
+      ],
+      "additionalProperties": true
+    },
+    "questionnaire": {
+      "type": "object",
+      "properties": {
+        "canonical": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "frozen": {
+          "const": true
+        },
+        "resource": {
+          "$ref": "#/$defs/questionnaireResource"
+        }
+      },
+      "required": [
+        "canonical",
+        "version",
+        "sha256",
+        "frozen",
+        "resource"
+      ],
+      "additionalProperties": false
+    },
+    "material": {
+      "type": "object",
+      "properties": {
+        "material_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "material_id",
+        "source_id",
+        "source_version",
+        "text",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "packetBinding": {
+      "type": "object",
+      "properties": {
+        "packet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packet_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packet_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "clinical_content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      },
+      "required": [
+        "packet_id",
+        "packet_version",
+        "packet_sha256",
+        "clinical_content_sha256",
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    "questionnaireBinding": {
+      "type": "object",
+      "properties": {
+        "canonical": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "canonical",
+        "version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

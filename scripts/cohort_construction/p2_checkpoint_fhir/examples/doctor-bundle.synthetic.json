@@ -1,0 +1,182 @@
+{
+  "resourceType": "Bundle",
+  "id": "doctor-50084afb48b4e9700c78bd87a783ea9e",
+  "type": "collection",
+  "identifier": {
+    "system": "https://checkpoint-research.invalid/fhir/identifier/doctor-bundle",
+    "value": "2fedb16e41c58898c351909c92aaf3b3e934f72833dfcb77379c9aa08ae11653"
+  },
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:a702687e-5a91-58a4-b948-232fbbe972e4",
+      "resource": {
+        "resourceType": "Basic",
+        "id": "cp-50084afb48b4e9700c78bd87a783ea9e",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/packet",
+            "value": "PK-fictional"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://checkpoint-research.invalid/fhir/CodeSystem/research-object",
+              "code": "research-checkpoint"
+            }
+          ]
+        },
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/packet-binding",
+            "extension": [
+              {
+                "url": "schema-version",
+                "valueString": "0.1.0"
+              },
+              {
+                "url": "packet-id",
+                "valueString": "PK-fictional"
+              },
+              {
+                "url": "packet-version",
+                "valueString": "1"
+              },
+              {
+                "url": "state",
+                "valueString": "frozen_for_review"
+              },
+              {
+                "url": "fhir-version",
+                "valueString": "4.0.1"
+              },
+              {
+                "url": "checkpoint-id",
+                "valueString": "CP-fictional-1"
+              },
+              {
+                "url": "decision-task-id",
+                "valueString": "fictional-task"
+              },
+              {
+                "url": "visibility-policy-version",
+                "valueString": "synthetic-policy-1"
+              },
+              {
+                "url": "clinical-content-sha256",
+                "valueString": "a4e1ebebce8b6cccd1db18b718a313f1bbb6482054ea625a9342f2d3d224fcd4"
+              },
+              {
+                "url": "packet-sha256",
+                "valueString": "2fedb16e41c58898c351909c92aaf3b3e934f72833dfcb77379c9aa08ae11653"
+              },
+              {
+                "url": "compiler-version",
+                "valueString": "0.1.0"
+              },
+              {
+                "url": "compiled-partition-sha256",
+                "valueString": "9a34b5b480cef0da87febbe28c16855d24a8988dc75c9c8389d7bd43fb0658de"
+              },
+              {
+                "url": "semantic-audit-id",
+                "valueString": "SA-fictional"
+              }
+            ]
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire",
+            "valueReference": {
+              "reference": "urn:uuid:5317cd47-4c42-5035-8829-74e34f1a5f7f"
+            }
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-sha256",
+            "valueString": "0232f2913a8d70fd3d691ce7acf503330225eb11487832a242a35a4b4e891d55"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-frozen",
+            "valueBoolean": true
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/questionnaire-canonical-json",
+            "valueString": "{\"item\":[{\"answerOption\":[{\"valueCoding\":{\"code\":\"a\",\"system\":\"urn:fictional\"}},{\"valueCoding\":{\"code\":\"b\",\"system\":\"urn:fictional\"}}],\"linkId\":\"fictional-item\",\"repeats\":true,\"text\":\"虚构测试题\",\"type\":\"choice\"}],\"resourceType\":\"Questionnaire\",\"status\":\"active\",\"url\":\"urn:fictional:form\",\"version\":\"1\"}"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/material",
+            "valueReference": {
+              "reference": "urn:uuid:38fc058c-03b6-56e5-a44b-4553f5099ff1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:38fc058c-03b6-56e5-a44b-4553f5099ff1",
+      "resource": {
+        "resourceType": "DocumentReference",
+        "id": "doc-73a805cf2de0537051d6520d8376246d",
+        "identifier": [
+          {
+            "system": "https://checkpoint-research.invalid/fhir/identifier/material",
+            "value": "DVM-f351138b9b5ed4dd0b693b6d"
+          }
+        ],
+        "status": "current",
+        "extension": [
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-id",
+            "valueString": "S-fictional"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/source-version",
+            "valueString": "v1"
+          },
+          {
+            "url": "https://checkpoint-research.invalid/fhir/StructureDefinition/content-sha256",
+            "valueString": "c53fc1e157d861c78cc3ec159b1f8755c36cb6f1f0cadf68df02573635409859"
+          }
+        ],
+        "content": [
+          {
+            "attachment": {
+              "contentType": "text/plain;charset=utf-8",
+              "data": "6KeC5a+f55Sy44CCW+i1hOaWmeaMieaWueahiOmBruiUvV0="
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:5317cd47-4c42-5035-8829-74e34f1a5f7f",
+      "resource": {
+        "resourceType": "Questionnaire",
+        "url": "urn:fictional:form",
+        "version": "1",
+        "status": "active",
+        "item": [
+          {
+            "linkId": "fictional-item",
+            "type": "choice",
+            "repeats": true,
+            "text": "虚构测试题",
+            "answerOption": [
+              {
+                "valueCoding": {
+                  "system": "urn:fictional",
+                  "code": "a"
+                }
+              },
+              {
+                "valueCoding": {
+                  "system": "urn:fictional",
+                  "code": "b"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

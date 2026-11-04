@@ -1,0 +1,38 @@
+{
+  "date": "2026-11-03",
+  "issues": [
+    "CE-GRA-011",
+    "CE-REAL-013"
+  ],
+  "status": "ENGINEERING_FIXED_FULL_P2_GUARD_PASS",
+  "new_tests": 10,
+  "full_guard": {
+    "receipt": "private/p2_checkpoint_next_20261028/validation_gra011_real013_v063_r1_20261103/validation_receipt.json",
+    "sha256": "120c0e35bea8116d65d01ea5400ec448b4957b4c19ddfb73e8036b50019fc7b2",
+    "status": "PASS",
+    "tests_passed": 921,
+    "subtests_passed": 449,
+    "registry_count": 25,
+    "required_test_references_executed": 670,
+    "protected_file_count": 1690,
+    "source_file_count": 242
+  },
+  "change_diff": {
+    "path": "receipts/p2_gra011_real013_code_20261103.diff",
+    "sha256": "16edf3c1509e39d9e9590fbe738e97cdcefb6cad323eac679ce8d7163ed3af0b"
+  },
+  "legacy_chain_replay": {
+    "path": "receipts/p2_gra011_real013_legacy_replay_20261103.json",
+    "sha256": "63dbf9aead3daa05edb929df2db79a0cd6a50fc50abb5564893fc49baf285325",
+    "verified_chain_count": 11,
+    "new_contract_rejects_old_minimal_response_count": 4
+  },
+  "real_model_calls": 0,
+  "p1_modified": false,
+  "episode_rules_changed": false,
+  "cohort_membership_changed": false,
+  "old_real_artifacts_overwritten": false,
+  "real_fixed_ten_auto_closure_verified": false,
+  "clinical_reference_created": false,
+  "clinical_release_permitted": false
+}

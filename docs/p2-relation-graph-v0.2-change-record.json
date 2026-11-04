@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-22",
+  "version": "decision-graph-0.2",
+  "new_module": "scripts/cohort_construction/p2_relation_graph",
+  "reason": "Add source-grounded mention/event coreference and typed relation reconstruction with Boyu kimi-k3 integration.",
+  "changes_by_layer": {
+    "extraction": "Frozen run07 unchanged; new downstream semantic normalization and exact-source grounding",
+    "quality_source": "New proposal/context review flags only; no P1 states changed",
+    "cohort": "No input/patient membership change",
+    "episode": "Not defined; event hypotheses only"
+  },
+  "output_comparison": {
+    "baseline_statement_nodes": 3036,
+    "new_input_statement_nodes": 3036,
+    "baseline_decision_candidates": 1262,
+    "local_decision_wrappers": 1262,
+    "source_documents": 5199,
+    "source_patients": 49,
+    "local_multi_role_wrappers": 2789,
+    "local_relation_candidates": 15462,
+    "interpretation": "Preparation only. New roles overlap and relations span three tasks; counts are not confirmed decisions or accuracy."
+  },
+  "known_errors_and_controls": "scripts/cohort_construction/p2_relation_graph/regression_catalog.json",
+  "diff": "docs/p2-relation-graph-v0.2-code.diff",
+  "diff_sha256": "e853141e55f6b99ecc998d60072585367d8d237f7db77a4c26ce44c226fb93eb",
+  "release": "scripts/cohort_construction/p2_relation_graph/release.json",
+  "p1_code_changed": false,
+  "formal_episode_rules_finalized": false,
+  "expert_reference_generated": false,
+  "uncommitted_work_preserved": true
+}

@@ -1,0 +1,638 @@
+"""Synthetic regressions for the real-batch adapter and delivery hold gate."""
+from copy import deepcopy
+import json
+from pathlib import Path
+
+import pytest
+
+from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly import (
+    _pass_only, _passing_answer, fictional_graph,
+)
+from scripts.cohort_construction.p2_checkpoint_ready_pipeline.orchestration import run_episode_pipeline
+from scripts.cohort_construction.p2_checkpoint_ready_pipeline.replay import validate_pipeline_run
+from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import read
+from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit import passing_graph_response
+from scripts.cohort_construction.p2_checkpoint_real_validation.budget import BatchModelBudget
+from scripts.cohort_construction.p2_checkpoint_real_validation.inputs import select_episode
+from scripts.cohort_construction.p2_checkpoint_real_validation.batch import _authorized_config, _summary_state
+
+
+CONFIG = dict(remote_execution_authorized=True, doctor_packet_release=False,
+    real_doctor_assignment_creation=False, clinical_release_permitted=False)
+
+
+@pytest.fixture
+def private_tmp(tmp_path):
+    from scripts.cohort_construction.p2_checkpoint_material_review_app import build
+    from scripts.cohort_construction.p2_checkpoint_material_review_app.build import private_mkdir
+    root = build.PRIVATE_ROOT.resolve() / 'p2_checkpoint_real_validation_tests_20261101'
+    private_mkdir(root, parents=True, exist_ok=True)
+    destination = root / (tmp_path.name + '-' + str(len(list(root.glob(tmp_path.name + '*')))))
+    destination.mkdir(mode=0o700, parents=True, exist_ok=False)
+    return destination
+
+
+def test_CE_REAL001_selection_is_lexical_and_never_replaces_empty_candidates():
+    assert select_episode([dict(episode_id='EP-Z'), dict(episode_id='EP-A')])['episode_id'] == 'EP-A'
+    assert select_episode([]) is None
+
+
+def test_CE_REAL007_relocated_default_output_stays_inside_migrated_private_parent(tmp_path, monkeypatch):
+    """Bind one explicit physical parent; a path name alone never grants trust."""
+    from scripts.cohort_construction.p2_checkpoint_material_review_app.build import (
+        PRIVATE_ROOT, private_mkdir, require_private_output,
+    )
+    from scripts.cohort_construction.p2_checkpoint_packet.compiler import ContractError
+    from scripts.cohort_construction.p2_checkpoint_real_validation import __main__ as cli
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import new_output
+    from unittest.mock import patch
+    physical = tmp_path / 'external-volume' / 'project' / 'private' / 'p2_checkpoint_next_20261028'
+    private_mkdir(physical, parents=True)
+    monkeypatch.setattr(cli, 'DEFAULT_STORAGE_ROOT', physical)
+    monkeypatch.setattr(cli, 'DEFAULT_OUTPUT', physical / 'batch')
+    parsed = cli.argparse.Namespace(command='preflight', output=None, output_root=cli.DEFAULT_OUTPUT,
+        manifest=cli.DEFAULT_BASE / 'sampling_manifest.json',
+        derived_release=cli.DEFAULT_BASE / 'fixed_ten_development_release')
+    monkeypatch.setattr(cli.argparse.ArgumentParser, 'parse_args', lambda self, argv=None: parsed)
+    with patch('scripts.cohort_construction.p2_checkpoint_real_validation.__main__.preflight_batch', return_value={}) as preflight:
+        cli.main()
+    assert preflight.call_args.kwargs['private_root'] == cli.DEFAULT_STORAGE_ROOT
+    assert preflight.call_args.kwargs['output'] == physical / 'batch' / 'preflight'
+    output = new_output(cli.DEFAULT_OUTPUT / 'preflight', private_root=cli.DEFAULT_STORAGE_ROOT)
+    assert output.is_relative_to(physical.resolve())
+    assert output.stat().st_mode & 0o077 == 0
+    for unrelated in (tmp_path / 'elsewhere', Path('/private/var')):
+        with pytest.raises(ContractError, match='MRA_REAL_ASSIGNMENT_OUTPUT_MUST_BE_PRIVATE'):
+            require_private_output(unrelated / 'output')
+    with pytest.raises(ContractError, match='MRA_REAL_ASSIGNMENT_OUTPUT_MUST_BE_PRIVATE'):
+        require_private_output(tmp_path / 'public', private_root=PRIVATE_ROOT)
+
+
+def test_CE_REAL002_batch_budget_counts_failures_cache_and_preserves_call_gain(private_tmp):
+    ledger = BatchModelBudget(private_tmp, max_requests=2, max_http_attempts=6)
+    def cached(task, payload, schema):
+        return dict(ok=True), dict(cached=True, usage=dict(total_tokens=3))
+    response, _ = ledger.adapter('graph', cached, dict(case_id='SYNTHETIC'))('task', {'x': 1}, {})
+    assert response == {'ok': True} and ledger.requests == 0 and ledger.cache_hits == 1
+    def fail(task, payload, schema):
+        error = RuntimeError('synthetic failure')
+        error.receipt = dict(cached=False, status='FAILED', attempts=[dict(attempt=1), dict(attempt=2)])
+        raise error
+    with pytest.raises(RuntimeError):
+        ledger.adapter('material', fail, dict(case_id='SYNTHETIC'))('task', {'x': 2}, {})
+    assert ledger.requests == 1 and ledger.http_attempts == 2
+    assert all(row['expected_gain'] for row in ledger.records)
+    assert ledger.snapshot()['cost_amount'] is None
+
+
+def test_CE_REAL003_real_delivery_gate_stops_before_packet_or_human_factory(private_tmp):
+    graph, sources = fictional_graph()
+    calls = []
+    def material(task, request, schema):
+        calls.append('material')
+        target = request['target']['checkpoint_id']
+        # Keep one initial review per Checkpoint; subsequent identical requests
+        # are intentionally answered with the same deterministic PASS fixture.
+        count = sum(1 for row in getattr(material, 'targets', []) if row == target)
+        material.targets = getattr(material, 'targets', []) + [target]
+        if count:
+            return _pass_only(request)
+        from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import prepare_candidate_materials
+        tasks, _ = prepare_candidate_materials(graph, sources, decision_task_id='SYNTHETIC',
+            visibility_policy_version='SYNTHETIC')
+        task = next(item for item in tasks if item['compiled']['target']['checkpoint_id'] == target)
+        response = _passing_answer(task, task['manifest'], task['compiled'],
+            task['candidate_sources'], task['excluded_sources'])
+        response.update(request['response_binding'])
+        return response
+    run = run_episode_pipeline(output=private_tmp / 'run', graph=graph, sources=sources,
+        episode_id='EPISODE-01', semantic_audits={}, questionnaire=None,
+        graph_audit_context=dict(processing_units=[dict(unit_id='ALL',
+            source_ids=[source['source_id'] for source in sources])]),
+        decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC', config=CONFIG,
+        adapters=dict(graph=lambda t, r, s: passing_graph_response(r), material=material,
+            delivery=lambda t, r, s: calls.append('delivery')), execute=True,
+        delivery_gate=dict(reason_codes=['QUESTIONNAIRE_NOT_FROZEN',
+            'PENDING_INDEPENDENT_SEMANTIC_AUDIT']))
+    assert run['state'] == 'HOLD' and 'actual_deliveries' not in run
+    assert 'delivery_audit_chain' not in run and 'ready_resource' not in run
+    assert 'delivery' not in calls and run.get('resolved_semantic_audits') is None
+    assert _summary_state(run)[0] == 'DELIVERY_GATE_HOLD'
+    assert validate_pipeline_run(run, output=private_tmp / 'run')['replay_verified']
+    tampered = deepcopy(run)
+    tampered['delivery_gate']['reason_codes'] = []
+    with pytest.raises(ValueError):
+        validate_pipeline_run(tampered)
+
+
+def test_CE_REAL004_batch_authorization_is_specific_and_never_releases():
+    base = dict(remote_execution_authorized=False, clinical_release_permitted=False)
+    contract = dict(batch_id='B', manifest_sha256='a' * 64,
+        semantic_model='deepseek-v4.1-flash', max_requests=60, max_http_attempts=600,
+        max_http_attempts_per_request=10,
+        remote_execution_authorized=True, doctor_packet_release=False,
+        real_doctor_assignment_creation=False, clinical_release_permitted=False)
+    result = _authorized_config(base, contract)
+    assert result['remote_execution_authorized'] and base['remote_execution_authorized'] is False
+    assert result['max_http_attempts_per_request'] == 10 and contract['max_http_attempts'] == 600
+    assert not result['doctor_packet_release'] and not result['clinical_release_permitted']
+    with pytest.raises(ValueError, match='AUTHORIZATION_MISMATCH'):
+        _authorized_config(base, dict(contract, semantic_model='unapproved-model'))
+    with pytest.raises(ValueError, match='AUTHORIZATION_MISMATCH'):
+        _authorized_config(base, dict(contract, semantic_model='kimi-k3'))
+    subset = dict(contract, semantic_model='kimi-k3', execution_subset=['SCALE-06'],
+        model_switch_is_explicit=True, no_case_replacement=True)
+    assert _authorized_config(base, subset)['semantic_model'] == 'kimi-k3'
+    with pytest.raises(ValueError, match='AUTHORIZATION_MISMATCH'):
+        _authorized_config(base, dict(subset, semantic_model='unapproved-model'))
+    paced = dict(subset, execution_subset=['SCALE-01','SCALE-05','SCALE-08'],
+        min_request_interval_seconds=10, retry_backoff_base_seconds=30,
+        retry_backoff_max_seconds=120, rate_control_is_explicit=True,
+        http_400_rate_cause_unproven=True)
+    paced_config = _authorized_config(base, paced)
+    assert paced_config['min_request_interval_seconds'] == 10
+    assert paced_config['retry_backoff_base_seconds'] == 30
+    assert paced_config['retry_backoff_max_seconds'] == 120
+    for invalid in (dict(paced, min_request_interval_seconds=0),
+                    dict(paced, retry_backoff_base_seconds=2),
+                    dict(paced, http_400_rate_cause_unproven=False)):
+        with pytest.raises(ValueError, match='AUTHORIZATION_MISMATCH'):
+            _authorized_config(base, invalid)
+    compact = dict(paced, graph_audit_compact_transport=True,
+        lossless_request_projection_is_explicit=True)
+    assert _authorized_config(base, compact)['graph_audit_compact_transport'] is True
+    for invalid in (dict(compact, graph_audit_compact_transport=False),
+                    dict(compact, lossless_request_projection_is_explicit=False),
+                    dict(paced, graph_audit_compact_transport=True)):
+        with pytest.raises(ValueError, match='AUTHORIZATION_MISMATCH'):
+            _authorized_config(base, invalid)
+    closure = dict(compact, max_rounds=3, automatic_graph_reconstruction_authorized=True,
+        max_graph_revisions=1, graph_revision_human_final_review_required=True)
+    closure_config = _authorized_config(base, closure)
+    assert closure_config['material_review_max_rounds'] == 3
+    assert closure_config['automatic_graph_reconstruction'] is True
+    for invalid in (dict(closure, max_rounds=1),
+                    dict(closure, automatic_graph_reconstruction_authorized=False),
+                    dict(closure, max_graph_revisions=0),
+                    dict(compact, max_rounds=3)):
+        with pytest.raises(ValueError, match='AUTHORIZATION_MISMATCH'):
+            _authorized_config(base, invalid)
+
+
+def test_CE_REAL010_pacing_receipt_is_audited_without_provider_content(private_tmp):
+    ledger = BatchModelBudget(private_tmp, max_requests=1, max_http_attempts=10,
+        max_http_attempts_per_request=10)
+    def ask(task, payload, schema):
+        return dict(ok=True), dict(cached=False, status='SUCCESS', attempts=[dict(attempt=1)],
+            min_request_interval_seconds=10, retry_backoff_base_seconds=30,
+            retry_backoff_max_seconds=120, pacing_seconds_total=0,
+            exception_body='must-not-be-copied')
+    ledger.adapter('graph', ask, dict(case_id='SYNTHETIC'))('task', {'x':1}, {})
+    receipt = ledger.records[-1]['receipt']
+    assert receipt['min_request_interval_seconds'] == 10
+    assert receipt['retry_backoff_max_seconds'] == 120
+    assert 'exception_body' not in receipt
+
+
+def test_CE_REAL005_progress_snapshots_preserve_every_case_event(private_tmp):
+    path = private_tmp / 'batch-progress.json'
+    events = private_tmp / 'batch-progress-events'
+    for index in (1, 2):
+        progress = dict(cases=list(range(index)))
+        from scripts.cohort_construction.p2_checkpoint_real_validation.budget import _journal_write
+        from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+        _journal_write(path, progress)
+        events.mkdir(exist_ok=True)
+        write(events / ('%06d.json' % index), progress)
+        assert read(path) == progress
+    assert [read(path) for path in sorted(events.glob('*.json'))] == [dict(cases=[0]), dict(cases=[0, 1])]
+    assert sorted(private_tmp.glob('batch-progress.json*')) == [path]
+
+
+def test_CE_REAL006_historical_replay_keeps_chain_validation_and_provenance(private_tmp):
+    graph, sources = fictional_graph()
+    run = run_episode_pipeline(output=private_tmp / 'run', graph=graph, sources=sources,
+        episode_id='EPISODE-01', semantic_audits={}, questionnaire=None,
+        graph_audit_context=dict(processing_units=[dict(unit_id='ALL',
+            source_ids=[source['source_id'] for source in sources])]),
+        decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC', config=CONFIG,
+        adapters=dict(graph=lambda t, r, s: passing_graph_response(r),
+            material=lambda t, r, s: (_ for _ in ()).throw(RuntimeError('SYNTHETIC_MATERIAL_HOLD')),
+            delivery=lambda t, r, s: pytest.fail('delivery should not run')), execute=True,
+        delivery_gate=dict(reason_codes=['QUESTIONNAIRE_NOT_FROZEN']))
+    from unittest.mock import patch
+    with patch('scripts.cohort_construction.p2_checkpoint_ready_pipeline.replay.implementation_snapshot',
+               return_value=dict(implementation_sha256='current-source-changed')):
+        with pytest.raises(ValueError, match='SAVED_ARTIFACT_CHANGED'):
+            validate_pipeline_run(run, output=private_tmp / 'run')
+        receipt = validate_pipeline_run(run, output=private_tmp / 'run', verify_implementation=False)
+    assert receipt['replay_verified'] and receipt['state'] == 'HOLD'
+    tampered = deepcopy(run)
+    tampered['graph_audit_chain']['chain_sha256'] = '0' * 64
+    with pytest.raises(ValueError):
+        validate_pipeline_run(tampered, verify_implementation=False)
+
+
+def test_CE_REAL012_historical_source_closure_recovers_only_frozen_verified_originals():
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inputs import (
+        resolve_episode_source_dependencies,
+    )
+    graph, sources = fictional_graph()
+    extra = dict(source_id='DOC-HISTORY', source_version='1', text='虚构既往来源。')
+    case = dict(sources=sources + [extra])
+    units = [dict(unit_id='CURRENT', source_ids=['DOC-01', 'DOC-02', 'DOC-ZERO'])]
+    event = deepcopy(graph['events'][0])
+    event['actual_model_evidence'] = [dict(source_id='DOC-BUDGET'), dict(source_id='DOC-HISTORY')]
+    current, recovered, receipt = resolve_episode_source_dependencies(case, [event], units)
+    assert len(current) == 3 and len(recovered) == 5
+    assert receipt['recovered_frozen_package_source_ids'] == ['DOC-BUDGET', 'DOC-HISTORY']
+    assert receipt['not_found_in_delivery_source_ids'] == []
+    assert event['actual_model_evidence'] == [dict(source_id='DOC-BUDGET'), dict(source_id='DOC-HISTORY')]
+    assert all(not row['doctor_blind_review_permission_granted'] if 'doctor_blind_review_permission_granted' in row
+        else row['doctor_blind_review_permission'] == 'NOT_GRANTED_BY_SOURCE_RECONCILIATION'
+        for row in receipt['source_provenance'])
+    assert all(row['target_time_visibility_status'] == 'NOT_CERTIFIED_BY_SOURCE_RECONCILIATION'
+        for row in receipt['source_provenance'])
+    # A missing historical source remains a precise dependency gap, not an empty fact.
+    event_missing = deepcopy(event)
+    event_missing['actual_model_evidence'].append(dict(source_id='DOC-NOT-DELIVERED'))
+    _, sources_missing, missing = resolve_episode_source_dependencies(case, [event_missing], units)
+    assert len(sources_missing) == 5 and not missing['dependency_closure_complete']
+    assert missing['not_found_in_delivery_source_ids'] == ['DOC-NOT-DELIVERED']
+    event_zero = deepcopy(event)
+    event_zero['actual_model_evidence'] = [dict(source_id='DOC-01')]
+    _, sources_zero, zero = resolve_episode_source_dependencies(case, [event_zero], units)
+    assert len(sources_zero) == 3 and zero['dependency_closure_complete']
+    assert zero['recovered_frozen_package_source_ids'] == []
+
+
+def _write_synthetic_batch_case(private_tmp, graph, sources, current_sources):
+    """The batch fixtures contain no patient data and never construct a remote Client."""
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    preflight = private_tmp / 'preflight'
+    case_dir = preflight / 'preflight' / 'SCALE-01'
+    case_dir.mkdir(parents=True)
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64)
+    write(preflight / 'batch-contract.json', contract)
+    write(preflight / 'batch-preflight.json', dict(cases=[dict(case_id='SCALE-01',
+        status='READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION')]))
+    for name, value in [('graph.json', graph), ('sources.json', sources),
+            ('current-unit-sources.json', current_sources)]:
+        write(case_dir / name, value)
+    write(case_dir / 'execution-request.json', dict(episode_id='EPISODE-01',
+        decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC',
+        graph_audit_context=dict(processing_units=[dict(unit_id='ALL',
+            source_ids=[source['source_id'] for source in current_sources])])))
+    authorization = private_tmp / 'authorization.json'
+    write(authorization, dict(contract, semantic_model='kimi-k3', max_requests=60,
+        max_http_attempts=600, remote_execution_authorized=True, doctor_packet_release=False,
+        real_doctor_assignment_creation=False, clinical_release_permitted=False,
+        execution_subset=['SCALE-01'], model_switch_is_explicit=True, no_case_replacement=True,
+        max_rounds=3, automatic_graph_reconstruction_authorized=True, max_graph_revisions=1,
+        graph_revision_human_final_review_required=True))
+    return preflight, authorization
+
+
+def _receipt(invocation_id):
+    return dict(invocation_id=invocation_id, response_sha256='a' * 64,
+        cached=False, status='SUCCESS', attempts=[dict(attempt=1)])
+
+
+def test_CE_REAL012_first_batch_graph_pass_material_receives_historical_dependency(private_tmp):
+    """Exercise the actual first-pass material adapter, not just preflight closure."""
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch
+    from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import prepare_candidate_materials
+    graph, all_sources = fictional_graph()
+    current_sources = [source for source in all_sources if source['source_id'] != 'DOC-BUDGET']
+    graph['events'][0]['actual_model_evidence'].append(dict(source_id='DOC-BUDGET'))
+    graph['graph_sha256'] = __import__(
+        'scripts.cohort_construction.p2_checkpoint_packet.compiler', fromlist=['canonical_sha256']
+    ).canonical_sha256({key: value for key, value in graph.items() if key != 'graph_sha256'})
+    preflight, authorization = _write_synthetic_batch_case(
+        private_tmp, graph, all_sources, current_sources)
+    sent = []
+    class Client:
+        def ask(self, task, payload, schema, system_instructions):
+            sent.append(dict(task=task, payload=payload))
+            if task == 'checkpoint_candidate_reconstruction_independent_audit':
+                return passing_graph_response(payload), _receipt('SYNTHETIC-GRAPH-PASS')
+            target = payload['target']['checkpoint_id']
+            calls = sum(1 for row in sent
+                if row['task'] == 'checkpoint_material_full_source_and_doctor_view_review'
+                and row['payload']['target']['checkpoint_id'] == target)
+            if calls > 1:
+                return _pass_only(payload), _receipt('SYNTHETIC-MATERIAL-PASS-' + target)
+            tasks, failures = prepare_candidate_materials(graph, all_sources,
+                decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC')
+            assert not failures
+            prepared = next(item for item in tasks
+                if item['compiled']['target']['checkpoint_id'] == target)
+            response = _passing_answer(prepared, prepared['manifest'], prepared['compiled'],
+                prepared['candidate_sources'], prepared['excluded_sources'])
+            response.update(payload['response_binding'])
+            return response, _receipt('SYNTHETIC-MATERIAL-REVISE-' + target)
+    result = execute_batch(preflight_output=preflight, authorization=authorization,
+        base_config=CONFIG, model_client_factory=lambda cache, config: Client(),
+        output=private_tmp / 'execution', private_root=private_tmp)
+    material = [row['payload'] for row in sent if row['task'] != 'checkpoint_candidate_reconstruction_independent_audit']
+    assert len(material) == 4 and all(row['task'] != 'checkpoint_candidate_graph_bounded_reconstruction'
+        for row in sent)
+    for request in material:
+        supplied = {source['source_id'] for key in
+            ('researcher_sources', 'candidate_sources', 'excluded_sources')
+            for source in request[key]}
+        assert supplied == {source['source_id'] for source in all_sources}
+        assert 'DOC-BUDGET' in supplied
+    run = read(private_tmp / 'execution/episodes/SCALE-01/EPISODE-01/run.json')
+    assert run['input_contract']['graph_audit_sources'] == current_sources
+    assert run['input_contract']['sources'] == all_sources
+    assert run['assembly_failures'] == []
+    assert next(stage for stage in run['stages']
+        if stage['stage'] == 'MATERIAL_PREPARATION')['state'] == 'PASS'
+    assert result['cases'][0]['state'] == 'DELIVERY_GATE_HOLD'
+
+
+def test_CE_GRA010_successful_batch_reconstruction_binds_initial_parent_and_fresh_sources(private_tmp):
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch, replay_batch
+    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.reconstruction import GRAPH_RECONSTRUCTION_SCHEMA
+    from jsonschema import Draft202012Validator
+    graph, all_sources = fictional_graph()
+    current_sources = [source for source in all_sources if source['source_id'] != 'DOC-BUDGET']
+    graph['events'][0]['actual_model_evidence'].append(dict(source_id='DOC-BUDGET'))
+    graph['graph_sha256'] = __import__(
+        'scripts.cohort_construction.p2_checkpoint_packet.compiler', fromlist=['canonical_sha256']
+    ).canonical_sha256({key: value for key, value in graph.items() if key != 'graph_sha256'})
+    preflight, authorization = _write_synthetic_batch_case(
+        private_tmp, graph, all_sources, current_sources)
+    graph_calls = 0
+    class Client:
+        def ask(self, task, payload, schema, system_instructions):
+            nonlocal graph_calls
+            if task == 'checkpoint_candidate_reconstruction_independent_audit':
+                graph_calls += 1
+                response = passing_graph_response(payload)
+                if graph_calls == 1:
+                    response.update(status='AUTO_GRAPH_AUDIT_REVISE', revision_requests=[dict(
+                        request_id='REV-SUCCESS', request_kind='EVENT_RECONSTRUCTION', reason='虚构重建',
+                        affected_event_ids=['EVENT-01'], affected_episode_ids=['EPISODE-01'],
+                        evidence=[dict(source_id='DOC-02', exact_quote='决定：暂缓切除并补充病理证据。')],
+                        required_reconstruction=True)])
+                return response, _receipt('SYNTHETIC-GRAPH-' + str(graph_calls))
+            if task == 'checkpoint_candidate_graph_bounded_reconstruction':
+                new_graph = deepcopy(payload['input_graph'])
+                new_graph['graph_version'] = 'SYNTHETIC-GRAPH-V2'
+                response = dict(format='candidate-graph-reconstruction-response-0.2.0',
+                    reconstruction_id='SYNTHETIC-SUCCESS', **payload['response_binding'],
+                    status='RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT',
+                    graph={key: deepcopy(new_graph[key]) for key in
+                        ('events', 'relations', 'episodes', 'graph_version')}, rationale='虚构新图')
+                Draft202012Validator(GRAPH_RECONSTRUCTION_SCHEMA).validate(response)
+                return response, _receipt('SYNTHETIC-RECONSTRUCTION-SUCCESS')
+            return _pass_only(payload), _receipt('SYNTHETIC-MATERIAL')
+    result = execute_batch(preflight_output=preflight, authorization=authorization,
+        base_config=CONFIG, model_client_factory=lambda cache, config: Client(),
+        output=private_tmp / 'execution', private_root=private_tmp)
+    assert graph_calls == 2
+    case = result['cases'][0]
+    assert case['reconstruction_chain_replays'][0]['state'] == 'RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT'
+    # The default REVIEW spans cannot be bypassed by an immediate PASS; keep the
+    # successful-generation assertion focused on its fresh graph audit and source scopes.
+    assert case['state'] == 'HOLD' and case['reason_code'] == 'CHECKPOINT_MATERIAL_NOT_PASS'
+    initial = read(private_tmp / 'execution/episodes/SCALE-01/EPISODE-01/run.json')
+    fresh = read(private_tmp / 'execution/automatic-revisions/SCALE-01/generation-0001/run.json')
+    assert fresh['graph_revision_cycle']['parent_run_sha256'] == initial['run_sha256']
+    assert fresh['input_contract']['graph_audit_sources'] == current_sources
+    assert fresh['input_contract']['sources'] == all_sources
+    assert fresh['assembly_failures'] == []
+    assert fresh['graph_audit_chain']['state'] == 'AUTO_GRAPH_AUDIT_PASS'
+    assert replay_batch(private_tmp / 'execution')['replay_verified']
+
+
+def test_CE_GRA010_provider_failure_chain_requires_parent_and_ledger_binding(private_tmp):
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch, replay_batch
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    graph, sources = fictional_graph()
+    preflight = private_tmp / 'preflight'
+    case_dir = preflight / 'preflight' / 'SCALE-01'
+    case_dir.mkdir(parents=True)
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64)
+    write(preflight / 'batch-contract.json', contract)
+    write(preflight / 'batch-preflight.json', dict(cases=[dict(case_id='SCALE-01',
+        status='READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION')]))
+    for name, value in [('graph.json', graph), ('sources.json', sources),
+            ('current-unit-sources.json', sources)]:
+        write(case_dir / name, value)
+    write(case_dir / 'execution-request.json', dict(episode_id='EPISODE-01',
+        decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC',
+        graph_audit_context=dict(processing_units=[dict(unit_id='ALL',
+            source_ids=[source['source_id'] for source in sources])])))
+    class Client:
+        def ask(self, task, payload, schema, system_instructions):
+            if task == 'checkpoint_candidate_reconstruction_independent_audit':
+                response = passing_graph_response(payload)
+                response.update(status='AUTO_GRAPH_AUDIT_REVISE', revision_requests=[dict(
+                    request_id='REV-PROVIDER', request_kind='EVENT_RECONSTRUCTION', reason='虚构重建',
+                    affected_event_ids=['EVENT-01'], affected_episode_ids=['EPISODE-01'],
+                    evidence=[dict(source_id='DOC-02', exact_quote='决定：暂缓切除并补充病理证据。')],
+                    required_reconstruction=True)])
+                return response, dict(invocation_id='SYNTHETIC-GRAPH', response_sha256='a' * 64,
+                    cached=False, status='SUCCESS', attempts=[dict(attempt=1)])
+            error = RuntimeError('synthetic provider failure')
+            error.receipt = dict(invocation_id='SYNTHETIC-PROVIDER', cached=False, status='FAILED',
+                attempts=[dict(attempt=1, error='ConnectionError')])
+            raise error
+    write(private_tmp / 'authorization.json', dict(contract, semantic_model='kimi-k3',
+        max_requests=60, max_http_attempts=600, remote_execution_authorized=True,
+        doctor_packet_release=False, real_doctor_assignment_creation=False,
+        clinical_release_permitted=False, execution_subset=['SCALE-01'],
+        model_switch_is_explicit=True, no_case_replacement=True, max_rounds=3,
+        automatic_graph_reconstruction_authorized=True, max_graph_revisions=1,
+        graph_revision_human_final_review_required=True))
+    result = execute_batch(preflight_output=preflight,
+        authorization=private_tmp / 'authorization.json', base_config=CONFIG,
+        model_client_factory=lambda cache, config: Client(), output=private_tmp / 'execution',
+        private_root=private_tmp)
+    assert result['replay_verified']
+    path = private_tmp / 'execution/automatic-revisions/SCALE-01/reconstruction-0001.json'
+    chain = read(path)
+    assert chain['failure']['stage'] == 'PROVIDER_REQUEST'
+    assert chain['failure']['provider_invocation_id'] == 'SYNTHETIC-PROVIDER'
+    assert 'response' not in chain and 'provider_receipt' not in chain
+    from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
+    tampered = deepcopy(chain)
+    tampered['request']['input_graph']['graph_version'] = 'WRONG-PARENT-GRAPH'
+    tampered['chain_sha256'] = canonical_sha256({key: value for key, value in tampered.items()
+        if key != 'chain_sha256'})
+    path.write_text(json.dumps(tampered, ensure_ascii=False), encoding='utf-8')
+    with pytest.raises(ValueError, match='REQUEST_INVALID|PARENT_REQUEST_BINDING_MISMATCH'):
+        replay_batch(private_tmp / 'execution')
+    path.write_text(json.dumps(chain, ensure_ascii=False), encoding='utf-8')
+    assert replay_batch(private_tmp / 'execution')['replay_verified']
+    # The request field itself is not an authority to bypass external parent/ledger binding.
+    summary_path = private_tmp / 'execution/automatic-revisions/SCALE-01/automatic-revision-summary.json'
+    summary = read(summary_path)
+    summary_path.unlink()
+    (private_tmp / 'execution/automatic-revisions/SCALE-01/reconstruction-0001.json').unlink()
+    summary['generations'] = [1]
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write_text
+    write_text(summary_path, json.dumps(summary, ensure_ascii=False))
+    with pytest.raises(ValueError, match='RECONSTRUCTION_(REQUIRED_CHAIN_MISSING|LEDGER_CHAIN_INVENTORY_MISMATCH)'):
+        replay_batch(private_tmp / 'execution')
+    # A real failed batch retains generations=[]: the ledger still requires its chain.
+    summary_path.unlink()
+    write_text(summary_path, json.dumps(dict(summary, generations=[]), ensure_ascii=False))
+    with pytest.raises(ValueError, match='RECONSTRUCTION_LEDGER_CHAIN_INVENTORY_MISMATCH'):
+        replay_batch(private_tmp / 'execution')
+    path.write_text(json.dumps(chain, ensure_ascii=False), encoding='utf-8')
+    summary_path.unlink()
+    write_text(summary_path, json.dumps(dict(summary, generations=[]), ensure_ascii=False))
+    assert replay_batch(private_tmp / 'execution')['replay_verified']
+    # Ledger evidence requires the entire revision delivery, not only individual chains.
+    import shutil
+    shutil.rmtree(path.parent)
+    with pytest.raises(ValueError, match='RECONSTRUCTION_LEDGER_REVISION_DELIVERY_MISSING'):
+        replay_batch(private_tmp / 'execution')
+
+def test_CE_GRA010_real_client_and_batch_ledger_bind_same_hash_domains(private_tmp):
+    """Positive and negative controls through production Client and real BatchModelBudget."""
+    import requests
+    from unittest.mock import Mock, patch
+    from scripts.cohort_construction.model_api import ModelAPISettings
+    from scripts.cohort_construction.p2_auto_checkpoint_v04 import client as transport
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import _reconstruction_ledger
+    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.reconstruction import (
+        build_graph_reconstruction_request, graph_reconstruction_client, run_graph_reconstruction,
+        validate_graph_reconstruction_chain,
+    )
+    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_graph_reconstruction import (
+        fixtures, proposed,
+    )
+    for scenario in ('SCHEMA_REJECTION', 'CONNECTION_FAILURE'):
+        _, audit_request, audit_response = fixtures()
+        request = build_graph_reconstruction_request(audit_request, audit_response)
+        response = proposed(request)
+        response['graph'] = {'、': ['、']}
+        session = Mock()
+        if scenario == 'SCHEMA_REJECTION':
+            envelope = dict(choices=[dict(finish_reason='stop', message=dict(
+                content=json.dumps(response, ensure_ascii=False)))])
+            session.post.return_value = Mock(**{'json.return_value': envelope})
+        else:
+            session.post.side_effect = requests.exceptions.ConnectionError('synthetic')
+        settings = ModelAPISettings('synthetic', 'https://example.invalid/v1', 'synthetic')
+        provider = transport.Client(private_tmp / scenario, dict(model_temperature=0,
+            max_output_tokens=64, max_http_attempts_per_request=1), settings)
+        ledger = BatchModelBudget(None, max_requests=1, max_http_attempts=1,
+            max_http_attempts_per_request=1)
+        context = dict(case_id='SYNTHETIC',
+            graph_sha256=request['response_binding']['graph_sha256'])
+        adapter = ledger.adapter('reconstruction', graph_reconstruction_client(provider), context)
+        with patch.object(transport._thread, 'session', session, create=True):
+            chain = run_graph_reconstruction(audit_request, audit_response, adapter)
+        expected = _reconstruction_ledger(ledger.snapshot(), 'SYNTHETIC',
+            request['response_binding']['graph_sha256'])
+        assert chain['failure']['request_sha256'] == expected['transport_request_sha256']
+        assert chain['failure']['request_sha256'] != expected['payload_sha256']
+        assert expected['payload_sha256'] == __import__(
+            'scripts.cohort_construction.p2_checkpoint_packet.compiler', fromlist=['canonical_sha256']
+        ).canonical_sha256(chain['request'])
+        assert validate_graph_reconstruction_chain(chain,
+            expected_request=(audit_request, audit_response),
+            expected_provider=expected)['replay_verified']
+        for changed in (dict(expected, transport_request_sha256='0' * 64),
+                        dict(expected, payload_sha256='0' * 64),
+                        dict(expected, invocation_id='SYNTHETIC-OTHER-CALL')):
+            with pytest.raises(ValueError, match='LEDGER_.*BINDING_MISMATCH'):
+                validate_graph_reconstruction_chain(chain,
+                    expected_request=(audit_request, audit_response), expected_provider=changed)
+        if hasattr(transport._thread, 'session'):
+            del transport._thread.session
+
+
+def test_CE_GRA008_010_real_batch_uses_separate_reconstruction_and_replays_failed_chain(private_tmp):
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch, replay_batch
+    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.prompts import GRAPH_AUDIT_INSTRUCTIONS
+    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.reconstruction import INSTRUCTIONS
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    graph, all_sources = fictional_graph()
+    current_sources = [source for source in all_sources if source['source_id'] != 'DOC-BUDGET']
+    graph['events'][0]['actual_model_evidence'].append(dict(source_id='DOC-BUDGET'))
+    graph['graph_sha256'] = __import__(
+        'scripts.cohort_construction.p2_checkpoint_packet.compiler', fromlist=['canonical_sha256']
+    ).canonical_sha256({key: value for key, value in graph.items() if key != 'graph_sha256'})
+    preflight = private_tmp / 'preflight'
+    case_dir = preflight / 'preflight' / 'SCALE-01'
+    case_dir.mkdir(parents=True)
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64)
+    write(preflight / 'batch-contract.json', contract)
+    write(preflight / 'batch-preflight.json', dict(cases=[dict(case_id='SCALE-01',
+        status='READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION')]))
+    write(case_dir / 'graph.json', graph)
+    write(case_dir / 'sources.json', all_sources)
+    write(case_dir / 'current-unit-sources.json', current_sources)
+    write(case_dir / 'execution-request.json', dict(episode_id='EPISODE-01',
+        decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC',
+        graph_audit_context=dict(processing_units=[dict(unit_id='ALL',
+            source_ids=[source['source_id'] for source in current_sources])])))
+    sent = []
+    class Client:
+        def ask(self, task, payload, schema, system_instructions):
+            sent.append(dict(task=task, instructions=system_instructions, payload=payload))
+            if task == 'checkpoint_candidate_reconstruction_independent_audit':
+                response = passing_graph_response(payload)
+                response.update(status='AUTO_GRAPH_AUDIT_REVISE', revision_requests=[dict(
+                    request_id='REV-REAL', request_kind='EVENT_RECONSTRUCTION', reason='虚构重建',
+                    affected_event_ids=['EVENT-01'], affected_episode_ids=['EPISODE-01'],
+                    evidence=[dict(source_id='DOC-02', exact_quote='决定：暂缓切除并补充病理证据。')],
+                    required_reconstruction=True)])
+            else:
+                response = dict(format='candidate-graph-reconstruction-response-0.2.0',
+                    reconstruction_id='SYNTHETIC-FAILED', **payload['response_binding'],
+                    status='RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT', graph={'、': ['、']},
+                    rationale='虚构占位响应')
+            return response, dict(invocation_id='SYNTHETIC-' + task,
+                response_sha256='b' * 64, cached=False, status='SUCCESS',
+                attempts=[dict(attempt=1)])
+    authorization = private_tmp / 'authorization.json'
+    write(authorization, dict(contract, semantic_model='kimi-k3', max_requests=60,
+        max_http_attempts=600, remote_execution_authorized=True, doctor_packet_release=False,
+        real_doctor_assignment_creation=False, clinical_release_permitted=False,
+        execution_subset=['SCALE-01'], model_switch_is_explicit=True, no_case_replacement=True,
+        max_rounds=3, automatic_graph_reconstruction_authorized=True, max_graph_revisions=1,
+        graph_revision_human_final_review_required=True))
+    result = execute_batch(preflight_output=preflight, authorization=authorization,
+        base_config=CONFIG, model_client_factory=lambda cache, config: Client(),
+        output=private_tmp / 'execution', private_root=private_tmp)
+    assert [row['task'] for row in sent] == ['checkpoint_candidate_reconstruction_independent_audit',
+        'checkpoint_candidate_graph_bounded_reconstruction']
+    assert sent[0]['instructions'] == GRAPH_AUDIT_INSTRUCTIONS
+    assert sent[1]['instructions'] == INSTRUCTIONS
+    assert sent[0]['instructions'] != sent[1]['instructions']
+    ledger = read(private_tmp / 'execution/model-call-ledger.json')
+    reconstruction = [row for row in ledger['records'] if row.get('stage') == 'reconstruction']
+    assert reconstruction and all(row['task'] == 'checkpoint_candidate_graph_bounded_reconstruction'
+        and row['expected_gain'] == 'SEPARATE_RECONSTRUCTION_PROPOSAL_FOR_THIS_AUDITED_GRAPH'
+        for row in reconstruction)
+    case = result['cases'][0]
+    assert case['reconstruction_chain_replays'][0]['state'] == 'RECONSTRUCTION_HOLD'
+    assert case['reconstruction_chain_replays'][0]['replay_verified']
+    chain = read(private_tmp / 'execution/automatic-revisions/SCALE-01/reconstruction-0001.json')
+    assert chain['response']['graph'] == {'、': ['、']}
+    assert chain['failure']['stage'] == 'RESPONSE_VALIDATION'
+    assert replay_batch(private_tmp / 'execution')['replay_verified']
+    run = read(private_tmp / 'execution/episodes/SCALE-01/EPISODE-01/run.json')
+    assert run['input_contract']['graph_audit_sources'] == current_sources
+    assert run['input_contract']['sources'] == all_sources
+    assert len(sent[0]['payload']['audit_scope']['complete_originals_supplied']) == 3
+    assert len(sent[1]['payload']['complete_originals_supplied']) == 3
+    tampered = deepcopy(chain)
+    tampered['request']['input_graph']['graph_version'] = 'TAMPERED-GRAPH'
+    tampered['chain_sha256'] = __import__(
+        'scripts.cohort_construction.p2_checkpoint_packet.compiler', fromlist=['canonical_sha256']
+    ).canonical_sha256({key: value for key, value in tampered.items() if key != 'chain_sha256'})
+    chain_path = private_tmp / 'execution/automatic-revisions/SCALE-01/reconstruction-0001.json'
+    chain_path.write_text(json.dumps(tampered, ensure_ascii=False), encoding='utf-8')
+    with pytest.raises(ValueError, match='REQUEST_INVALID|PARENT_REQUEST_BINDING_MISMATCH'):
+        replay_batch(private_tmp / 'execution')
+    chain_path.write_text(json.dumps(chain, ensure_ascii=False), encoding='utf-8')
+    replay_batch(private_tmp / 'execution')

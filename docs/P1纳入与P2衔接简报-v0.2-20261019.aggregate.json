@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-19",
+  "algorithm": "p1-source-quality-v0.2",
+  "P0_n": 2707,
+  "states": {
+    "PASS_V2": 2004,
+    "REVIEW_V2": 620,
+    "NOT_MET_V2": 83
+  },
+  "diagnosis_evidence": {
+    "P0": {
+      "病理明确PDAC": 2553,
+      "临床原文明确PDAC，未见明确病理总表证据": 154
+    },
+    "P1": {
+      "病理明确PDAC": 1890,
+      "临床原文明确PDAC，未见明确病理总表证据": 114
+    }
+  },
+  "qualified_report_versions_in_passed_patients": 7794,
+  "modality_patient_counts": {
+    "CT+MR": 1337,
+    "MR": 155,
+    "CT": 512
+  },
+  "structured_template_versions": 7780,
+  "median_qualified_clinical_notes": 14.0,
+  "any_history_vascular_contact_or_invasion_statement_patients": 1093,
+  "any_history_vascular_contact_or_invasion_by_vessel": {
+    "CHA": 362,
+    "PV": 526,
+    "SMA": 343,
+    "CA": 277,
+    "SMV": 748
+  },
+  "any_history_distant_metastatic_statement_patients": 281,
+  "passed_patient_resource_audit": {
+    "passed_patients": 2004,
+    "qualified_content_versions_in_passed_patients": 7794,
+    "exam_group_proxies": 4442,
+    "report_modality_counts": {
+      "CT": 4516,
+      "MR": 3278
+    },
+    "report_quality_flag_counts": {
+      "TEMPLATE_BARE_NO_ACCEPTED": 24,
+      "REDUNDANT_EMPTY_FIELD": 604,
+      "CHILD_RELATION_SCOPED": 2
+    },
+    "patient_metrics": {
+      "random": 2004,
+      "table_proof_only": 412,
+      "one_exam_group": 565,
+      "patient_alert_ANGLE_SEGMENT_CONTAINS_SPLENIC_VESSEL": 350,
+      "patient_alert_TARGET_OR_DIAGNOSTIC_BOUNDARY_WORDING": 92,
+      "patient_flag_REDUNDANT_EMPTY_FIELD": 315,
+      "patient_flag_TEMPLATE_BARE_NO_ACCEPTED": 13,
+      "newly_restored": 63,
+      "all_reports_flagged": 62,
+      "patient_flag_CHILD_RELATION_SCOPED": 1,
+      "patient_alert_SIZE_EXTREME_REVIEW": 5,
+      "patient_alert_BROADER_PANCREAS_POSTOP_WORDING": 4,
+      "patient_alert_NOT_ALL_THREE_TEMPLATE_HEADERS": 7,
+      "historical_only": 5,
+      "no_clinical_note_within_30_days": 10,
+      "patient_alert_EXPLICIT_VASCULAR_UNCERTAINTY": 5
+    },
+    "qualified_content_versions_per_patient": {
+      "min": 1,
+      "median": 4.0,
+      "max": 16,
+      "exactly_one": 144
+    },
+    "exam_group_proxy_per_patient": {
+      "min": 1,
+      "median": 2.0,
+      "max": 10
+    },
+    "image_note_nearest_gap_days": {
+      "median": 1.0,
+      "max": 191,
+      "over_7": 89,
+      "over_30": 10,
+      "over_90": 3
+    },
+    "cross_patient_same_exam_no_date_modality_groups": 0,
+    "cross_patient_same_full_text_date_modality_groups": 0,
+    "report_alert_counts": {
+      "ANGLE_SEGMENT_CONTAINS_SPLENIC_VESSEL": 1373,
+      "BROADER_PANCREAS_POSTOP_WORDING": 9,
+      "EXPLICIT_VASCULAR_UNCERTAINTY": 11,
+      "TARGET_OR_DIAGNOSTIC_BOUNDARY_WORDING": 247,
+      "NOT_ALL_THREE_TEMPLATE_HEADERS": 14,
+      "SIZE_EXTREME_REVIEW": 10
+    },
+    "original_relink_failures": [],
+    "quote_coordinate_failures": [],
+    "clinical_read_errors": [],
+    "sample_patients": 74,
+    "sample_report_versions": 141,
+    "important": "Signals are audit priorities, not new exclusion rules. Exam groups are proxies; clinical note dates are recorded dates, not proof of report availability or Episode linkage."
+  },
+  "size_audit": {
+    "report_versions_with_comparable_pancreatic_cancer_diagnostic_parenthesis": 7638,
+    "report_versions_with_different_size": 135,
+    "patients_with_different_size": 73,
+    "report_versions_with_large_difference": 41,
+    "patients_with_large_difference": 21,
+    "threshold_note": "Axis order ignored; two-dimensional measurements only. Any >0.01 mm is a difference; large requires >=3 mm AND >20% relative difference in at least one axis. This is an audit triage threshold, not a clinical change criterion.",
+    "limitation": "Only diagnostic parentheses with a pancreatic site on a line containing 胰腺癌 are compared. Misses other wording and cannot certify same-lesion identity. No automatic value replacement or patient exclusion."
+  },
+  "cross_report_audit_counts": {
+    "same_day_CT_MR_groups": 694,
+    "same_day_CT_MR_opposite_relation_groups": 127,
+    "patients_with_same_day_CT_MR_opposite_relation": 121,
+    "same_exam_no_opposite_relation_groups": 1
+  },
+  "source_sha256": {
+    "p1_quality_v0.1/results/summary.json": "841e1a9770d09ad9e66f640f21be71d5d89d4a8514cc45f474debabe6ce6a634",
+    "p1_quality_v0.2/quality_rules.json": "a934439dba2516a66e8c19853cfed46eb47ab380e948d685e818afd8df740c3f",
+    "p1_quality_v0.2/inputs/P0_index_snapshot.csv": "7faace4d914f5f724029e5c6bd43bcf8400b01d8806bd1d262cb66e8491d7eda",
+    "p1_quality_v0.2/results/patient_quality.jsonl": "8aa7d9ff79c268d4e6e15e02c948bf7f22f6ba0ce4fee20edb61ffc667dea585",
+    "p1_quality_v0.2/results/report_quality.jsonl": "7db605354905b86f5551281111e38c4dddf193eb5f5c7fa1302971496477cb56",
+    "p1_quality_v0.2/results/summary.json": "e3b06368f4e9e72dc528937a096f28596299aeaf769a25a95f2838365a4bfe9e",
+    "p1_pass_audit_20261019/summary.json": "be017408fe050bb55b90b2031594fcf6c75f62726350559ccfb981cf78428ce5",
+    "p1_pass_audit_20261019/size_consistency_summary.json": "fd269de201f665f58de1447650d2d5a9c4c2ca0e31ff13be856623d217cfd58d",
+    "p1_pass_audit_20261019/cross_report_consistency.json": "d8faa5b6e218468bcbf84722a48640cb20ab3d07d66048289bed42f7f438254e"
+  },
+  "contains_patient_level_data": false,
+  "baseline_stage_or_resectability_estimated": false
+}

@@ -1,0 +1,30 @@
+{
+  "version": "0.3.0",
+  "date": "2026-10-20",
+  "status": "exploratory_not_formal_P2",
+  "parent_commit": "61009cc7766450a8af76513fc81d6c5abd58a087",
+  "tests": 15,
+  "fixed_population": 2004,
+  "sample_sizes": [
+    100,
+    300
+  ],
+  "changes": [
+    "explicit definitions and executable pseudocode",
+    "broader named-resection and external-surgery phrases",
+    "scope/section/target/temporal-role review",
+    "NAT cycle and diagnosis-name disambiguation",
+    "state-preserving review chains with conflict flags",
+    "independent-of-label temporal neighborhoods for manual semantic review"
+  ],
+  "hashes": {
+    "__init__.py": "452f64980c1201bbe223532be1851a4a636b99c9710326bf27bfa959a8f9cb6b",
+    "configs/rules-v0.3.json": "87a60916fc0f550b674696ee164a8f8909adb2fffd29eaf26af2cb232acb8978",
+    "documents.py": "26538e88bc83bd67852d2ead80539be88a6d7e097dd22e81fd7ed7364394251b",
+    "labels.py": "26eacf39010f014313ceafcb2cff84409a169cfedfa4741bf9442653f009a090",
+    "review.py": "08c6b85d4068f45fb82c530fbfb008223c58153d0f6a3577cec0b980c4646278",
+    "run.py": "c864c6ef8c0c2e6fce8a9c719c3f07d0a4777d22a41570a2d8a7a1d270584bf8",
+    "tests/test_rules.py": "d501016fa728264fa92f8bf0abbca912eca1b60c107169ff913ef7d00ac2f6f5",
+    "timeline.py": "2297174f0aae2f29d388381a8bdb6d1119372f76089ac128fca15003da9a31cc"
+  }
+}

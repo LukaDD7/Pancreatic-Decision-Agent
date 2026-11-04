@@ -1,0 +1,66 @@
+{
+  "version": "0.6.0",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "CE-AUD-007-INTEGRATION",
+      "parent_issue": "CE-AUD-007",
+      "problem": "A revised discovery clinical-decision quote must rebuild event IDs and evidence contexts before joint review; stale evidence pools cannot be reused.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/tests/test_orchestration.py",
+      "required_tests": [
+        "test_feedback_recompiles_ids_and_context_before_review_and_final_graph",
+        "test_invalid_feedback_limits_fail_before_client_construction",
+        "test_v06_preflight_preserves_existing_output_and_rejects_legacy_config",
+        "test_v05_configs_keep_feedback_and_support_discovery_disabled",
+        "test_initial_review_id_error_has_one_fixed_pool_revision",
+        "test_unexpected_initial_review_id_is_retained_in_audit_without_creating_event"
+      ]
+    },
+    {
+      "id": "CE-AUD-008",
+      "problem": "Historical rejected quote lookups retained a masked-display hash under source_sha256, whereas accepted citations used a raw-source hash; this could be mistaken for changed source text.",
+      "change_type": "citation_provenance_metadata_fix",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/tests/test_source_hash_scope.py",
+      "required_tests": [
+        "test_invalid_display_lookup_preserves_raw_source_hash_and_rejection",
+        "test_outside_allowed_display_quote_is_not_relabelled_as_raw_verified",
+        "test_unknown_source_does_not_acquire_an_invented_source_hash",
+        "test_valid_raw_mapping_keeps_exact_original_quote_and_hash"
+      ]
+    },
+    {
+      "id": "CE-AUD-009",
+      "problem": "Historical source-import receipts can point to removed temporary input paths; future runs need an exact-byte input archive in their own output directory.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/tests/test_orchestration.py",
+      "required_tests": [
+        "test_exact_source_input_snapshot_survives_removed_temporary_path",
+        "test_source_snapshot_refuses_overwrite"
+      ],
+      "limitation": "New-run archiving does not restore or certify the three missing historical input paths. Delivered historical source attachments were separately verified in offline replay."
+    },
+    {
+      "id": "CE-AUD-001-OFFLINE",
+      "parent_issue": "CE-AUD-001",
+      "problem": "Offline comparisons must restore documented grouping state, verify exact input provenance and reproduce old assembly before attributing new structural differences.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v06/tests/test_offline.py",
+      "required_tests": [
+        "test_CE_AUD001_offline_resets_grouping_and_does_not_modify_input",
+        "test_CE_AUD001_offline_grouped_status_without_snapshot_is_not_guessed",
+        "test_CE_AUD001_offline_rejects_already_audited_inputs",
+        "test_CE_AUD001_offline_legacy_replay_can_reproduce_frozen_identity_grouping",
+        "test_CE_AUD001_offline_reports_frozen_replay_mismatch_instead_of_assuming_parity",
+        "test_CE_AUD001_offline_blocks_generic_bridge_without_claiming_clinical_error",
+        "test_CE_AUD001_offline_keeps_per_event_demotion_reasons_and_original_reference",
+        "test_CE_AUD001_offline_input_semantic_proposals_are_immutable",
+        "test_CE_AUD001_offline_new_directory_manifest_and_original_inputs_unchanged",
+        "test_CE_AUD001_offline_output_directory_is_never_overwritten",
+        "test_CE_AUD001_offline_output_cannot_be_within_frozen_input",
+        "test_CE_AUD001_offline_frozen_source_hash_mismatch_stops_before_output_creation",
+        "test_CE_AUD001_offline_recorded_original_source_hash_mismatch_stops",
+        "test_CE_AUD001_offline_verifies_and_separately_records_historical_invalid_display_hash",
+        "test_CE_AUD001_offline_does_not_accept_display_hash_as_a_valid_raw_citation_hash",
+        "test_CE_AUD001_offline_valid_action_raw_character_slice_is_verified"
+      ]
+    }
+  ]
+}

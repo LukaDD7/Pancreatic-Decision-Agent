@@ -1,0 +1,1 @@
+"""Synthetic doctor reader controls."""

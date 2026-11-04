@@ -1,0 +1,74 @@
+{
+  "CE-MRA-001": {
+    "problem": "Researcher HTML and responses must remain bound to exact compiled, manifest, AI preparation draft, preparation receipt and optional candidate-event inputs; source text must preserve code-point coordinates, CRLF and non-BMP characters.",
+    "counterexamples": ["A changed embedded document with an unchanged document hash.", "An outside-event original not in the assigned source scope.", "Legacy LLM floating point values change numeric lexemes when JavaScript reserializes the whole input."],
+    "controls": ["Canonical input JSON strings are hashed directly, retaining legacy numeric lexemes.", "Exact source hashes, coordinates, original dispositions and complete source partition are verified."],
+    "required_tests": [
+      "test_app.py::test_CE_MRA001_exact_inputs_and_nonbmp_crlf_hashes_roundtrip_without_clinical_inference",
+      "test_app.py::test_CE_MRA001_changed_input_or_assignment_hash_is_rejected_in_both_runtimes",
+      "test_app.py::test_CE_MRA001_forged_original_text_or_extra_scope_source_is_rejected"
+    ]
+  },
+  "CE-MRA-002": {
+    "problem": "Opening an AI preparation task or editing a segment must not manufacture an actual reviewer identity, independence declaration or semantic PASS.",
+    "counterexamples": ["The exported response reuses the AI draft reviewer_id or assessment_id.", "A timestamp lacks a timezone.", "An untouched screen silently asserts human identity or completed checks."],
+    "controls": ["Initial metadata identity is blank, status PENDING, all declarations false, all segments and coverage UNRESOLVED.", "An actual reviewer explicitly enters new identity, protocol and time before an in-progress response can be exported."],
+    "required_tests": [
+      "test_app.py::test_CE_MRA001_exact_inputs_and_nonbmp_crlf_hashes_roundtrip_without_clinical_inference",
+      "test_app.py::test_CE_MRA002_pending_export_requires_new_explicit_actual_reviewer_metadata",
+      "test_browser.py::test_CE_MRA007_actual_chrome_export_to_python_receiver_and_offline_negative_controls"
+    ]
+  },
+  "CE-MRA-003": {
+    "problem": "A source directory is not a read original; loading excluded source text must use the explicit FHIR file matching the preparation receipt hash and must not prefill reviewed coverage.",
+    "counterexamples": ["An assignment has an excluded source_id but no loaded source text.", "An explicit FHIR file differs from the preparation input receipt."],
+    "controls": ["Unloaded sources remain UNRESOLVED in HTML and Python reception.", "Verified FHIR import supplies readable source originals while all coverage remains unresolved."],
+    "required_tests": [
+      "test_app.py::test_CE_MRA003_unloaded_source_directory_never_becomes_reviewed_coverage",
+      "test_app.py::test_CE_MRA003_explicit_fhir_input_byte_hash_and_scope_are_verified",
+      "test_browser.py::test_CE_MRA007_actual_chrome_export_to_python_receiver_and_offline_negative_controls"
+    ]
+  },
+  "CE-MRA-004": {
+    "problem": "A REVIEW span cannot be accepted as an existing permission and a proposed REVISE cannot pass without recompilation and independent reassessment of the new current partition.",
+    "counterexamples": ["ACCEPT is applied to original REVIEW.", "PENDING/FAIL revisions are silently promoted to PASS.", "PASS retains unresolved spans or source coverage."],
+    "controls": ["Explicit PENDING/FAIL revisions are recoverable without release.", "A fictional already-resolved current partition passes only with all explicit acceptance and declarations."],
+    "required_tests": [
+      "test_app.py::test_CE_MRA004_review_cannot_accept_and_pending_or_fail_revision_never_passes",
+      "test_app.py::test_CE_MRA004_explicit_synthetic_pass_requires_acceptance_of_current_partition_and_all_declarations",
+      "test_app.py::test_CE_MRA004_pass_cannot_silently_change_source_scope_but_pending_and_fail_preserve_proposals"
+    ]
+  },
+  "CE-MRA-005": {
+    "problem": "Resuming or receiving a response must reject wrong assignments, altered hashes, substituted source quotes, duplicate JSON keys and invalid Unicode/nonfinite data.",
+    "counterexamples": ["A response is imported into a different researcher task.", "The audit text is edited while retaining its old hash.", "Duplicate JSON keys hide altered values."],
+    "controls": ["Browser export is independently verified by Python SemanticAudit validation.", "Correctly bound in-progress responses restore without changing their status."],
+    "required_tests": [
+      "test_app.py::test_CE_MRA005_response_and_restore_verify_task_and_audit_hash_and_span_text",
+      "test_app.py::test_CE_MRA005_raw_json_rejects_duplicate_nonfinite_and_invalid_unicode",
+      "test_browser.py::test_CE_MRA007_actual_chrome_export_to_python_receiver_and_offline_negative_controls"
+    ]
+  },
+  "CE-MRA-006": {
+    "problem": "Researcher files contain unmasked originals and must remain in the project private directory, preserve existing task files, avoid network access and render source markup as literal text.",
+    "counterexamples": ["macOS /private/var is mistaken for the project's protected research directory.", "A source contains a closing script tag or image event handler.", "A new response overwrites its preparation draft or an earlier response."],
+    "controls": ["File CLIs restrict outputs to this project's private tree and exclusively create files/directories.", "Self-contained CSP blocks network and all source content uses textContent."],
+    "required_tests": [
+      "test_app.py::test_CE_MRA006_html_is_researcher_only_offline_and_literal_markup_is_escaped",
+      "test_app.py::test_CE_MRA006_file_interfaces_require_private_and_refuse_to_overwrite_draft_or_response",
+      "test_app.py::test_CE_MRA003_explicit_fhir_input_byte_hash_and_scope_are_verified"
+    ]
+  },
+  "CE-MRA-007": {
+    "problem": "A researcher export/restore workflow must be demonstrated with actual browser interactions and independent Python reception, rather than only testing an implementation-shaped serializer.",
+    "counterexamples": ["A UI appears to export but generates a response rejected by the authoritative Python receiver.", "Unloaded original text is silently represented as reviewed coverage."],
+    "controls": ["Fictional Chrome desktop/mobile interactions export a PENDING response, restore it and reject negative controls with zero HTTP requests."],
+    "required_tests": ["test_browser.py::test_CE_MRA007_actual_chrome_export_to_python_receiver_and_offline_negative_controls"]
+  },
+  "CE-MRA-008": {
+    "problem": "存储迁移后仍须按实际私有根目录创建输出；普通open/x受umask影响，可能把未遮蔽原文保存为组或其他用户可读。",
+    "counterexamples": ["把旧逻辑项目路径与新物理存储路径混用", "进程umask为000时新建临床JSON为0666", "非独占写入覆盖既有任务"],
+    "controls": ["由当前项目private实际路径创建运行目录", "新建父目录为0700、文件为0600", "保留私有根目录门禁和独占创建"],
+    "required_tests": ["test_app.py::test_CE_MRA008_private_files_are_owner_only_on_relocated_storage"]
+  }
+}

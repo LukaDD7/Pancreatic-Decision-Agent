@@ -1,0 +1,179 @@
+{
+  "version": "p2-dynamic-pathway-probe-v0.1-20261021",
+  "P0_n": 2707,
+  "P1_filter_used": false,
+  "study_period_filter_used": false,
+  "clinical_source_rows": 210144,
+  "retained_context_notes": 143712,
+  "source_files_verified": 265,
+  "total_category_hits": 30409,
+  "unique_hit_notes": 17557,
+  "unique_hit_patients": 2622,
+  "categories": {
+    "D01_BILIARY_CONDITION": {
+      "name": "减黄及条件改善与手术路径相连",
+      "hits": 9030,
+      "patients": 1061,
+      "notes": 6517,
+      "sentence_count": {
+        "2": 3675,
+        "1": 5355
+      },
+      "families": {
+        "POSTOP": 1343,
+        "FIRST_SENIOR_ROUND": 1482,
+        "FIRST_COURSE": 633,
+        "TRANSFER_IN": 1015,
+        "WARD_ROUND": 100,
+        "DISCHARGE": 813,
+        "OTHER": 1401,
+        "PREOP_DISCUSSION": 1290,
+        "PREOP_BRIEF": 543,
+        "ADMISSION": 307,
+        "OPERATION": 34,
+        "CONSULT": 28,
+        "TRANSFER_OUT": 41
+      },
+      "review_flag_counts": {
+        "OTHER_OPERATION_CUE": 3994,
+        "QUESTION_CUE": 787,
+        "PAST_CUE": 1381,
+        "FUTURE_PLAN_CUE": 1569
+      }
+    },
+    "D02_MEDICAL_OPTIMIZATION": {
+      "name": "患者条件处理与暂缓或条件性手术安排",
+      "hits": 3105,
+      "patients": 2467,
+      "notes": 3052,
+      "sentence_count": {
+        "1": 2901,
+        "2": 204
+      },
+      "families": {
+        "PREOP_DISCUSSION": 2611,
+        "WARD_ROUND": 27,
+        "OTHER": 71,
+        "ADMISSION": 67,
+        "FIRST_SENIOR_ROUND": 97,
+        "TRANSFER_IN": 32,
+        "FIRST_COURSE": 68,
+        "PREOP_BRIEF": 18,
+        "DISCHARGE": 66,
+        "CONSULT": 14,
+        "POSTOP": 27,
+        "TRANSFER_OUT": 4,
+        "OPERATION": 1,
+        "MDT": 2
+      },
+      "review_flag_counts": {
+        "PAST_CUE": 156,
+        "FUTURE_PLAN_CUE": 115,
+        "OTHER_OPERATION_CUE": 86,
+        "QUESTION_CUE": 10
+      }
+    },
+    "D03_TREAT_THEN_REASSESS": {
+      "name": "先治疗再评估或考虑切除的安排",
+      "hits": 7395,
+      "patients": 618,
+      "notes": 5255,
+      "sentence_count": {
+        "1": 5076,
+        "2": 2319
+      },
+      "families": {
+        "FIRST_COURSE": 1835,
+        "FIRST_SENIOR_ROUND": 1340,
+        "DISCHARGE": 495,
+        "OTHER": 1020,
+        "POSTOP": 364,
+        "TRANSFER_IN": 648,
+        "PREOP_DISCUSSION": 402,
+        "ADMISSION": 1109,
+        "PREOP_BRIEF": 137,
+        "WARD_ROUND": 23,
+        "TRANSFER_OUT": 6,
+        "CONSULT": 11,
+        "MDT": 4,
+        "OPERATION": 1
+      },
+      "review_flag_counts": {
+        "PAST_CUE": 1818,
+        "OTHER_OPERATION_CUE": 989,
+        "FUTURE_PLAN_CUE": 1838,
+        "QUESTION_CUE": 138
+      }
+    },
+    "D04_RESPONSE_AND_DISPOSITION": {
+      "name": "治疗反应或复查与手术判断或安排共现",
+      "hits": 1232,
+      "patients": 82,
+      "notes": 1013,
+      "sentence_count": {
+        "2": 183,
+        "1": 1049
+      },
+      "families": {
+        "FIRST_SENIOR_ROUND": 247,
+        "FIRST_COURSE": 481,
+        "ADMISSION": 271,
+        "WARD_ROUND": 9,
+        "TRANSFER_IN": 9,
+        "TRANSFER_OUT": 3,
+        "PREOP_BRIEF": 16,
+        "DISCHARGE": 136,
+        "OTHER": 48,
+        "POSTOP": 4,
+        "PREOP_DISCUSSION": 6,
+        "MDT": 2
+      },
+      "review_flag_counts": {
+        "FUTURE_PLAN_CUE": 801,
+        "OTHER_OPERATION_CUE": 69,
+        "PAST_CUE": 86,
+        "QUESTION_CUE": 5
+      }
+    },
+    "D05_EVIDENCE_BEFORE_DISPOSITION": {
+      "name": "待澄清证据与手术安排共现",
+      "hits": 9647,
+      "patients": 2519,
+      "notes": 8179,
+      "sentence_count": {
+        "1": 5525,
+        "2": 4122
+      },
+      "families": {
+        "PREOP_DISCUSSION": 2949,
+        "WARD_ROUND": 69,
+        "FIRST_SENIOR_ROUND": 1549,
+        "TRANSFER_IN": 465,
+        "PREOP_BRIEF": 458,
+        "OTHER": 494,
+        "FIRST_COURSE": 1671,
+        "ADMISSION": 943,
+        "OPERATION": 155,
+        "POSTOP": 346,
+        "DISCHARGE": 490,
+        "TRANSFER_OUT": 26,
+        "CONSULT": 30,
+        "MDT": 2
+      },
+      "review_flag_counts": {
+        "FUTURE_PLAN_CUE": 4690,
+        "QUESTION_CUE": 489,
+        "OTHER_OPERATION_CUE": 5682,
+        "PAST_CUE": 1384
+      }
+    }
+  },
+  "sample": {
+    "seed": 20261021,
+    "hits": 20,
+    "patients": 20,
+    "original_seed_patients_excluded_only_from_new_sample": 4
+  },
+  "clinical_reference_validated": false,
+  "units": "Overlapping retrieval spans and patients, not independent decisions/episodes or accepted modes."
+}

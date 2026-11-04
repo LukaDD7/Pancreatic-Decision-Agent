@@ -1,0 +1,262 @@
+{
+  "schema_version": "0.1.0",
+  "scope": "real-data development input adaptation and bounded execution; no clinical validation",
+  "issues": [
+    {
+      "issue_id": "CE-REAL-001",
+      "description": "固定十例不因缺源、空候选或审核结果替换；开发Episode范围只按确定性ID选择",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "候选Episode为空时补造Episode",
+        "按预期PASS选择Episode"
+      ],
+      "controls": [
+        "空候选保留HOLD",
+        "按episode_id字典序选择一个Episode"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL001_selection_is_lexical_and_never_replaces_empty_candidates"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-002",
+      "description": "每次真实provider请求须有事前增益；失败与缓存对账且共享批次预算不被续跑重置",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "失败请求不计预算",
+        "缓存命中重复扣减",
+        "供应商价格未提供时成本写成零"
+      ],
+      "controls": [
+        "调用前记录预期增益",
+        "按receipt核销缓存和实际HTTP尝试",
+        "预留额度不低于该次配置的最大HTTP尝试",
+        "价格不可得保持null"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL002_batch_budget_counts_failures_cache_and_preserves_call_gain"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-008",
+      "description": "远程开发传输仍使用三次重试及固定三次预算预留，未落实明确的十次重试要求；预算也不能在剩余额度少于单次最大尝试时启动调用",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "Client配置十次但预算仍按三次预留",
+        "缓存或失败结算仍按三次退回额度",
+        "旧180次总预算不足以支持60请求各十次尝试"
+      ],
+      "controls": [
+        "fixed-ten新合同显式每请求十次、60请求总上限600次",
+        "Client与预算使用同一十次参数",
+        "旧三次合同不能用于新运行；新运行不覆盖已完成旧批次"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases",
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_client_transport.TransportTests.test_CE_NET003_ten_attempt_limit_is_explicit_and_preserves_request_and_diagnostics"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-009",
+      "description": "固定十例DeepSeek部分请求持续HTTP 400后，用户明确要求只将剩余病例切换Kimi重跑；适配器须避免静默全批换模型、替换病例或把不同模型结果合并为同一性能实验",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "无显式subset直接把全批DeepSeek改成Kimi",
+        "subset包含不存在或重复病例",
+        "未声明显式模型切换和禁止病例替换"
+      ],
+      "controls": [
+        "只有具备明确execution_subset、model_switch_is_explicit和no_case_replacement的合同才允许Kimi",
+        "子集逐项绑定原固定十例且只执行所选病例",
+        "未选病例记录NOT_ATTEMPTED，不冒充已完成；不同模型结果分目录保存"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-003",
+      "description": "真实自动材料PASS不能替代独立SemanticAudit或未冻结Questionnaire；无packet时不得调用交付审计",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "PENDING草案冒充人工PASS",
+        "无真实交付对象仍生成Ready",
+        "篡改delivery gate原因"
+      ],
+      "controls": [
+        "DELIVERY_GATE_HOLD保留材料链并失败关闭",
+        "无模型重放核验门禁",
+        "不创建真实医生分配或临床发布"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL003_real_delivery_gate_stops_before_packet_or_human_factory"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-004",
+      "description": "真实远程许可仅绑定本批合同、固定模型和私有输出，不修改生产默认授权",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "切换未批准模型",
+        "修改默认配置对象",
+        "批次许可扩展为医生发布"
+      ],
+      "controls": [
+        "逐字段核验批次合同",
+        "生产默认配置保持禁止",
+        "发布与医生分配保持false"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-005",
+      "description": "批次进度快照更新不能覆盖逐次进度事件，也不能因第二例完成而中断剩余病例",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "第二例结束后以独占写入覆盖batch-progress.json",
+        "进度写失败将此前模型调用记为整批完成"
+      ],
+      "controls": [
+        "每次病例终态保留不可变进度事件",
+        "当前进度快照原子更新",
+        "旧中断目录保留不覆盖"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL005_progress_snapshots_preserve_every_case_event"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-006",
+      "description": "运行后治理代码变化不能把已保存运行误标为临床通过，也不能阻止按历史实现快照核验临床链",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "运行中修改注册表后重放拒绝所有已完成病例",
+        "关闭当前实现核验时省略链hash和原始材料绑定"
+      ],
+      "controls": [
+        "严格模式默认要求当前实现快照",
+        "历史重放明确记录未认证当前快照且仍核验临床链"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL006_historical_replay_keeps_chain_validation_and_provenance"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-007",
+      "description": "默认fixed-ten输出位于历史符号链接下的外置私有目录时，逻辑项目private根不能直接作为物理门禁根",
+      "implementation_status": "implemented_with_synthetic_and_offline_real_preflight_regression",
+      "counterexamples": [
+        "默认输出解析至外置private子目录，却被逻辑private根拒绝",
+        "任意系统/private/var路径被误认为研究私有根"
+      ],
+      "controls": [
+        "默认输入输出从同一已迁移的p2_checkpoint_next私有目录解析",
+        "显式测试仍绑定独立物理根",
+        "2026-11-01真实fixed-ten离线preflight已完成；未执行模型调用",
+        "默认修复不授权远程执行"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL007_relocated_default_output_stays_inside_migrated_private_parent"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-010",
+      "description": "SCALE-01/05/08的DeepSeek及Kimi请求均持续HTTP 400，尚无响应体可证明限流原因；用户要求修复后以调用速率假设开展三例有界重试，需显式请求起步间隔、封顶退避及脱敏审计，不得把配置变更当作原因证实",
+      "implementation_status": "implemented_with_synthetic_regression_bounded_retry_separately_authorized",
+      "counterexamples": [
+        "同一指数退避无上限导致三例各自等待约12至15分钟仍未诊断400",
+        "授权合同没有速率配置却静默改变客户端节流",
+        "把400写为已证实的429限流或凭节流宣称修复供应商拒绝"
+      ],
+      "controls": [
+        "三例Kimi子集新合同显式设置10秒请求起步间隔、30秒退避基数、120秒封顶，保持每请求10次和总预算600 attempts",
+        "预算台账保留实际尝试、配置和等待时间但不保存供应商正文/认证信息",
+        "明确http_400_rate_cause_unproven；不同代码、提示、模型与速率条件不合并归因性能"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL004_batch_authorization_is_specific_and_never_releases",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL010_pacing_receipt_is_audited_without_provider_content",
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_client_transport.TransportTests.test_CE_NET004_request_start_pacing_is_bounded_and_audited"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-011",
+      "description": "真实复验合同须显式启用三轮材料复审和分离图重建，不得沿用旧max_rounds=1或handoff后停止；重建调用与后续审核使用同一批次台账，自动完成仍需人工终审",
+      "implementation_status": "implemented_with_synthetic_regression_real_run_authorized_separately",
+      "counterexamples": [
+        "局部材料REVISE在第一轮新hash上未复审就结束",
+        "可自动图重建仍停在handoff",
+        "重建调用绕过BatchModelBudget或被视为免费调用",
+        "自动全阶段完成被写为医生Reference或临床发布",
+        "聚合replay错误指向父图而非最后一代新图"
+      ],
+      "controls": [
+        "授权合同显式max_rounds=3、max_graph_revisions=1和automatic_graph_reconstruction_authorized",
+        "reconstruction adapter纳入同一BatchModelBudget和脱敏调用回执",
+        "保存每代不可变运行、独立重建链及最后一代run hash并正确replay",
+        "真实交付门禁保持PENDING_INDEPENDENT_SEMANTIC_AUDIT和QUESTIONNAIRE_NOT_FROZEN"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL004_batch_authorization_is_specific_and_never_releases",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits",
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_material_governance.py::RevisionTests::test_CE_AMG026_local_material_revisions_continue_until_fresh_pass"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-012",
+      "description": "所选Episode当前处理单位原文与冻结事件actual_model_evidence历史来源依赖不一致；SCALE-01图审核只收到3份当前单位原文，而材料要求两个Checkpoint各245/257份依赖",
+      "implementation_status": "implemented_with_synthetic_and_scale01_offline_source_reconciliation_no_new_remote_run",
+      "counterexamples": [
+        "当前单位3份原文，历史模型证据额外引用2份冻结来源，材料装配误报缺源",
+        "首次正式执行只传当前单位sources，图审核PASS后两个Checkpoint仍分别缺243/254份来源",
+        "成功generation的replay误把gen1父目录指向最后一代，使原始REVISE父审核绑定失真",
+        "成功重建后fresh graph audit误收历史材料来源，DOC-BUDGET落入uncovered导致合法PASS被拒",
+        "历史证据引用交付中确实未找到的source_id",
+        "用来源交集静默删除历史证据，或把冻结包可补齐解释为时点可见/医生许可"
+      ],
+      "controls": [
+        "分别保存当前处理单位完整原文与event.source_ids并集actual_model_evidence.source_id依赖闭包",
+        "只从已核验hash的冻结交付包补齐历史依赖，未找到source_id保留明确缺口",
+        "图审核与重建只使用当前处理单位原文；材料任务使用含历史依赖的研究者来源集合",
+        "两个来源范围分别冻结于input_contract.sources与graph_audit_sources；正式初始执行、每代新图及replay使用同一范围",
+        "来源范围测试使用current=3/material=4的真实不同集合，不再以相同fixture掩盖接线错误",
+        "保留来源时间与clock_basis；恢复来源不认证目标时点可见性或医生盲评许可"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL012_historical_source_closure_recovers_only_frozen_verified_originals",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL012_first_batch_graph_pass_material_receives_historical_dependency",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA010_successful_batch_reconstruction_binds_initial_parent_and_fresh_sources",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA008_010_real_batch_uses_separate_reconstruction_and_replays_failed_chain",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_ready_pipeline.py::test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-013",
+      "description": "首次/恢复replay只遍历进度行而漏核台账病例；冻结完整执行清单并核对授权、结算和实际产物",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "无既存回执且进度清单为空/丢行/重复",
+        "有调用无终态或未结算",
+        "仅余子集外病例",
+        "跳过尾部未授权病例未保存进度",
+        "删除新运行清单后退回旧兼容路径"
+      ],
+      "controls": [
+        "完整失败病例仍可重放",
+        "保留固定、授权、尝试和已核验数量",
+        "继承已结算台账的新目录续跑",
+        "未知旧总体分母不补造",
+        "既有回执与授权绑定不放宽"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_first_replay_rejects_missing_duplicate_or_unattempted_called_cases",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_subset_preserves_final_skipped_rows_and_clear_denominators",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_unsettled_calls_and_missing_inventory_cannot_bypass_replay",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_versioned_settled_budget_recovery_and_legacy_coverage",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_existing_receipt_and_authorization_binding_remain_protected"
+      ]
+    }
+  ]
+}

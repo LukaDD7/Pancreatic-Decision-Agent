@@ -1,0 +1,8 @@
+{
+  "version": "v0.5.0",
+  "issues": [
+    {"issue_id":"V04-SEMNEW001","failing_counterexample":"Already-known AG history called new merely because prior did not explicitly cite it as rationale","required_tests":["test_SEMNEW001_old_fact_repeated_not_new_because_new_rationale","test_SEMNEW001_unchanged_action_does_not_veto_new_measurement","test_SEMNEW001_reinterpretation_requires_explicit_source","test_SEMNEW001_current_fact_cannot_be_previous_known"],"limits":"Structured comparison and source-proof validation, not model novelty accuracy certification"},
+    {"issue_id":"V05-AVAIL001","failing_counterexample":"Earlier report/exam proxy treated as proof it was already known before choice","required_tests":["test_AVAIL001_earlier_report_clock_not_proof_of_reading","test_AVAIL001_other_old_observation_does_not_certify_new_fact","test_AVAIL001_invented_basis_does_not_certify_known"],"limits":"Requires model known-before claim and valid basis; clinical meaning not mechanically proven"},
+    {"issue_id":"V05-MODEL001","failing_counterexample":"Configured model switch must change actual body and cache identity","required_tests":["test_MODEL001_configured_model_changes_real_body_and_cache_key"],"limits":"Provider model-name declaration is recorded, underlying identity not independently proven"}
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkpoint-material-governance:0.1.0:MaterialRevisionPlan",
+  "title": "MaterialRevisionPlan",
+  "type": "object",
+  "properties": {
+    "format": {"const": "material-revision-plan-0.1.0"},
+    "review_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["AUTO_REVIEW_PASS", "AUTO_REVIEW_REVISE", "AUTO_REVIEW_HOLD"]},
+    "input_compiled_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "output_compiled_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "changed": {"type": "boolean"},
+    "operation_count": {"type": "integer", "minimum": 0},
+    "event_graph_modified": {"const": false},
+    "clinical_release_permitted": {"const": false}
+  },
+  "required": ["format", "review_id", "status", "input_compiled_sha256", "output_compiled_sha256", "changed", "operation_count", "event_graph_modified", "clinical_release_permitted"],
+  "additionalProperties": false
+}
