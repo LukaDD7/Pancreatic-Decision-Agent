@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:checkpoint-material-governance:0.2.0:AutomatedMaterialReviewChain",
+  "$id": "urn:checkpoint-material-governance:0.3.0:AutomatedMaterialReviewChain",
   "type": "object",
   "properties": {
     "initial_manifest": {
@@ -25,10 +25,10 @@
       "type": "object"
     },
     "format": {
-      "const": "automated-material-review-chain-0.2.0"
+      "const": "automated-material-review-chain-0.3.0"
     },
     "protocol_version": {
-      "const": "checkpoint-automated-material-review-0.2.0"
+      "const": "checkpoint-automated-material-review-0.3.0"
     },
     "state": {
       "enum": [

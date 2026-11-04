@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import ContractError, canonical_sha256
 
-CHAIN_FORMAT = 'automated-material-review-chain-0.2.0'
+LEGACY_CHAIN_FORMATS = ('automated-material-review-chain-0.2.0',)
 
 
 def _same(actual, expected, code):
@@ -58,14 +58,22 @@ def validate_review_chain(chain, *, expected_graph_context=None):
     A legitimate execution failure can retain zero completed rounds only as
     HOLD/EXECUTION_FAILED. It cannot supply a PASS or clinical permission.
     """
-    from .review import (AUTO_PROTOCOL_VERSION, MaterialReviewError, build_review_request,
+    from .review import (AUTO_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSIONS, CHAIN_FORMAT,
+                         MaterialReviewError, build_review_request,
                          build_source_registry, registry_review_sources,
-                         validate_material_review, doctor_view, _content_signature, _diff)
-    if not isinstance(chain, dict) or chain.get('format') != CHAIN_FORMAT:
-        raise ContractError('CHAIN_VERSION_REQUIRES_REPLAYABLE_V02')
-    from .schema import validate_schema
-    validate_schema('AutomatedMaterialReviewChain', chain)
-    _same(chain.get('protocol_version'), AUTO_PROTOCOL_VERSION, 'CHAIN_PROTOCOL_MISMATCH')
+                         validate_material_review, doctor_view, _content_signature, _diff,
+                         _new_source_resolution_pending, _state_is_new_source_pending)
+    if not isinstance(chain, dict) or (chain.get('format') != CHAIN_FORMAT
+            and chain.get('format') not in LEGACY_CHAIN_FORMATS):
+        raise ContractError('CHAIN_VERSION_REQUIRES_REPLAYABLE_V02_OR_V03')
+    protocol_version = chain.get('protocol_version')
+    current = chain['format'] == CHAIN_FORMAT
+    if (current and protocol_version != AUTO_PROTOCOL_VERSION) \
+            or (not current and protocol_version not in LEGACY_PROTOCOL_VERSIONS):
+        raise ContractError('CHAIN_PROTOCOL_MISMATCH')
+    if current:
+        from .schema import validate_schema
+        validate_schema('AutomatedMaterialReviewChain', chain)
     if (chain.get('clinical_release_permitted') is not False
             or chain.get('event_graph_modified') is not False
             or chain.get('clinical_reference_created') is not False
@@ -109,7 +117,8 @@ def validate_review_chain(chain, *, expected_graph_context=None):
         _same(round_.get('input_compiled'), compiled, 'CHAIN_INPUT_COMPILED_CONTINUITY_MISMATCH')
         candidates, excluded = registry_review_sources(registry, manifest, previously_included_ids=previously_included_ids)
         request = build_review_request(manifest, compiled, candidate_sources=candidates,
-            excluded_sources=excluded, task_context=context)
+            excluded_sources=excluded, task_context=context, protocol_version=protocol_version,
+            round_index=index, max_rounds=maximum, previous_round=rounds[index-2] if current and index > 1 else None)
         _same(round_.get('request'), request, 'CHAIN_REQUEST_RECONSTRUCTION_MISMATCH')
         _same(round_.get('request_sha256'), canonical_sha256(request), 'CHAIN_REQUEST_HASH_MISMATCH')
         _same(round_.get('request_binding_sha256'), request['response_binding']['request_sha256'],
@@ -117,15 +126,22 @@ def validate_review_chain(chain, *, expected_graph_context=None):
         _same(round_.get('source_registry_sha256'), chain['source_registry_sha256'], 'CHAIN_ROUND_REGISTRY_MISMATCH')
         plan = validate_material_review(manifest, compiled, round_.get('review'),
             candidate_sources=candidates, excluded_sources=excluded, task_context=context,
-            expected_request=request)
+            expected_request=request, protocol_version=protocol_version, round_index=index,
+            max_rounds=maximum, previous_round=rounds[index-2] if current and index > 1 else None)
         for key in ('manifest', 'compiled', 'ledger', 'review', 'changed', 'input_compiled_sha256',
                     'input_manifest_sha256', 'compiled_changed_requires_new_review',
                     'human_review_created', 'clinical_release_permitted', 'event_graph_modified',
                     'application_receipt'):
             _same(round_.get(key), plan.get(key), 'CHAIN_REPLAY_' + key.upper() + '_MISMATCH')
         _same(round_.get('diff'), _diff(compiled, plan['compiled']), 'CHAIN_DIFF_REPLAY_MISMATCH')
-        if plan['review']['status'] == 'AUTO_REVIEW_REVISE' and not _diff(compiled, plan['compiled'])['changed']:
+        if plan['review']['status'] == 'AUTO_REVIEW_REVISE' and not _diff(compiled, plan['compiled'])['changed'] \
+                and not _new_source_resolution_pending(compiled, rounds[index-2] if current and index > 1 else None):
             raise ContractError('CHAIN_REVISE_REQUIRES_ACTUAL_NEW_CONTENT')
+        if current and plan['review']['status'] == 'AUTO_REVIEW_REVISE' \
+                and not (_diff(compiled, plan['compiled'])['doctor_visible_material_changed']
+                         or _diff(compiled, plan['compiled'])['source_scope_changed']) \
+                and not _new_source_resolution_pending(compiled, rounds[index-2] if index > 1 else None):
+            raise ContractError('CHAIN_REVISE_REQUIRES_DOCTOR_VISIBLE_OR_SOURCE_SCOPE_CHANGE')
         manifest, compiled = plan['manifest'], plan['compiled']
         previously_included_ids.update(s['source_id'] for s in manifest['sources'])
         ledger = plan['ledger']
@@ -137,7 +153,8 @@ def validate_review_chain(chain, *, expected_graph_context=None):
             expected_stop = 'AUTO_PASS'
         else:
             digest = _content_signature(compiled)
-            if digest in seen:
+            if digest in seen and not _state_is_new_source_pending(compiled,
+                    rounds[index-2] if current and index > 1 else None):
                 expected_stop = 'REVISION_CYCLE'
             seen[digest] = index
             if expected_stop is None and index == maximum:
@@ -150,7 +167,9 @@ def validate_review_chain(chain, *, expected_graph_context=None):
             raise ContractError('CHAIN_FAILURE_ROUND_MISMATCH')
         candidates, excluded = registry_review_sources(registry, manifest, previously_included_ids=previously_included_ids)
         request = build_review_request(manifest, compiled, candidate_sources=candidates,
-            excluded_sources=excluded, task_context=context)
+            excluded_sources=excluded, task_context=context, protocol_version=protocol_version,
+            round_index=len(rounds)+1, max_rounds=maximum,
+            previous_round=rounds[-1] if current and rounds else None)
         _same(failure.get('request'), request, 'CHAIN_FAILURE_REQUEST_MISMATCH')
         _same(failure.get('request_sha256'), canonical_sha256(request), 'CHAIN_FAILURE_REQUEST_HASH_MISMATCH')
         if not all(isinstance(failure.get(key), str) and failure[key] for key in ('stage', 'error_type', 'reason_code')):
@@ -161,10 +180,18 @@ def validate_review_chain(chain, *, expected_graph_context=None):
             try:
                 failed_plan = validate_material_review(manifest, compiled, failure['response'],
                     candidate_sources=candidates, excluded_sources=excluded, task_context=context,
-                    expected_request=request)
+                    expected_request=request, protocol_version=protocol_version,
+                    round_index=len(rounds)+1, max_rounds=maximum,
+                    previous_round=rounds[-1] if current and rounds else None)
                 if (failed_plan['review']['status'] == 'AUTO_REVIEW_REVISE'
-                        and not _diff(compiled, failed_plan['compiled'])['changed']):
+                        and not _diff(compiled, failed_plan['compiled'])['changed']
+                        and not _new_source_resolution_pending(compiled, rounds[-1] if current and rounds else None)):
                     raise MaterialReviewError('REVISE_REQUIRES_ACTUAL_NEW_CONTENT')
+                if current and failed_plan['review']['status'] == 'AUTO_REVIEW_REVISE' \
+                        and not (_diff(compiled, failed_plan['compiled'])['doctor_visible_material_changed']
+                                 or _diff(compiled, failed_plan['compiled'])['source_scope_changed']) \
+                        and not _new_source_resolution_pending(compiled, rounds[-1] if rounds else None):
+                    raise MaterialReviewError('REVISE_REQUIRES_DOCTOR_VISIBLE_OR_SOURCE_SCOPE_CHANGE')
             except Exception as exc:
                 code = str(exc) if isinstance(exc, MaterialReviewError) else type(exc).__name__
                 _same(failure['error_type'], type(exc).__name__, 'CHAIN_FAILURE_ERROR_TYPE_MISMATCH')

@@ -1,6 +1,6 @@
 {
   "version": "p2-checkpoint-0.6.1",
-  "protocol_version": "checkpoint-automated-material-review-0.2.0",
+  "protocol_version": "checkpoint-automated-material-review-0.3.0",
   "remediation_revision": "20261029-audit-r1",
   "model_temperature": 0,
   "max_output_tokens": 16000,

@@ -13,7 +13,8 @@ from scripts.cohort_construction.p2_checkpoint_review_app.build import build_rev
 
 
 def passing_graph_response(request):
-    return dict(format='candidate-reconstruction-audit-0.1.0', review_id='SYNTHETIC-GRAPH-AUDIT',
+    return dict(format='candidate-reconstruction-audit-0.2.0' if request['protocol_version'].endswith('0.2.0')
+        else 'candidate-reconstruction-audit-0.1.0', review_id='SYNTHETIC-GRAPH-AUDIT',
         target=dict(graph_sha256=request['response_binding']['graph_sha256']), **request['response_binding'],
         reviewer_type='llm_candidate_reconstruction_audit',
         dimensions=[dict(dimension=dimension, applicability='APPLICABLE', status='RESOLVED', reason='虚构独立审计')

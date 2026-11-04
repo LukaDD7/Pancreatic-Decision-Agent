@@ -550,6 +550,32 @@
         "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_material_governance.py::RevisionTests::test_CE_AMG026_local_material_revisions_continue_until_fresh_pass",
         "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_material_governance.py::RevisionTests::test_CE_AMG026_unresolved_human_or_graph_issue_still_stops"
       ]
+    },
+    {
+      "issue_id": "CE-AMG-027",
+      "description": "SCALE-02材料续轮虽收到新分区/hash，但未收到自己的前次完整审核、逐项程序执行回执及实际前后diff；近似首轮的指令可能使修订回摆。另须区分医生可见变化、来源范围变化、仅内部MASK/REVIEW变化及新增来源初始REVIEW",
+      "implementation_status": "implemented_v030_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "续轮只有当前分区而不知道它由自己上一轮建议加确定性执行产生",
+        "同一来源范围内仅MASK/REVIEW往返改变compiled hash而医生可见材料不变",
+        "INCLUDE_SOURCE使新来源初始REVIEW，暂无可读医生材料却被旧守卫误拒",
+        "重算hash掩盖续轮历史、执行回执或diff替换"
+      ],
+      "controls": [
+        "0.3.0请求绑定review_round及previous_review/operation_receipts/program_execution_receipt/actual_program_diff",
+        "REVISE须改变实际医生可见材料或来源范围；刚纳入且全为REVIEW的来源允许显式继续处理或带待办HOLD",
+        "纯内部MASK/REVIEW反复消耗REVISE预算被拒绝并可重放失败原因",
+        "Python权威replay及Chrome镜像均核验失败请求历史；0.2.0旧链保持兼容"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_agent_state.test_CE_AMG027_next_request_contains_own_review_applied_receipts_and_both_diffs",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_agent_state.test_CE_AMG027_mask_to_review_cannot_consume_another_revise_round",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_agent_state.test_CE_AMG027_no_visible_change_hold_still_applies_and_replays",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_agent_state_convergence.test_CE_AMG027_include_source_starts_review_and_requires_fresh_resolution",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_agent_state_convergence.test_CE_AMG027_mask_to_review_research_only_churn_is_rejected_and_replayed",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_replay_valid_multiround_with_new_source",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_actual_revisions_new_source_and_rehashed_bad_history_rejected_in_chrome"
+      ]
     }
   ]
 }

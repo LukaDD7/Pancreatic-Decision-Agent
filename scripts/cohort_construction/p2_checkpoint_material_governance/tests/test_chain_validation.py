@@ -15,8 +15,8 @@ from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_
 
 
 def response_for(request, *, status='AUTO_REVIEW_HOLD', operations=(), review_id='MR-fictional'):
-    return dict(format='material-review-0.2.0', review_id=review_id, target=deepcopy(request['target']),
-        **deepcopy(request['response_binding']), reviewer_type='llm_material_review',
+    return dict(format='material-review-0.3.0', review_id=review_id, target=deepcopy(request['target']),
+        **deepcopy(request['response_binding']), review_round=deepcopy(request['review_round']), reviewer_type='llm_material_review',
         dimensions=[dict(dimension=d, applicability='APPLICABLE', status='RESOLVED',
                          reason='虚构工程测试，未形成临床意见') for d in DIMENSIONS],
         findings=[], operations=list(operations), status=status,
@@ -50,14 +50,21 @@ def fictional_chain(*, include_source=False, graph=False):
                 operations.append(dict(operation_id='OP-include', operation='INCLUDE_SOURCE',
                     source_id=outside['source_id'], reason='虚构来源范围修订，不改候选图'))
         elif include_source and count == 2:
+            segment = next(s for s in request['current_dispositions']
+                if s['source_id'] == outside['source_id'])
             operations.append(dict(operation_id='OP-outside', operation='SET_DISPOSITION',
-                source_id=outside['source_id'], exact_quote=outside['text'], disposition='MASK',
+                source_id=outside['source_id'], exact_quote=segment['exact_quote'], disposition='MASK',
                 reason='虚构后续来源遮蔽'))
         return response_for(request, status='AUTO_REVIEW_REVISE' if operations else 'AUTO_REVIEW_PASS',
                             operations=operations, review_id='MR-fictional-'+str(count))
     chain = run_review_chain(documents['manifest'], documents['compiled'], ask,
         candidate_sources=[outside] if include_source else [],
         excluded_sources=[] if include_source else [outside], max_rounds=4, task_context=context)
+    if include_source:
+        assert chain['stop_reason'] == 'AUTO_PASS'
+        assert len(chain['rounds']) == 3
+        assert chain['rounds'][0]['diff']['source_scope_changed'] is True
+        assert chain['rounds'][0]['diff']['doctor_visible_material_changed'] is True
     return documents, sources, chain, snapshot
 
 
@@ -78,6 +85,9 @@ def test_replay_valid_multiround_with_new_source():
     receipt = validate_review_chain(chain)
     assert receipt['deterministic_replay_verified'] and receipt['round_count'] == 3
     assert receipt['state'] == 'AUTO_REVIEW_PASS'
+    assert chain['stop_reason'] == 'AUTO_PASS'
+    assert chain['rounds'][0]['diff']['doctor_visible_material_changed']
+    assert chain['rounds'][0]['diff']['source_scope_changed']
     assert receipt['clinical_visibility_certified'] is False
 
 

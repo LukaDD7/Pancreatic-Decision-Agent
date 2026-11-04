@@ -13,6 +13,8 @@ from scripts.cohort_construction.p2_checkpoint_material_governance.assembly impo
 )
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
 from .audit import DIMENSIONS, build_graph_audit_request, validate_graph_audit
+from .audit import PROTOCOL_VERSION as AUDIT_PROTOCOL_VERSION
+from .audit import LEGACY_PROTOCOL_VERSIONS as LEGACY_AUDIT_PROTOCOL_VERSIONS
 
 REQUEST_FORMAT = 'candidate-graph-reconstruction-request-0.2.0'
 LEGACY_REQUEST_FORMAT = 'candidate-graph-reconstruction-request-0.1.0'
@@ -201,7 +203,9 @@ def _validate_request(request):
         request['complete_originals_supplied'], **_reconstruction_input(request))
     if audit_request['response_binding'] != request['response_binding']:
         raise ValueError('GRAPH_RECONSTRUCTION_REQUEST_BINDING_INVALID')
-    response = dict(format='candidate-reconstruction-audit-0.1.0',
+    response = dict(format='candidate-reconstruction-audit-0.2.0'
+            if audit_request['protocol_version'] == AUDIT_PROTOCOL_VERSION
+            else 'candidate-reconstruction-audit-0.1.0',
         review_id=request['previous_review_id'],
         protocol_version=request['response_binding']['protocol_version'],
         graph_sha256=request['response_binding']['graph_sha256'],

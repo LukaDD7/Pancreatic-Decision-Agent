@@ -5,7 +5,8 @@ import re
 from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import normalize_sources
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
 
-PROTOCOL_VERSION = 'checkpoint-candidate-reconstruction-audit-0.1.0'
+PROTOCOL_VERSION = 'checkpoint-candidate-reconstruction-audit-0.2.0'
+LEGACY_PROTOCOL_VERSIONS = ('checkpoint-candidate-reconstruction-audit-0.1.0',)
 TASK = 'checkpoint_candidate_reconstruction_independent_audit'
 DIMENSIONS = ('source_coverage', 'radical_pathway_relevance', 'event_identity',
               'comparison_and_evolution', 'relations_and_episode',
@@ -53,7 +54,8 @@ def build_graph_audit_request(graph, sources, *, discovery_proposals=(),
                               review_proposals=(), feedback_history=(),
                               processing_units=None, unit_inventory=None,
                               source_route_receipts=(), final_graph_audit=None,
-                              additional_excluded_units=()):
+                              additional_excluded_units=(), reconstruction_lineage=None,
+                              protocol_version=PROTOCOL_VERSION):
     """Freeze declared source scope, upstream proposals and assembled graph.
 
     No input field is promoted to clinical fact. ``complete_originals_supplied``
@@ -63,6 +65,13 @@ def build_graph_audit_request(graph, sources, *, discovery_proposals=(),
         raise ValueError('GRAPH_AUDIT_CANDIDATE_GRAPH_REQUIRED')
     if canonical_sha256({k: v for k, v in graph.items() if k != 'graph_sha256'}) != graph.get('graph_sha256'):
         raise ValueError('GRAPH_AUDIT_GRAPH_HASH_MISMATCH')
+    if protocol_version not in (PROTOCOL_VERSION, *LEGACY_PROTOCOL_VERSIONS):
+        raise ValueError('GRAPH_AUDIT_PROTOCOL_VERSION_INVALID')
+    if reconstruction_lineage is not None:
+        if protocol_version != PROTOCOL_VERSION:
+            raise ValueError('GRAPH_AUDIT_LEGACY_CANNOT_ADD_LINEAGE')
+        from .lineage import validate_graph_revision_lineage
+        reconstruction_lineage = validate_graph_revision_lineage(reconstruction_lineage, graph)
     normalized = normalize_sources(sources)
     indexed = {source['source_id']: source for source in normalized}
     units = graph.get('discovery_units', []) if processing_units is None else processing_units
@@ -74,8 +83,9 @@ def build_graph_audit_request(graph, sources, *, discovery_proposals=(),
             raise ValueError('GRAPH_AUDIT_DECLARED_UNIT_SOURCE_MISSING')
         covered.update(ids)
     uncovered = sorted(set(indexed) - covered)
-    request = dict(format='candidate-reconstruction-audit-request-0.1.0',
-        task=TASK, protocol_version=PROTOCOL_VERSION,
+    request = dict(format='candidate-reconstruction-audit-request-0.2.0' if protocol_version == PROTOCOL_VERSION
+            else 'candidate-reconstruction-audit-request-0.1.0',
+        task=TASK, protocol_version=protocol_version,
         audit_scope=dict(scope_kind='DECLARED_PROCESSING_UNITS_AND_SUPPLIED_ORIGINALS',
             whole_patient_chart_certified=False,
             complete_originals_supplied=[dict(source_id=s['source_id'], source_version=s['source_version'],
@@ -96,7 +106,11 @@ def build_graph_audit_request(graph, sources, *, discovery_proposals=(),
         candidate_graph_is_not_clinical_reference=True,
         upstream_labels_are_not_ground_truth=True,
         clinical_visibility_certified=False)
-    request['response_binding'] = dict(protocol_version=PROTOCOL_VERSION,
+    if reconstruction_lineage is not None:
+        request['reconstruction_lineage'] = deepcopy(reconstruction_lineage)
+        request['audit_round'] = dict(is_post_reconstruction_fresh_audit=True,
+            current_state_produced_by_previous_reconstruction=True)
+    request['response_binding'] = dict(protocol_version=protocol_version,
         graph_sha256=canonical_sha256(graph), request_sha256=canonical_sha256(request))
     return request
 
@@ -105,7 +119,7 @@ def validate_graph_audit(request, response):
     """Require complete dimensions, exact binding and verbatim local evidence."""
     if not isinstance(response, dict):
         raise ValueError('GRAPH_AUDIT_RESPONSE_OBJECT_REQUIRED')
-    _validate_schema(response, GRAPH_AUDIT_SCHEMA)
+    _validate_schema(response, _graph_audit_schema(request['protocol_version']))
     binding = request['response_binding']
     if any(response.get(key) != binding[key] for key in binding):
         raise ValueError('GRAPH_AUDIT_RESPONSE_BINDING_MISMATCH')
@@ -137,6 +151,14 @@ def validate_graph_audit(request, response):
             or any(item['status'] == 'OPEN' or item['applicability'] == 'UNKNOWN' for item in response['dimensions'])):
         raise ValueError('GRAPH_AUDIT_HOLD_REQUIRES_REASON')
     return response
+
+
+def _graph_audit_schema(protocol_version):
+    schema = deepcopy(GRAPH_AUDIT_SCHEMA)
+    schema['properties']['protocol_version'] = {'const': protocol_version}
+    if protocol_version in LEGACY_PROTOCOL_VERSIONS:
+        schema['properties']['format']['const'] = 'candidate-reconstruction-audit-0.1.0'
+    return schema
 
 
 def reconstruction_handoff(request, response, *, output_graph=None):
@@ -189,11 +211,11 @@ GRAPH_AUDIT_SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
     'required': ['format', 'review_id', 'target', 'protocol_version', 'graph_sha256',
                  'request_sha256', 'reviewer_type', 'dimensions', 'findings',
                  'revision_requests', 'status', 'required_actions'],
-    'properties': {'format': {'const': 'candidate-reconstruction-audit-0.1.0'},
+    'properties': {'format': {'const': 'candidate-reconstruction-audit-0.2.0'},
         'review_id': {'type': 'string', 'minLength': 1},
         'target': {'type': 'object', 'additionalProperties': False,
             'required': ['graph_sha256'], 'properties': {'graph_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'}}},
-        'protocol_version': {'const': PROTOCOL_VERSION},
+        'protocol_version': {'enum': [PROTOCOL_VERSION, *LEGACY_PROTOCOL_VERSIONS]},
         'graph_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
         'request_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
         'reviewer_type': {'const': 'llm_candidate_reconstruction_audit'},

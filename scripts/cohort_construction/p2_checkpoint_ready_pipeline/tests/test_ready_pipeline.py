@@ -25,7 +25,7 @@ from scripts.cohort_construction.p2_checkpoint_ready_pipeline.revision import (
 )
 
 
-CONFIG = dict(protocol_version='checkpoint-automated-material-review-0.2.0',
+CONFIG = dict(protocol_version='checkpoint-automated-material-review-0.3.0',
     remote_execution_authorized=True, synthetic_only=True,
     doctor_packet_release=False, real_doctor_assignment_creation=False,
     clinical_release_permitted=False)

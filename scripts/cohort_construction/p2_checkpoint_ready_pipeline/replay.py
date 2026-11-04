@@ -88,9 +88,19 @@ def validate_pipeline_run(run, *, output=None, verify_implementation=True):
             _saved(output, 'superseded-parent-run.json', parent)
             if reconstruction_chain is not None:
                 _saved(output, 'graph-reconstruction-chain.json', reconstruction_chain)
-    request = json_value(build_graph_audit_request(graph, graph_audit_sources,
-        **contract['graph_audit_context']))
+    audit_context = deepcopy(contract['graph_audit_context'])
+    if run.get('graph_revision_cycle') is not None and reconstruction_chain is not None:
+        from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.lineage import build_graph_revision_lineage
+        audit_context['reconstruction_lineage'] = build_graph_revision_lineage(
+            parent['graph_audit_chain'], reconstruction_chain, graph)
     chain = run.get('graph_audit_chain')
+    if chain is not None:
+        audit_context['protocol_version'] = chain['initial_request']['protocol_version']
+        if chain['initial_request']['protocol_version'] != 'checkpoint-candidate-reconstruction-audit-0.2.0':
+            # Historical runs have no lineage field; replay cannot upgrade them.
+            audit_context.pop('reconstruction_lineage', None)
+    request = json_value(build_graph_audit_request(graph, graph_audit_sources,
+        **audit_context))
     if chain is None:
         _expect_terminal(run, stages, [('GRAPH_AUDIT', 'PREPARED_NOT_EXECUTED')], 'PREPARED_NOT_EXECUTED')
         return _receipt(run, [])

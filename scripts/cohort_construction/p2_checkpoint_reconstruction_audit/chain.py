@@ -8,9 +8,11 @@ from copy import deepcopy
 
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
 from .audit import GRAPH_AUDIT_SCHEMA, TASK, build_graph_audit_request, reconstruction_handoff, validate_graph_audit
+from .audit import PROTOCOL_VERSION
 from .projection import COMPACT_FORMAT, compact_graph_audit_request, expand_graph_audit_request
 
-FORMAT = 'candidate-reconstruction-audit-chain-0.1.0'
+FORMAT = 'candidate-reconstruction-audit-chain-0.2.0'
+LEGACY_FORMAT = 'candidate-reconstruction-audit-chain-0.1.0'
 _HANDOFF_KEYS = ('revision_requests', 'required_actions', 'fresh_graph_material_and_delivery_reaudit_required',
                  'old_material_pass_transferable', 'clinical_release_permitted')
 
@@ -24,7 +26,9 @@ def _reconstruction_input(request):
         unit_inventory=deepcopy(request.get('unit_inventory')),
         source_route_receipts=deepcopy(request.get('source_route_receipts', [])),
         final_graph_audit=deepcopy(request.get('final_graph_audit')),
-        additional_excluded_units=deepcopy(request.get('additional_excluded_units', [])))
+        additional_excluded_units=deepcopy(request.get('additional_excluded_units', [])),
+        reconstruction_lineage=deepcopy(request.get('reconstruction_lineage')),
+        protocol_version=request.get('protocol_version', request['response_binding']['protocol_version']))
 
 
 def _handoff(handoff):
@@ -99,7 +103,7 @@ def run_graph_audit_chain(request, ask, *, max_rounds=3, journal=None, compact_t
         handoff = expected_handoff
         stop = 'RECONSTRUCTION_REQUIRED'
         break
-    result = dict(format=FORMAT, protocol_version=initial['protocol_version'],
+    result = dict(format=FORMAT if initial['protocol_version'] == PROTOCOL_VERSION else LEGACY_FORMAT, protocol_version=initial['protocol_version'],
         graph_sha256=initial['response_binding']['graph_sha256'], initial_request=initial,
         state='AUTO_GRAPH_AUDIT_PASS' if stop == 'AUTO_PASS' else (
             'AUTO_GRAPH_AUDIT_REVISE' if stop == 'RECONSTRUCTION_REQUIRED' else 'AUTO_GRAPH_AUDIT_HOLD'),
@@ -116,7 +120,7 @@ def run_graph_audit_chain(request, ask, *, max_rounds=3, journal=None, compact_t
 
 def validate_graph_audit_chain(chain):
     """Authoritative no-model replay; a tail hash cannot hide a changed history."""
-    if not isinstance(chain, dict) or chain.get('format') != FORMAT:
+    if not isinstance(chain, dict) or chain.get('format') not in (FORMAT, LEGACY_FORMAT):
         raise ValueError('GRAPH_AUDIT_CHAIN_FORMAT_INVALID')
     if canonical_sha256({key: value for key, value in chain.items() if key != 'chain_sha256'}) != chain.get('chain_sha256'):
         raise ValueError('GRAPH_AUDIT_CHAIN_HASH_MISMATCH')

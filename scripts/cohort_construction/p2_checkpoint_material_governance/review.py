@@ -11,13 +11,16 @@ from jsonschema import Draft202012Validator
 from scripts.cohort_construction.p2_checkpoint_material_governance.schema import validate_schema
 
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import (
-    CONTRACT_VERSION, ContractError, _verified_sources,
+    CONTRACT_VERSION, ContractError, PLACEHOLDER, _verified_sources,
     build_source_manifest, canonical_sha256, compile_partition, locate_exact_quote,
     project_doctor_materials, text_sha256,
 )
 from scripts.cohort_construction.p2_checkpoint_packet.semantic_audit import _verified_compiled
 
-AUTO_PROTOCOL_VERSION = 'checkpoint-automated-material-review-0.2.0'
+AUTO_PROTOCOL_VERSION = 'checkpoint-automated-material-review-0.3.0'
+LEGACY_PROTOCOL_VERSIONS = ('checkpoint-automated-material-review-0.2.0',)
+REVIEW_RESPONSE_FORMAT = 'material-review-0.3.0'
+CHAIN_FORMAT = 'automated-material-review-chain-0.3.0'
 TASK = 'checkpoint_material_full_source_and_doctor_view_review'
 DIMENSIONS = ('scope', 'target', 'leakage', 'evidence', 'boundaries', 'time', 'evaluability')
 APPLICABLE = ('APPLICABLE', 'NOT_APPLICABLE', 'UNKNOWN')
@@ -63,14 +66,20 @@ def _catalog(compiled):
 
 def build_review_request(manifest, compiled, *, candidate_sources=(),
                          excluded_sources=(), protocol_version=AUTO_PROTOCOL_VERSION,
-                         task_context=None):
+                         task_context=None, round_index=1, max_rounds=3,
+                         previous_round=None):
     """Provide full researcher text and the actual projected doctor view.
 
     Source metadata and model evidence are researcher context, never clinical
     assertions. Only explicitly supplied candidate source text can be included.
     """
-    if protocol_version != AUTO_PROTOCOL_VERSION:
+    if protocol_version != AUTO_PROTOCOL_VERSION and protocol_version not in LEGACY_PROTOCOL_VERSIONS:
         raise MaterialReviewError('UNSUPPORTED_MATERIAL_REVIEW_PROTOCOL')
+    if type(round_index) is not int or type(max_rounds) is not int \
+            or not 1 <= round_index <= max_rounds <= 20:
+        raise MaterialReviewError('REVIEW_ROUND_CONTEXT_INVALID')
+    if previous_round is not None and (protocol_version in LEGACY_PROTOCOL_VERSIONS or round_index == 1):
+        raise MaterialReviewError('LEGACY_OR_INITIAL_REVIEW_CANNOT_HAVE_PREVIOUS_ROUND')
     source_map = _verified_sources(manifest)
     _verified_compiled(compiled)
     if manifest['manifest_id'] != compiled['manifest_id']:
@@ -109,14 +118,27 @@ def build_review_request(manifest, compiled, *, candidate_sources=(),
             source['scope_status'] = 'EXCLUDED_REVIEW_SOURCE' if collection is excluded else 'CANDIDATE_NOT_INCLUDED'
     if task_context is not None and not isinstance(task_context, dict):
         raise MaterialReviewError('REVIEW_TASK_CONTEXT_MUST_BE_OBJECT')
+    history = _previous_round_history(previous_round, round_index) if previous_round is not None else None
+    requirements = ['Do not infer absent text or negative findings.',
+                    'Do not rewrite original clinical text or supply character offsets.',
+                    'Use exact quotes for interval changes; SPLIT_SPAN is executed by SET_DISPOSITION.',
+                    'Any changed partition requires a new review; automatic PASS is not human or clinical approval.']
+    if history is not None:
+        requirements += [
+            'This is a continuation, not a first review. previous_round contains your own previous review, the operations proposed by it, and the deterministic program execution receipts.',
+            'The current dispositions and doctor view are the result of your previous recommendations plus program execution. The current doctor_view_sha256 and compiled_sha256 are new bindings; use them, not the previous hashes.',
+            'Address every previous OPEN finding explicitly in findings using the same finding_id, with RESOLVED/OPEN/NOT_APPLICABLE and a source-grounded reason. Do not reopen a closed issue or reverse a previous disposition without new original-text evidence or a specific execution defect.',
+            'MASK is correctly absent from doctor_view. REVIEW is not doctor-visible by default. A MASK to REVIEW change may alter compiled_sha256 without changing doctor-visible text; do not call normal projection a partition/view inconsistency.',
+            'A REVISE response must change doctor-visible material or the included source scope. INCLUDE_SOURCE/EXCLUDE_SOURCE may legitimately change only researcher-only material in this round, including a newly included source that starts as REVIEW. Do not spend a round changing only internal REVIEW/MASK state within the same source scope; use HOLD for an unresolved research-only issue, or PASS only if all current requirements are resolved.',
+            'If your new review restores a previous doctor view after changing it, do not oscillate. Explain the source-grounded reason; the program detects repeated states and stops rather than silently PASSing.']
     request = dict(task=TASK, protocol_version=protocol_version,
                 instructions=dict(
                     task='Read all included original text and all supplied candidate/excluded sources; compare with the doctor view for this target Checkpoint.',
-                    requirements=['Do not infer absent text or negative findings.',
-                                  'Do not rewrite original clinical text or supply character offsets.',
-                                  'Use exact quotes for interval changes; SPLIT_SPAN is executed by SET_DISPOSITION.',
-                                  'Any changed partition requires a new review; automatic PASS is not human or clinical approval.']),
+                    requirements=requirements),
                 target=deepcopy(compiled['target']),
+                review_round=dict(round_index=round_index, max_rounds=max_rounds,
+                    is_first_review=history is None,
+                    current_state_produced_by_previous_review=history is not None),
                 task_context=deepcopy(task_context) if task_context is not None else dict(
                     decision_time_evidence='UNRESOLVED', clinical_visibility_certified=False),
                 researcher_sources=[dict(source_id=s['source_id'], source_version=s['source_version'],
@@ -124,6 +146,11 @@ def build_review_request(manifest, compiled, *, candidate_sources=(),
                 candidate_sources=list(candidates.values()), excluded_sources=list(excluded.values()),
                 current_dispositions=_catalog(compiled), doctor_view=doctor_view(compiled),
                 graph_is_candidate_not_clinical_reference=True)
+    if history is not None:
+        request['previous_round'] = history
+    if protocol_version in LEGACY_PROTOCOL_VERSIONS:
+        request.pop('review_round')
+        request['instructions']['requirements'] = request['instructions']['requirements'][:4]
     # This hash covers material payload only, excluding its own echo envelope.
     # Provider transport hashes (including model/system/schema) live in receipts.
     request['response_binding'] = dict(protocol_version=protocol_version,
@@ -167,13 +194,17 @@ def registry_review_sources(registry, manifest, *, previously_included_ids=()):
 
 
 def _material_review(review, compiled, request):
-    if not isinstance(review, dict) or set(review) != {
-        'format', 'review_id', 'target', 'protocol_version', 'compiled_sha256',
+    expected_fields = {'format', 'review_id', 'target', 'protocol_version', 'compiled_sha256',
         'doctor_view_sha256', 'request_sha256', 'reviewer_type', 'dimensions',
-        'findings', 'operations', 'status', 'required_actions',
-    }:
+        'findings', 'operations', 'status', 'required_actions'}
+    if request['protocol_version'] == AUTO_PROTOCOL_VERSION:
+        expected_fields.add('review_round')
+    if not isinstance(review, dict) or set(review) != expected_fields:
         raise MaterialReviewError('MATERIAL_REVIEW_FIELDS_MISMATCH')
-    _validate_schema(review, MATERIAL_REVIEW_SCHEMA)
+    if request['protocol_version'] == AUTO_PROTOCOL_VERSION \
+            and review.get('review_round') != request['review_round']:
+        raise MaterialReviewError('MATERIAL_REVIEW_ROUND_BINDING_MISMATCH')
+    _validate_schema(review, _review_schema(request['protocol_version']))
     if (review['target'] != compiled['target']
             or review['compiled_sha256'] != compiled['compiled_sha256']
             or review['doctor_view_sha256'] != request['doctor_view']['view_sha256']
@@ -315,12 +346,13 @@ def _whole_source_segments(source, review_id):
 
 
 def validate_material_review(manifest, compiled, review, *, candidate_sources=(), excluded_sources=(),
-                             task_context=None, expected_request=None):
+                             task_context=None, expected_request=None, protocol_version=AUTO_PROTOCOL_VERSION,
+                             round_index=1, max_rounds=3, previous_round=None):
     """Validate review and return an immutable recompilation plan, if needed."""
     request = build_review_request(manifest, compiled, candidate_sources=candidate_sources,
-                                   excluded_sources=excluded_sources,
-                                   protocol_version=AUTO_PROTOCOL_VERSION,
-                                   task_context=task_context)
+                                   excluded_sources=excluded_sources, protocol_version=protocol_version,
+                                   task_context=task_context, round_index=round_index,
+                                   max_rounds=max_rounds, previous_round=previous_round)
     if expected_request is not None and request != expected_request:
         raise MaterialReviewError('EXPECTED_REVIEW_REQUEST_MISMATCH')
     review = _material_review(review, compiled, request)
@@ -344,7 +376,8 @@ def validate_material_review(manifest, compiled, review, *, candidate_sources=()
             raise MaterialReviewError('PASS_WITH_UNKNOWN_DIMENSION')
         if any(s['disposition'] == 'REVIEW' for s in new_compiled['sources'] for s in s['segments']):
             raise MaterialReviewError('REVIEW_SEGMENT_CANNOT_AUTO_PASS')
-    elif status == 'AUTO_REVIEW_REVISE' and not changed:
+    elif status == 'AUTO_REVIEW_REVISE' and not changed \
+            and not _new_source_resolution_pending(compiled, previous_round):
         raise MaterialReviewError('REVISE_REQUIRES_ACTUAL_NEW_PARTITION')
     elif status == 'AUTO_REVIEW_HOLD' and not (ledger['unresolved_sources'] or ledger['graph_issues']
             or ledger['human_requests'] or ledger['holds'] or review['required_actions']
@@ -374,6 +407,25 @@ def validate_material_review(manifest, compiled, review, *, candidate_sources=()
     return result
 
 
+def _new_source_resolution_pending(compiled, previous_round):
+    """Permit one explicit continuation to resolve newly included REVIEW sources.
+
+    This is not a second no-op edit within an unchanged source scope. The prior
+    persisted execution must have added a source whose every segment is REVIEW.
+    """
+    if not isinstance(previous_round, dict) \
+            or not previous_round.get('diff', {}).get('source_scope_changed'):
+        return False
+    old_ids = {s['source_id'] for s in previous_round['input_compiled']['sources']}
+    added = [s for s in compiled['sources'] if s['source_id'] not in old_ids]
+    return bool(added) and all(p['disposition'] == 'REVIEW'
+        for source in added for p in source['segments'])
+
+
+def _state_is_new_source_pending(current, prior_round):
+    return prior_round is not None and _new_source_resolution_pending(current, prior_round)
+
+
 def _content_signature(compiled):
     return canonical_sha256([dict(source_id=s['source_id'], source_version=s['source_version'],
         source_sha256=s['source_sha256'], segments=[dict(start=p['start'], end=p['end'],
@@ -386,10 +438,37 @@ def _diff(before, after):
         return {(s['source_id'], p['start'], p['end']): p['disposition']
                 for s in compiled['sources'] for p in s['segments']}
     a, b = spans(before), spans(after)
+    before_view, after_view = doctor_view(before), doctor_view(after)
     return dict(before_compiled_sha256=before['compiled_sha256'],
                 after_compiled_sha256=after['compiled_sha256'],
+                before_doctor_view_sha256=before_view['view_sha256'],
+                after_doctor_view_sha256=after_view['view_sha256'],
+                doctor_visible_material_changed=_doctor_visibility_signature(before_view) != _doctor_visibility_signature(after_view),
+                source_scope_changed={s['source_id'] for s in before['sources']} != {s['source_id'] for s in after['sources']},
                 changed=[dict(source_id=k[0], start=k[1], end=k[2], before=a.get(k), after=b.get(k))
                          for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)])
+
+
+def _doctor_visibility_signature(view):
+    """Hash actual visible text, not extra all-masked source placeholders."""
+    return canonical_sha256([m for m in view['materials'] if m['text'] != PLACEHOLDER])
+
+
+def _previous_round_history(round_, round_index):
+    if not isinstance(round_, dict) or not isinstance(round_.get('review'), dict) \
+            or not isinstance(round_.get('ledger'), dict) or not isinstance(round_.get('diff'), dict):
+        raise MaterialReviewError('REVIEW_HISTORY_ROUND_REQUIRED')
+    result = dict(round_index=round_index - 1,
+        previous_review=deepcopy(round_['review']),
+        program_execution_receipt=deepcopy(round_['application_receipt']),
+        operation_receipts=deepcopy(round_['ledger']['operations']),
+        actual_program_diff=deepcopy(round_['diff']),
+        current_manifest_sha256=canonical_sha256(round_['manifest']),
+        current_compiled_sha256=round_['compiled']['compiled_sha256'],
+        current_doctor_view_sha256=doctor_view(round_['compiled'])['view_sha256'])
+    if round_['input_compiled']['compiled_sha256'] != result['previous_review']['compiled_sha256']:
+        raise MaterialReviewError('REVIEW_HISTORY_HASH_BINDING_MISMATCH')
+    return result
 
 
 def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_sources=(),
@@ -404,7 +483,8 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
         raise MaterialReviewError('MATERIAL_REVIEW_BUDGET_OUT_OF_RANGE')
     # Reject malformed initial inputs before any provider execution.
     initial_request = build_review_request(manifest, compiled, candidate_sources=candidate_sources,
-        excluded_sources=excluded_sources, protocol_version=protocol_version, task_context=task_context)
+        excluded_sources=excluded_sources, protocol_version=protocol_version, task_context=task_context,
+        round_index=1, max_rounds=max_rounds)
     task_context = deepcopy(initial_request['task_context'])
     registry = build_source_registry(manifest, candidate_sources=candidate_sources,
                                      excluded_sources=excluded_sources)
@@ -416,7 +496,8 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
     for index in range(1, max_rounds + 1):
         active_candidates, active_excluded = registry_review_sources(registry, current_manifest, previously_included_ids=seen_included)
         request = build_review_request(current_manifest, current, candidate_sources=active_candidates,
-            excluded_sources=active_excluded, protocol_version=protocol_version, task_context=task_context)
+            excluded_sources=active_excluded, protocol_version=protocol_version, task_context=task_context,
+            round_index=index, max_rounds=max_rounds, previous_round=rounds[-1] if rounds else None)
         round_input = dict(input_manifest=deepcopy(current_manifest), input_compiled=deepcopy(current),
             request=deepcopy(request), request_sha256=canonical_sha256(request),
             request_binding_sha256=request['response_binding']['request_sha256'],
@@ -430,10 +511,17 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
             stage = 'RESPONSE_VALIDATION'
             plan = validate_material_review(current_manifest, current, response,
                 candidate_sources=active_candidates, excluded_sources=active_excluded,
-                task_context=task_context, expected_request=request)
+                task_context=task_context, expected_request=request,
+                protocol_version=protocol_version, round_index=index, max_rounds=max_rounds,
+                previous_round=rounds[-1] if rounds else None)
             plan['diff'] = _diff(current, plan['compiled'])
-            if response['status'] == 'AUTO_REVIEW_REVISE' and not plan['diff']['changed']:
+            if response['status'] == 'AUTO_REVIEW_REVISE' and not plan['diff']['changed'] \
+                    and not _new_source_resolution_pending(current, rounds[-1] if rounds else None):
                 raise MaterialReviewError('REVISE_REQUIRES_ACTUAL_NEW_CONTENT')
+            if response['status'] == 'AUTO_REVIEW_REVISE' \
+                    and not (plan['diff']['doctor_visible_material_changed'] or plan['diff']['source_scope_changed']) \
+                    and not _new_source_resolution_pending(current, rounds[-1] if rounds else None):
+                raise MaterialReviewError('REVISE_REQUIRES_DOCTOR_VISIBLE_OR_SOURCE_SCOPE_CHANGE')
         except Exception as exc:
             # Keep sanitized failure categories; original error strings can contain
             # clinical text or provider credentials. Specific contract codes are safe.
@@ -470,14 +558,14 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
             stop = 'AUTO_PASS'
             break
         digest = _content_signature(current)
-        if digest in seen:
+        if digest in seen and not _state_is_new_source_pending(current, rounds[-1] if rounds else None):
             stop = 'REVISION_CYCLE'
             break
         seen[digest] = index
         if index == max_rounds:
             stop = 'BUDGET_EXHAUSTED'
     view = doctor_view(current)
-    chain = dict(format='automated-material-review-chain-0.2.0',
+    chain = dict(format=CHAIN_FORMAT,
         state='AUTO_REVIEW_PASS' if stop == 'AUTO_PASS' else 'AUTO_REVIEW_HOLD',
         protocol_version=protocol_version, stop_reason=stop, max_rounds=max_rounds,
         initial_manifest=deepcopy(manifest), initial_compiled=deepcopy(compiled),
@@ -500,13 +588,21 @@ MATERIAL_REVIEW_SCHEMA = {
                  'doctor_view_sha256', 'request_sha256', 'reviewer_type', 'dimensions',
                  'findings', 'operations', 'status', 'required_actions'],
     'properties': {
-        'format': {'const': 'material-review-0.2.0'},
+        'format': {'const': REVIEW_RESPONSE_FORMAT},
         'review_id': {'type': 'string', 'minLength': 1},
         'target': {'type': 'object', 'additionalProperties': False,
                    'required': ['checkpoint_id', 'decision_task_id', 'visibility_policy_version'],
                    'properties': {k: {'type': 'string', 'minLength': 1} for k in
                                   ('checkpoint_id', 'decision_task_id', 'visibility_policy_version')}},
-        'protocol_version': {'const': AUTO_PROTOCOL_VERSION},
+        'protocol_version': {'enum': [AUTO_PROTOCOL_VERSION, *LEGACY_PROTOCOL_VERSIONS]},
+        'review_round': {'type': 'object', 'additionalProperties': False,
+            'required': ['round_index', 'max_rounds', 'is_first_review',
+                         'current_state_produced_by_previous_review'],
+            'properties': {
+                'round_index': {'type': 'integer', 'minimum': 1, 'maximum': 20},
+                'max_rounds': {'type': 'integer', 'minimum': 1, 'maximum': 20},
+                'is_first_review': {'type': 'boolean'},
+                'current_state_produced_by_previous_review': {'type': 'boolean'}}},
         'compiled_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
         'doctor_view_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
         'request_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
@@ -537,4 +633,19 @@ MATERIAL_REVIEW_SCHEMA = {
         'status': {'enum': ['AUTO_REVIEW_PASS', 'AUTO_REVIEW_REVISE', 'AUTO_REVIEW_HOLD']},
         'required_actions': {'type': 'array', 'items': {'type': 'string', 'minLength': 1}},
     },
+    'allOf': [{'if': {'properties': {'protocol_version': {'const': AUTO_PROTOCOL_VERSION}}},
+               'then': {'required': ['review_round']}}],
 }
+
+
+def _review_schema(protocol_version):
+    if protocol_version == AUTO_PROTOCOL_VERSION:
+        return MATERIAL_REVIEW_SCHEMA
+    if protocol_version in LEGACY_PROTOCOL_VERSIONS:
+        schema = deepcopy(MATERIAL_REVIEW_SCHEMA)
+        schema.pop('allOf')
+        schema['properties'].pop('review_round')
+        schema['properties']['format']['const'] = 'material-review-0.2.0'
+        schema['properties']['protocol_version'] = {'const': protocol_version}
+        return schema
+    raise MaterialReviewError('UNSUPPORTED_MATERIAL_REVIEW_PROTOCOL')

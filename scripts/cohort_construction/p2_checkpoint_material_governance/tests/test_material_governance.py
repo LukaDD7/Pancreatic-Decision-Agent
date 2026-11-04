@@ -33,7 +33,8 @@ def inputs(text=TEXT):
 def review_for(manifest, compiled, *, candidates=(), excluded=(), operations=(), status='AUTO_REVIEW_REVISE',
                blocking=False, task_context=None):
     request = build_review_request(manifest, compiled, candidate_sources=candidates, excluded_sources=excluded, task_context=task_context)
-    return dict(format='material-review-0.2.0', review_id='MR-synthetic-1', target=compiled['target'],
+    return dict(format='material-review-0.3.0', review_id='MR-synthetic-1', target=compiled['target'],
+        review_round=deepcopy(request['review_round']),
         protocol_version=AUTO_PROTOCOL_VERSION, compiled_sha256=compiled['compiled_sha256'],
         doctor_view_sha256=request['doctor_view']['view_sha256'], request_sha256=request['response_binding']['request_sha256'],
         reviewer_type='llm_material_review',
@@ -115,6 +116,7 @@ class RevisionTests(unittest.TestCase):
             calls.append(request['response_binding']['compiled_sha256'])
             answer = deepcopy(answers[len(calls) - 1])
             answer.update(request['response_binding'])
+            answer['review_round'] = deepcopy(request['review_round'])
             answer['doctor_view_sha256'] = request['doctor_view']['view_sha256']
             return answer
         chain = run_review_chain(manifest, compiled, ask, max_rounds=3)
@@ -196,11 +198,18 @@ class RevisionTests(unittest.TestCase):
 class ChainTests(unittest.TestCase):
     def test_two_round_revision_then_pass(self):
         manifest, compiled = inputs()
-        first = review_for(manifest, compiled, operations=[operation(TEXT, 'MASK')])
+        first = review_for(manifest, compiled, operations=[operation(TEXT, 'KEEP')])
         plan = validate_material_review(manifest, compiled, first)
         second = review_for(plan['manifest'], plan['compiled'], status='AUTO_REVIEW_PASS')
+        second['review_round'] = dict(round_index=2, max_rounds=3, is_first_review=False,
+            current_state_produced_by_previous_review=True)
         answers = iter([(first, {'cached': False}), (second, {'cached': True})])
-        result = run_review_chain(manifest, compiled, lambda *args: next(answers), max_rounds=3)
+        def respond(task, request, schema):
+            answer = next(answers)[0]
+            answer.update(request['response_binding'])
+            answer['review_round'] = deepcopy(request['review_round'])
+            return answer
+        result = run_review_chain(manifest, compiled, respond, max_rounds=3)
         self.assertEqual(result['state'], 'AUTO_REVIEW_PASS')
         self.assertEqual(len(result['rounds']), 2)
         self.assertTrue(result['rounds'][0]['compiled_changed_requires_new_review'])
@@ -209,27 +218,23 @@ class ChainTests(unittest.TestCase):
     def test_revision_cycle_and_budget_hold(self):
         manifest, compiled = inputs()
         candidate = dict(source_id='later', source_version='v1', text='虚构后续资料。')
-        responses = []
-        def ask(task, request, schema):
-            current = states[len(responses)]
-            operations = [dict(operation_id='cycle', operation='INCLUDE_SOURCE', source_id='later', reason='虚构纳入')]
-            if len(responses):
-                operations = [dict(operation_id='cycle', operation='EXCLUDE_SOURCE', source_id='later', reason='虚构排除')]
-            answer = review_for(current[0], current[1], candidates=[candidate] if not responses else [], operations=operations)
-            responses.append(answer)
+        candidate_answer = review_for(manifest, compiled, candidates=[candidate],
+            operations=[dict(operation_id='cycle', operation='INCLUDE_SOURCE', source_id='later', reason='虚构纳入')])
+        def cycle(task, request, schema):
+            answer = deepcopy(candidate_answer)
+            answer.update(request['response_binding'])
+            answer['review_round'] = deepcopy(request['review_round'])
             return answer
-        states = [(manifest, compiled)]
-        first = validate_material_review(manifest, compiled, review_for(manifest, compiled,
-            candidates=[candidate], operations=[dict(operation_id='cycle', operation='INCLUDE_SOURCE',
-            source_id='later', reason='虚构纳入')]), candidate_sources=[candidate])
-        states.append((first['manifest'], first['compiled']))
-        # Two actual source revisions, followed by a cycle back to the initial hash.
-        answers = iter([ask('task', {}, {}), ask('task', {}, {})])
-        result = run_review_chain(manifest, compiled, lambda *args: next(answers), candidate_sources=[candidate], max_rounds=3)
-        self.assertEqual(result['state'], 'AUTO_REVIEW_HOLD')
+        result = run_review_chain(manifest, compiled, cycle, candidate_sources=[candidate], max_rounds=3)
         self.assertEqual(result['stop_reason'], 'REVISION_CYCLE')
-        answers = iter([review_for(manifest, compiled, operations=[operation(TEXT, 'MASK')])])
-        result = run_review_chain(manifest, compiled, lambda *args: next(answers), max_rounds=1)
+        self.assertEqual(len(result['rounds']), 2)
+        self.assertTrue(result['rounds'][0]['diff']['source_scope_changed'])
+        answers = iter([review_for(manifest, compiled, operations=[operation(TEXT, 'KEEP')])])
+        first_request = build_review_request(manifest, compiled, max_rounds=1)
+        first_answer = deepcopy(next(answers))
+        first_answer.update(first_request['response_binding'])
+        first_answer['review_round'] = deepcopy(first_request['review_round'])
+        result = run_review_chain(manifest, compiled, lambda *args: deepcopy(first_answer), max_rounds=1)
         self.assertEqual(result['stop_reason'], 'BUDGET_EXHAUSTED')
 
 

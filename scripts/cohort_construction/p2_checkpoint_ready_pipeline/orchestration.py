@@ -109,8 +109,13 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
     stages = run['stages']
 
     graph_chain = inherited.get('graph_audit_chain')
+    audit_context = deepcopy(contract['graph_audit_context'])
+    if graph_revision is not None and reconstruction_chain is not None:
+        from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.lineage import build_graph_revision_lineage
+        audit_context['reconstruction_lineage'] = build_graph_revision_lineage(
+            parent['graph_audit_chain'], reconstruction_chain, graph)
     request = json_value(build_graph_audit_request(graph, contract['graph_audit_sources'],
-        **contract['graph_audit_context']))
+        **audit_context))
     if persist:
         private_mkdir(output / 'graph', exist_ok=False)
         write(output / 'graph' / 'request.json', request)

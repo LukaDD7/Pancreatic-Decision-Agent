@@ -49,8 +49,8 @@ class TestMaterialRuntime:
                 request = json.loads(body['messages'][1]['content'])['input']
                 # No helper computes a digest for the provider: all binding
                 # values come verbatim from its actual serialized input.
-                answer = dict(format='material-review-0.2.0', review_id='FICTIONAL-ECHO',
-                    target=request['target'], **request['response_binding'], reviewer_type='llm_material_review',
+                answer = dict(format='material-review-0.3.0', review_id='FICTIONAL-ECHO',
+                    target=request['target'], **request['response_binding'], review_round=request['review_round'], reviewer_type='llm_material_review',
                     dimensions=[dict(dimension=d, applicability='APPLICABLE', status='RESOLVED',
                                      reason='虚构传输测试') for d in DIMENSIONS], findings=[], operations=[],
                     status='AUTO_REVIEW_HOLD', required_actions=['虚构待核，未发生实际人工审核'])

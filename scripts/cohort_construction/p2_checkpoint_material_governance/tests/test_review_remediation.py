@@ -20,8 +20,8 @@ from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_ma
 
 def echo_response(request, *, status='AUTO_REVIEW_HOLD', operations=(), required_actions=None):
     """A fake provider copies hashes visible in input; never computes one."""
-    return dict(format='material-review-0.2.0', review_id='SYNTHETIC-ECHO', target=deepcopy(request['target']),
-        **deepcopy(request['response_binding']), reviewer_type='llm_material_review',
+    return dict(format='material-review-0.3.0', review_id='SYNTHETIC-ECHO', target=deepcopy(request['target']),
+        **deepcopy(request['response_binding']), review_round=deepcopy(request['review_round']), reviewer_type='llm_material_review',
         dimensions=[dict(dimension=d, applicability='APPLICABLE', status='RESOLVED',
                          reason='虚构维度核对') for d in DIMENSIONS], findings=[],
         operations=list(operations), status=status,
@@ -169,7 +169,7 @@ class TestChainTailAndRegistryRemediation:
             seen.append(deepcopy(request))
             if len(seen) == 1:
                 return echo_response(request, status='AUTO_REVIEW_REVISE', required_actions=[],
-                                     operations=[operation(TEXT, 'MASK')])
+                                     operations=[operation(TEXT, 'KEEP')])
             return echo_response(request, status='AUTO_REVIEW_PASS', required_actions=[])
         result = run_review_chain(manifest, compiled, ask, candidate_sources=[candidate], excluded_sources=[excluded])
         assert result['state'] == 'AUTO_REVIEW_PASS'
@@ -210,7 +210,7 @@ class TestChainTailAndRegistryRemediation:
             seen.append(request)
             if len(seen) == 1:
                 return echo_response(request, status='AUTO_REVIEW_REVISE', required_actions=[],
-                                     operations=[operation(TEXT, 'MASK')]), {'request_sha256': '1' * 64}
+                                     operations=[operation(TEXT, 'KEEP')]), {'request_sha256': '1' * 64}
             raise RuntimeError('potentially confidential provider detail')
         result = run_review_chain(manifest, compiled, ask)
         assert result['stop_reason'] == 'EXECUTION_FAILED' and len(result['rounds']) == 1
@@ -287,7 +287,7 @@ class TestCliRemediation:
                 self.calls += 1
                 if self.calls == 1:
                     return echo_response(request, status='AUTO_REVIEW_REVISE', required_actions=[],
-                                         operations=[operation(TEXT, 'MASK')]), {'cached': False}
+                                         operations=[operation(TEXT, 'KEEP')]), {'cached': False}
                 raise RuntimeError('synthetic provider failure')
         monkeypatch.setattr('scripts.cohort_construction.p2_checkpoint_material_governance.run.Client', FakeClient)
         result = main(args + ['--execute'])
@@ -384,7 +384,7 @@ class TestPassRequiredActionsRemediation:
         calls = []
         def ask(task, request, schema):
             calls.append(request)
-            return echo_response(request, status='AUTO_REVIEW_REVISE', operations=[operation(TEXT, 'MASK')],
+            return echo_response(request, status='AUTO_REVIEW_REVISE', operations=[operation(TEXT, 'KEEP')],
                                  required_actions=['必须核对来源后再继续'])
         chain = run_review_chain(manifest, compiled, ask)
         assert len(calls) == 1 and len(chain['rounds']) == 1

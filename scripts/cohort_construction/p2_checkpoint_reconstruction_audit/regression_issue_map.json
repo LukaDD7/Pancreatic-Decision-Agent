@@ -248,6 +248,28 @@
         "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_event_contract.py::test_CE_GRA011_legacy_event_contract_replays_without_upgrading_history",
         "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_GRA011_production_client_batch_reconstruction_reaches_material_review"
       ]
+    },
+    {
+      "issue_id": "CE-GRA-012",
+      "description": "图审核REVISE后由独立重建任务和确定性程序形成新图，但新图审核原先不知道前次审核、重建提案、实际执行回执和实际图差异，容易把新图当作无前因的首次输入",
+      "implementation_status": "implemented_v020_with_synthetic_replay_regression_pending_real_case_validation",
+      "counterexamples": [
+        "新图审核只有当前图，不知道图由哪次审核及重建产生",
+        "篡改previous_review或重建历史并重算lineage尾hash",
+        "把discovery_units内事件误当顶层events，或虚构relation_id使diff无法计算",
+        "向旧0.1.0请求注入新lineage改变历史语义"
+      ],
+      "controls": [
+        "lineage由可独立重放的父审核链和重建链构造，包含完整前次审核、重建响应、执行回执及真实事件/关系/Episode/图元数据diff",
+        "新图审核标记fresh independent audit，不继承旧PASS或材料许可",
+        "程序重放整条历史而非仅核对尾hash；旧0.1.0链保持兼容且不可新增lineage",
+        "lineage仅进入Graph审核请求，不改写冻结input_contract或形成临床Reference"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_agent_lineage.test_CE_GRA012_fresh_audit_contains_previous_audit_proposal_execution_and_diff",
+        "scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_agent_lineage.test_CE_GRA012_lineage_cannot_be_rebound_or_introduced_into_legacy_request",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_CE_PIPE007_graph_revision_auto_loop_uses_separate_reconstruction_and_fresh_audits"
+      ]
     }
   ]
 }

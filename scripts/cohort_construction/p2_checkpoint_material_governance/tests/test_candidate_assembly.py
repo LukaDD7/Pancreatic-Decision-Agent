@@ -140,14 +140,14 @@ def test_orchestration_multiround_episode_workbench_and_local_failure(tmp_path):
             return _passing_answer(task, task['manifest'], task['compiled'], task['candidate_sources'], task['excluded_sources'])
         # The independent mock reads this round's actual program binding rather
         # than guessing how source/version metadata changes affect a hash.
-        return dict(format='material-review-0.2.0', review_id='SYNTHETIC-PASS-' + target,
-            target=request['target'], **request['response_binding'], reviewer_type='llm_material_review',
+        return dict(format='material-review-0.3.0', review_id='SYNTHETIC-PASS-' + target,
+            target=request['target'], **request['response_binding'], review_round=deepcopy(request['review_round']), reviewer_type='llm_material_review',
             dimensions=[dict(dimension=dimension, applicability='APPLICABLE', status='RESOLVED', reason='虚构新版复审')
                 for dimension in ('scope', 'target', 'leakage', 'evidence', 'boundaries', 'time', 'evaluability')],
             findings=[], operations=[], status='AUTO_REVIEW_PASS', required_actions=[])
     summary = assemble_candidate_case(candidate_directory=candidate, sources=sources, output=tmp_path / 'private' / 'case',
         graph_version=graph['graph_version'], decision_task_id='SYNTHETIC-TASK', visibility_policy_version='SYNTHETIC-POLICY',
-        ask=controlled_ask, config=dict(protocol_version='checkpoint-automated-material-review-0.2.0', remote_execution_authorized=True),
+        ask=controlled_ask, config=dict(protocol_version='checkpoint-automated-material-review-0.3.0', remote_execution_authorized=True),
         execute=True, max_rounds=3)
     assert summary['automatic_pass_checkpoints'] == 1 and summary['hold_checkpoints'] == 1, json.dumps(summary)
     assert summary['episodes'][0]['material_set_sha256']
@@ -201,8 +201,8 @@ def test_orchestration_offline_and_exclusive_output(tmp_path):
 
 
 def _pass_only(request):
-    return dict(format='material-review-0.2.0', review_id='SYNTHETIC-PASS-' + request['target']['checkpoint_id'],
-        target=request['target'], **request['response_binding'], reviewer_type='llm_material_review',
+    return dict(format='material-review-0.3.0', review_id='SYNTHETIC-PASS-' + request['target']['checkpoint_id'],
+        target=request['target'], **request['response_binding'], review_round=deepcopy(request['review_round']), reviewer_type='llm_material_review',
         dimensions=[dict(dimension=dimension, applicability='APPLICABLE', status='RESOLVED', reason='虚构独立审核通过')
             for dimension in ('scope', 'target', 'leakage', 'evidence', 'boundaries', 'time', 'evaluability')],
         findings=[], operations=[], status='AUTO_REVIEW_PASS', required_actions=[])
@@ -241,7 +241,7 @@ def _budget_case(tmp_path, maximum=1):
     for name, value in [('decision_events.json', graph['events']), ('relations.json', []),
                         ('episodes.json', graph['episodes']), ('discovery.json', dict(units=graph['discovery_units']))]:
         (candidate / name).write_text(json.dumps(value), encoding='utf-8')
-    config = dict(protocol_version='checkpoint-automated-material-review-0.2.0', remote_execution_authorized=True)
+    config = dict(protocol_version='checkpoint-automated-material-review-0.3.0', remote_execution_authorized=True)
     return graph, sources, candidate, calls, ask, config
 
 

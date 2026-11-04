@@ -1,7 +1,7 @@
 {
   "version": "p2-checkpoint-0.6.3",
-  "protocol_version": "checkpoint-automated-material-review-0.2.0",
-  "candidate_reconstruction_audit_protocol": "checkpoint-candidate-reconstruction-audit-0.1.0",
+  "protocol_version": "checkpoint-automated-material-review-0.3.0",
+  "candidate_reconstruction_audit_protocol": "checkpoint-candidate-reconstruction-audit-0.2.0",
   "episode_delivery_audit_protocol": "checkpoint-episode-delivery-audit-0.1.0",
   "ready_pipeline_input_contract": "checkpoint-ready-pipeline-input-contract-0.1.0",
   "ready_pipeline_run": "checkpoint-ready-pipeline-run-0.1.0",
