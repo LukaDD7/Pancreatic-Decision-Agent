@@ -227,14 +227,43 @@ def _crash_window_complete_run(private_tmp):
     parent = _run(private_tmp / 'complete', graph, sources,
         adapters=_adapters(graph, sources, calls))
     parent['material_chains'] = {'EVENT-01': parent['episode_material_set']['checkpoint_materials'][0]['auto_review_chain']}
+    # Only these three chains survive the synthetic crash. Rebuild the exact
+    # stage receipts rather than retaining discarded material/delivery usage.
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.model_accounting import (
+        chain_usage, usage_delta, zero_usage,
+    )
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.orchestration import (
+        _base_usage_record, _stage_model_usage,
+    )
+    graph_chain = parent['graph_audit_chain']
+    material_chain = parent['material_chains']['EVENT-01']
+    base = zero_usage(20)
+    graph_usage = deepcopy(base)
+    chain_usage(graph_chain, 'graph', base)
+    graph_usage = deepcopy(base)
+    chain_usage(material_chain, 'material', base)
+    parent['model_usage'] = base
+    parent['model_usage_base'] = _base_usage_record(zero_usage(20), dict(kind='NONE'))
+    parent['current_execution_model_usage'] = deepcopy(base)
     del parent['episode_material_set']
     del parent['actual_deliveries']
     del parent['delivery_audit_chain']
     del parent['ready_resource']
-    parent['stages'] = [dict(stage='GRAPH_AUDIT', state='AUTO_GRAPH_AUDIT_PASS', reason_code='AUTO_PASS'),
-        dict(stage='MATERIAL_PREPARATION', state='PASS', reason_code=None),
-        dict(stage='MATERIAL:EVENT-01', state='AUTO_REVIEW_PASS', reason_code='AUTO_PASS'),
-        dict(stage='MATERIAL:EVENT-02', state='PREPARED_NOT_EXECUTED', reason_code=None)]
+    parent['stages'] = [
+        dict(stage='GRAPH_AUDIT', state='AUTO_GRAPH_AUDIT_PASS', reason_code='AUTO_PASS',
+            execution_origin='EXECUTED', model_accounted=True, parent_run_sha256=None,
+            model_usage_delta=graph_usage, journal_verified=True,
+            journal_sha256=canonical_sha256(dict(chain_sha256=graph_chain.get('chain_sha256'), records=[]))),
+        dict(stage='MATERIAL_PREPARATION', state='PASS', reason_code=None,
+            execution_origin='INHERITED', model_accounted=False, parent_run_sha256=None,
+            model_usage_base=deepcopy(parent['model_usage_base'])),
+        dict(stage='MATERIAL:EVENT-01', state='AUTO_REVIEW_PASS', reason_code='AUTO_PASS',
+            execution_origin='EXECUTED', model_accounted=True, parent_run_sha256=None,
+            model_usage_delta=usage_delta(graph_usage, base, 20), journal_verified=True,
+            journal_sha256=canonical_sha256(dict(chain_sha256=material_chain.get('chain_sha256'), records=[]))),
+        dict(stage='MATERIAL:EVENT-02', state='PREPARED_NOT_EXECUTED', reason_code=None,
+            execution_origin='INHERITED', model_accounted=False, parent_run_sha256=None,
+            model_usage_base=deepcopy(parent['model_usage_base']))]
     parent['state'] = 'PREPARED_NOT_EXECUTED'
     parent = json_value(parent)
     parent['run_sha256'] = canonical_sha256({key: value for key, value in parent.items()
@@ -286,7 +315,7 @@ def test_partial_material_chains_resume_without_recalling_completed_stages(priva
     assert resumed['state'] == 'READY_FOR_HUMAN_SAMPLING'
     assert calls2 == ['material', 'material', 'delivery']
     assert resumed['material_chains']['EVENT-01'] == parent['material_chains']['EVENT-01']
-    assert resumed['model_usage']['actual_uncached_model_invocations'] == 9
+    assert resumed['model_usage']['actual_uncached_model_invocations'] == 6
     assert resumed['continuation']['inherited_stages_replayed_without_model_calls']
     assert (private_tmp / 'parent/run.json').read_bytes() == before
     assert validate_pipeline_run(resumed, output=private_tmp / 'child')['replay_verified']
@@ -336,12 +365,19 @@ def test_graph_revision_consumes_new_graph_and_restarts_every_audit(private_tmp)
 
 def test_material_graph_issue_consumes_new_graph_without_mutating_material(private_tmp):
     graph, sources, _ = fixtures()
+    # This handoff test supplies one synthetic material. Declare exactly that
+    # one Checkpoint in the candidate Episode; retain the second event as a
+    # non-Checkpoint member instead of weakening Episode coverage validation.
+    graph['episodes'][0]['checkpoint_ids'] = ['EVENT-01']
+    graph['graph_sha256'] = canonical_sha256({key: value for key, value in graph.items()
+        if key != 'graph_sha256'})
     manifest, compiled = material_inputs()
     from scripts.cohort_construction.p2_checkpoint_material_governance.chain_validation import bind_candidate_graph
     from scripts.cohort_construction.p2_checkpoint_material_governance.review import run_review_chain
     from scripts.cohort_construction.p2_checkpoint_material_governance.episode import build_episode_material_set
     context = bind_candidate_graph(graph, graph_version=graph['graph_version'],
-        target_event_id='EVENT-01', checkpoint_id='cp1')
+        target_event_id='EVENT-01', checkpoint_id='cp1',
+        task_context=dict(candidate_episode_id='EPISODE-01'))
     answer = material_review(manifest, compiled, status='AUTO_REVIEW_HOLD', blocking=True,
         task_context=context, operations=[dict(operation_id='GRAPH-01',
             operation='FLAG_EVENT_GRAPH_ISSUE', source_id='doc1', reason='虚构材料层发现候选事件问题'),

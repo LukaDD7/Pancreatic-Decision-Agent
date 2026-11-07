@@ -8,6 +8,9 @@ from unittest.mock import Mock,patch
 import requests
 from scripts.cohort_construction.model_api import ModelAPISettings
 from scripts.cohort_construction.p2_auto_checkpoint_v04 import client
+from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+    validate_provider_success_binding,
+)
 
 
 class TransportTests(unittest.TestCase):
@@ -175,8 +178,176 @@ class TransportTests(unittest.TestCase):
             with self.assertRaises(client.ModelRequestFailed) as caught:
                 c.ask('synthetic',{'no_patient_data':True},{'type':'object'})
             attempt=caught.exception.receipt['attempts'][0]
-            self.assertEqual(attempt,dict(attempt=1,status='FAILED',error='HTTPError',http_status=503))
+            self.assertEqual({key: attempt[key] for key in ('attempt', 'status', 'error', 'http_status')},
+                dict(attempt=1, status='FAILED', error='HTTPError', http_status=503))
+            self.assertEqual(attempt['stage'], 'PROVIDER_HTTP_RESPONSE')
+            self.assertEqual(attempt['reason_code'], 'PROVIDER_HTTP_503')
+            self.assertEqual(attempt['provider_response_sha256'],
+                caught.exception.failure_evidence['provider_response_sha256'])
+            evidence = caught.exception.receipt['attempts'][0]['evidence']
+            self.assertEqual(evidence['relative_path'],
+                'invocations/%s/attempts/0001.json' % caught.exception.receipt['invocation_id'])
+            self.assertNotIn('provider_response_text"', json.dumps(attempt))
             self.assertNotIn('credential-sentinel',json.dumps(caught.exception.receipt))
+    def test_CE_NET005_raw_response_snapshot_precedes_http_json_and_schema_failures(self):
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        import hashlib
+        for kind in ('HTTP_503','ENVELOPE_JSON','SCHEMA'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                response=Mock();response.status_code=503 if kind=='HTTP_503' else 200
+                if kind=='HTTP_503':
+                    response.text='synthetic HTTP failure body'
+                    response.raise_for_status.side_effect=requests.exceptions.HTTPError(response=response)
+                elif kind=='ENVELOPE_JSON':
+                    response.text='{"choices":\n  malformed'
+                    response.json.side_effect=lambda:json.loads(response.text)
+                else:
+                    envelope={'choices':[{'finish_reason':'stop','message':{'content':'{"ok":"wrong type"}'}}]}
+                    response.text=json.dumps(envelope);response.json.return_value=envelope
+                session=Mock();session.post.return_value=response
+                cfg={'model_temperature':0,'max_output_tokens':32,'max_http_attempts_per_request':1}
+                with patch.object(client._thread,'session',session,create=True):
+                    c=client.Client(Path(directory),cfg,settings)
+                    with self.assertRaises(client.ModelRequestFailed) as caught:
+                        c.ask('synthetic',{'no_patient_data':True},schema)
+                invocation=caught.exception.receipt['invocation_id']
+                snapshot=Path(directory)/'invocations'/invocation/'attempts/0001.provider-response.json'
+                saved=json.loads(snapshot.read_text())
+                self.assertEqual(saved['provider_response_text'],response.text)
+                self.assertEqual(saved['provider_response_sha256'],hashlib.sha256(
+                    response.text.encode('utf-8')).hexdigest())
+                self.assertEqual(saved['invocation_id'],invocation)
+                self.assertEqual(saved['transport_request_sha256'],caught.exception.request_sha256)
+                self.assertNotIn('credential-sentinel',snapshot.read_text())
+                if kind!='HTTP_503':
+                    self.assertEqual(json.loads((snapshot.parent/'0001.json').read_text())['raw_response_snapshot'],
+                        dict(relative_path=str(snapshot.relative_to(directory)),
+                             sha256=saved['provider_response_sha256']))
+
+    def test_CE_NET006_structural_envelope_and_content_failures_have_bound_replayable_diagnostics(self):
+        from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+            private_chain_evidence, replay_transport_evidence, validate_private_chain_evidence,
+        )
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        cases=[('EMPTY_CHOICES',dict(choices=[]),'PROVIDER_ENVELOPE_PARSE'),
+               ('NOT_OBJECT',[],'PROVIDER_ENVELOPE_PARSE'),
+               ('MISSING_CONTENT',dict(choices=[dict(finish_reason='stop',message={})]),
+                'PROVIDER_CONTENT_PARSE'),
+               ('NULL_CONTENT',dict(choices=[dict(finish_reason='stop',message=dict(content=None))]),
+                'PROVIDER_CONTENT_PARSE')]
+        for label,envelope,expected_stage in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                response=Mock();response.status_code=200;response.text=json.dumps(envelope)
+                response.json.return_value=envelope
+                session=Mock();session.post.return_value=response
+                cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=1)
+                with patch.object(client._thread,'session',session,create=True):
+                    provider=client.Client(Path(directory),cfg,settings)
+                    with self.assertRaises(client.ModelRequestFailed) as caught:
+                        provider.ask('synthetic',{'no_patient_data':True},schema)
+                evidence=caught.exception.failure_evidence
+                self.assertEqual(evidence['terminal_stage'],expected_stage)
+                if expected_stage=='PROVIDER_ENVELOPE_PARSE':
+                    self.assertEqual(evidence['diagnostic']['kind'],'PROVIDER_ENVELOPE_STRUCTURE')
+                    self.assertEqual(evidence['reason_code'],'PROVIDER_ENVELOPE_INVALID')
+                else:
+                    self.assertEqual(evidence['reason_code'],
+                        'PROVIDER_CONTENT_NOT_TEXT' if label=='NULL_CONTENT' else 'PROVIDER_CONTENT_MISSING')
+                self.assertTrue(replay_transport_evidence(evidence,schema)['evidence_binding_verified'])
+                embedded=private_chain_evidence(evidence)
+                validate_private_chain_evidence(embedded,embedded)
+
+    def test_CEREM_ADV034_cached_result_retries_and_metadata_are_replayable(self):
+        """Fresh and cached success retain every failed attempt and safe metadata."""
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=3)
+        secret='credential-sentinel-private-provider-metadata'
+        with tempfile.TemporaryDirectory() as directory:
+            session=Mock()
+            failure=Mock(status_code=503,text='{"error":"synthetic retry"}')
+            failure.raise_for_status.side_effect=requests.exceptions.HTTPError(response=failure)
+            envelope=dict(model='synthetic-model',usage=dict(input_tokens=3,output_tokens=2,
+                nested_secret=secret),choices=[dict(finish_reason='stop',
+                message=dict(content='{"ok":true}'))],private_extension=secret)
+            success=Mock(status_code=200,text=json.dumps(envelope))
+            success.json.return_value=envelope
+            session.post.side_effect=[failure,success]
+            with patch.object(client._thread,'session',session,create=True), \
+                    patch.object(client.time,'sleep'):
+                provider=client.Client(Path(directory),cfg,settings)
+                result,receipt=provider.ask('synthetic',{'no_patient_data':True},schema)
+            self.assertEqual(result,{'ok':True})
+            self.assertEqual(receipt['usage'],dict(input_tokens=3,output_tokens=2))
+            self.assertNotIn(secret,json.dumps(receipt['usage']))
+            self.assertNotIn(secret,json.dumps(receipt['returned_model']))
+            # Full provider evidence is intentionally retained in the private
+            # chain/cache; only operational usage/model fields are allowlisted.
+            self.assertEqual([row['status'] for row in receipt['attempts']],['FAILED','SUCCESS'])
+            outcome=dict(stage='SUCCESS',review=result,cached=False,receipt=receipt)
+            validate_provider_success_binding(receipt['terminal_attempt_evidence'],outcome,
+                {'no_patient_data':True},{'no_patient_data':True},schema=schema)
+            # A fresh receipt cannot pretend that an external cache reader has
+            # recovered the preceding failed attempt. Read it from the immutable
+            # per-attempt file, as the production cache path does.
+            second,cached=provider.ask('synthetic',{'no_patient_data':True},schema)
+            failed_pointer=receipt['attempts'][0]['evidence']
+            archived=json.loads((Path(directory)/failed_pointer['relative_path']).read_text())
+            self.assertEqual(second,result)
+            self.assertTrue(cached['cached'])
+            self.assertFalse(cached['provider_invocation_occurred'])
+            self.assertFalse(cached['provider_transport_verified'])
+            self.assertEqual(session.post.call_count,2)
+            self.assertEqual(cached['attempts'][0]['archived_evidence'],
+                client.private_chain_evidence(archived))
+            outcome=dict(stage='SUCCESS',review=result,cached=True,receipt=cached)
+            validate_provider_success_binding(cached['terminal_attempt_evidence'],outcome,
+                {'no_patient_data':True},{'no_patient_data':True},cached=True,schema=schema)
+            cache_path=Path(directory)/(cached['request_sha256']+'.json')
+            saved=json.loads(cache_path.read_text())
+            saved['result']={'ok':False};saved['result_sha256']=client.digest(saved['result'])
+            cache_path.write_text(json.dumps(saved))
+            with self.assertRaisesRegex(ValueError,'PROVIDER_CACHE_RESULT_RESPONSE_MISMATCH'):
+                provider.ask('synthetic',{'no_patient_data':True},schema)
+            saved=json.loads(cache_path.read_text())
+            saved['result']={'ok':True};saved['result_sha256']=client.digest(saved['result'])
+            saved['receipt']['attempts']=saved['receipt']['attempts'][-1:]
+            cache_path.write_text(json.dumps(saved))
+            with self.assertRaisesRegex(ValueError,'PROVIDER_RETRY_HISTORY_BINDING_MISMATCH'):
+                provider.ask('synthetic',{'no_patient_data':True},schema)
+        # Metadata failure is a retained failed attempt, not a success with an
+        # arbitrary nested provider value promoted into operational receipts.
+        envelope['model']='synthetic model\n'+secret
+        with tempfile.TemporaryDirectory() as directory:
+            session=Mock();session.post.return_value=success
+            with patch.object(client._thread,'session',session,create=True):
+                provider=client.Client(Path(directory),cfg,settings)
+                with self.assertRaises(client.ModelRequestFailed) as caught:
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+            self.assertNotIn(secret,json.dumps(caught.exception.receipt))
+    def test_CEAUD002_cached_task_identity_is_required(self):
+        """A same-body cache entry cannot be replayed under another task receipt."""
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=1)
+        with tempfile.TemporaryDirectory() as directory:
+            envelope=dict(choices=[dict(finish_reason='stop',message=dict(content='{"ok":true}'))])
+            response=Mock(status_code=200,text=json.dumps(envelope))
+            response.json.return_value=envelope
+            session=Mock();session.post.return_value=response
+            with patch.object(client._thread,'session',session,create=True):
+                provider=client.Client(Path(directory),cfg,settings)
+                provider.ask('synthetic',{'no_patient_data':True},schema)
+                path=Path(directory)/(provider.receipts[-1]['request_sha256']+'.json')
+                saved=json.loads(path.read_text())
+                saved['receipt']['task']='stale-task'
+                path.write_text(json.dumps(saved))
+                with self.assertRaisesRegex(ValueError,'PROVIDER_CACHE_TASK_MISMATCH') as caught:
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+            self.assertEqual(str(caught.exception),'PROVIDER_CACHE_TASK_MISMATCH')
+            self.assertNotIn('credential-sentinel',str(caught.exception))
 
 
 if __name__=='__main__':unittest.main()

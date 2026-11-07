@@ -25,7 +25,8 @@ def implementation_snapshot():
     packages = ('p2_checkpoint_packet', 'p2_checkpoint_fhir', 'p2_checkpoint_review_app',
         'p2_checkpoint_material_review_app', 'p2_checkpoint_material_governance',
         'p2_checkpoint_reconstruction_audit', 'p2_checkpoint_delivery_audit',
-        'p2_checkpoint_ready_pipeline', 'p2_checkpoint_real_validation')
+        'p2_checkpoint_ready_pipeline', 'p2_checkpoint_real_validation',
+        'p2_auto_checkpoint', 'p2_auto_checkpoint_v04')
     paths = [root / 'config/p2_checkpoint_dual_audit_v063.json']
     for package in packages:
         paths.extend(path for path in (root / 'scripts/cohort_construction' / package).rglob('*')
@@ -106,6 +107,8 @@ def freeze_contract(*, graph, sources, graph_audit_sources=None, episode_id, sem
         graph_audit_protocol_version=GRAPH_PROTOCOL,
         delivery_audit_protocol_version=DELIVERY_PROTOCOL,
         code_contract_version='p2-checkpoint-0.6.3', config=config,
+        research_feedback_enabled=config.get('research_feedback_enabled', False),
+        research_feedback_version='research-feedback-0.1.0' if config.get('research_feedback_enabled') is True else None,
         delivery_gate=freeze_delivery_gate(delivery_gate),
         doctor_assignment_created=False, clinical_release_permitted=False)
 
@@ -173,23 +176,27 @@ class PipelineBudget(SharedModelBudget):
         super().__init__(limit, initial)
         self.adapters = adapters
         self.calls = []
-        if initial is not None:
-            saved = initial.get('stage_call_counts', {})
-            if not isinstance(saved, dict) or any(type(v) is not int or v < 0 for v in saved.values()):
-                raise ValueError('READY_PIPELINE_INITIAL_STAGE_USAGE_INVALID')
-            self.stage_call_counts = dict(saved)
-        else:
-            self.stage_call_counts = {}
+        self.stage_call_counts = deepcopy(initial.get('stage_call_counts', {})) if initial else {}
+        self.stage_usage = deepcopy(initial.get('stage_usage', {})) if initial else {}
 
     def ask_for(self, stage, task, request, schema):
         if stage not in self.adapters:
             raise ValueError('READY_PIPELINE_MODEL_STAGE_UNKNOWN')
         self.adapter = self.adapters[stage]
+        before = {key: getattr(self, key) for key in ('uncached_succeeded', 'uncached_failed',
+                                                      'cache_hits', 'denied')}
         try:
             return self.ask(task, request, schema)
         finally:
+            counts = self.stage_usage.setdefault(stage, dict(ask_for_attempts=0,
+                uncached_succeeded=0, uncached_failed=0, cache_hits=0, denied=0))
+            counts['ask_for_attempts'] += 1
             self.stage_call_counts[stage] = self.stage_call_counts.get(stage, 0) + 1
+            for key, previous in before.items():
+                counts[key] += getattr(self, key) - previous
 
     def snapshot(self):
-        return dict(super().snapshot(), stage_call_counts=dict(self.stage_call_counts),
-            accounting_scope='graph_material_and_delivery_uncached_invocations')
+        from .model_accounting import ACCOUNTING_VERSION
+        return dict(super().snapshot(), stage_call_counts=deepcopy(self.stage_call_counts),
+            stage_usage=deepcopy(self.stage_usage), accounting_version=ACCOUNTING_VERSION,
+            accounting_scope='all_declared_pipeline_stages_attempts_and_adapter_outcomes')

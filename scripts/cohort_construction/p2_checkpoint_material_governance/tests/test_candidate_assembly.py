@@ -10,7 +10,8 @@ import scripts.cohort_construction.p2_checkpoint_material_governance.orchestrate
 import scripts.cohort_construction.p2_checkpoint_material_governance.workbench as workbench
 from scripts.cohort_construction.p2_auto_checkpoint_v04.context import build_evidence_context
 from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import (
-    freeze_candidate_graph, material_item, normalize_sources, prepare_candidate_materials,
+    assembly_receipt, freeze_candidate_graph, material_item, normalize_sources,
+    prepare_candidate_materials,
 )
 from scripts.cohort_construction.p2_checkpoint_material_governance.orchestrate import (
     assemble_candidate_case, resume_candidate_case,
@@ -84,6 +85,95 @@ def test_candidate_graph_prepares_all_targets_and_retains_omitted_sources():
     repeated, _ = prepare_candidate_materials(graph, sources,
         decision_task_id='SYNTHETIC-TASK', visibility_policy_version='SYNTHETIC-POLICY')
     assert repeated == tasks
+
+
+def _key_predecessor_negative_injection(*, missing_original=False):
+    graph, sources = fictional_graph()
+    sources.append(normalize_sources([
+        dict(source_id='DOC-REJECTED', source_version='1', text='虚构未选入 Episode 的完整来源。')])[0])
+    target = next(event for event in graph['events'] if event['event_id'] == 'EVENT-02')
+    # Negative injection: only one management predecessor and no direct evidence
+    # dependencies survive upstream. These audit fields must not narrow materials.
+    target['key_management_predecessor_ids'] = ['EVENT-01']
+    target['evidence_source_dependency_ids'] = []
+    target['evidence_context']['ledger'].extend([
+        dict(source_id='DOC-BUDGET', disposition='omitted_budget'),
+        dict(source_id='DOC-01', disposition='omitted_provider_payload_budget'),
+    ])
+    target['evidence_context']['source_ledger'] = target['evidence_context']['ledger']
+    discovery_unit = dict(unit_id=target['unit_id'], source_ids=['DOC-ZERO'], events=[target],
+        input_context_summary=dict(source_ledger=[
+            dict(source_id='DOC-ZERO', disposition='omitted_provider_payload_budget')]))
+    graph['discovery_units'].append(discovery_unit)
+    if missing_original:
+        # Remove a dependency needed only by the injected target. Its unrelated
+        # sibling omission is discarded to isolate the dependency HOLD itself.
+        graph['events'][0]['evidence_context']['ledger'] = [
+            entry for entry in graph['events'][0]['evidence_context']['ledger']
+            if entry.get('source_id') != 'DOC-BUDGET']
+        graph['events'][0]['evidence_context']['source_ledger'] = graph['events'][0]['evidence_context']['ledger']
+        sources = [source for source in sources if source['source_id'] != 'DOC-BUDGET']
+    graph.pop('graph_sha256')
+    graph['graph_sha256'] = canonical_sha256(graph)
+    tasks, failures = prepare_candidate_materials(graph, sources,
+        decision_task_id='SYNTHETIC-TASK', visibility_policy_version='SYNTHETIC-POLICY')
+    return graph, sources, target, tasks, failures
+
+
+def test_key_predecessor_audit_fields_do_not_shrink_full_original_closure():
+    graph, sources, target, tasks, failures = _key_predecessor_negative_injection()
+    assert not failures
+    task = next(item for item in tasks if item['event']['event_id'] == 'EVENT-02')
+    # The predecessor's complete original is restored from the existing ledger;
+    # discovery-only omissions are restored even without a per-event ledger row.
+    assert {source['source_id'] for source in task['candidate_sources']} == {
+        'DOC-01', 'DOC-BUDGET', 'DOC-ZERO'}
+    registry = task['manifest']['sources'] + task['candidate_sources'] + task['excluded_sources']
+    assert {source['source_id'] for source in registry} == {source['source_id'] for source in sources}
+    assert {source['source_id'] for source in task['candidate_sources']} == {
+        'DOC-01', 'DOC-BUDGET', 'DOC-ZERO'}
+    assert [source['source_id'] for source in task['excluded_sources']] == ['DOC-REJECTED']
+    assert all(source['text'] and len(source['sha256']) == 64 for source in registry)
+    assert target['key_management_predecessor_ids'] == ['EVENT-01']
+    assert target['evidence_source_dependency_ids'] == []
+    assert task['preparation_audit']['candidate_source_ids_from_evidence_budget_omissions'] == [
+        'DOC-01', 'DOC-BUDGET', 'DOC-ZERO']
+    assert task['preparation_audit']['candidate_source_ids_from_discovery_budget_omissions'] == ['DOC-ZERO']
+    receipt = next(item for item in task['preparation_audit']['discovery_budget_omission_receipts']
+        if item['source_id'] == 'DOC-ZERO')
+    assert receipt['source_state'] == 'FULL_ORIGINAL_RECOVERED_PENDING_MATERIAL_REVIEW'
+    assert receipt['doctor_blind_review_permission'] == 'NOT_GRANTED_BY_SOURCE_RECONCILIATION'
+    request = build_review_request(task['manifest'], task['compiled'],
+        candidate_sources=task['candidate_sources'], excluded_sources=task['excluded_sources'],
+        task_context=task['task_context'])
+    assert {source['source_id'] for source in request['researcher_sources']
+        + request['candidate_sources'] + request['excluded_sources']} == {source['source_id'] for source in sources}
+    assert task['task_context']['clinical_visibility_certified'] is False
+    assert task['task_context']['material_release_permitted'] is False
+    assembly = assembly_receipt(graph, sources, tasks, failures)
+    assert assembly['doctor_packet_created'] is False
+    assert assembly['clinical_release_permitted'] is False
+    assert next(row for row in assembly['discovery_coverage']
+        if row['unit_id'] == target['unit_id'])['full_original_supplied'] is True
+
+
+def test_key_predecessor_missing_omitted_original_is_only_local_hold():
+    graph, sources, target, tasks, failures = _key_predecessor_negative_injection(missing_original=True)
+    assert [task['event']['event_id'] for task in tasks] == ['EVENT-01']
+    assert len(failures) == 1
+    failure = failures[0]
+    assert failure['event_id'] == target['event_id']
+    assert failure['status'] == 'ASSEMBLY_HOLD'
+    assert failure['reason_code'] == 'ASSEMBLY_OMITTED_SOURCE_MISSING'
+    assert failure['clinical_release_permitted'] is False
+    assert failure['audit']['issues'] == [dict(
+        code='ASSEMBLY_OMITTED_SOURCE_MISSING', source_ids=['DOC-BUDGET'])]
+    receipt = assembly_receipt(graph, sources, tasks, failures)
+    coverage = next(row for row in receipt['event_material_coverage'] if row['event_id'] == target['event_id'])
+    assert coverage['disposition'] == 'ASSEMBLY_HOLD'
+    assert coverage['event_preserved'] is True and coverage['physical_deletion'] is False
+    assert receipt['doctor_packet_created'] is False
+    assert receipt['clinical_release_permitted'] is False
 
 
 def test_missing_source_is_local_hold_and_zero_discovery_is_retained(tmp_path):
@@ -248,6 +338,7 @@ def _budget_case(tmp_path, maximum=1):
 def test_shared_model_budget_stops_inside_chain_and_preserves_local_hold(tmp_path):
     graph, sources, candidate, calls, ask, config = _budget_case(tmp_path)
     output = tmp_path / 'private' / 'budget'
+    (tmp_path / 'private').mkdir()
     summary = assemble_candidate_case(candidate_directory=candidate, sources=sources, output=output,
         graph_version=graph['graph_version'], decision_task_id='SYNTHETIC-TASK', visibility_policy_version='SYNTHETIC-POLICY',
         ask=ask, config=config, execute=True, max_rounds=3, max_model_calls=1)
@@ -258,8 +349,23 @@ def test_shared_model_budget_stops_inside_chain_and_preserves_local_hold(tmp_pat
     assert summary['executed_checkpoints'] == 1
     first = json.loads((output / 'checkpoints' / 'EVENT-01' / 'review-chain.json').read_text())
     assert first['state'] == 'AUTO_REVIEW_HOLD' and first['stop_reason'] == 'EXECUTION_FAILED'
-    assert first['failure']['stage'] == 'PROVIDER_REQUEST'
+    assert first['failure']['stage'] == 'LOCAL_BUDGET_CONTROL'
+    assert first['failure']['error_type'] == 'LocalModelBudgetHold'
+    assert first['failure']['reason_code'] == 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED'
     assert first['failure']['receipt']['provider_invocation_occurred'] is False
+    assert 'provider_attempt_evidence' not in first['failure']
+    from scripts.cohort_construction.p2_checkpoint_material_governance.chain_validation import validate_review_chain
+    assert validate_review_chain(first)['deterministic_replay_verified']
+    for field, value in [('stage', 'PROVIDER_REQUEST'), ('error_type', 'RuntimeError'),
+                         ('reason_code', 'PROVIDER_REQUEST_FAILED')]:
+        forged = deepcopy(first)
+        forged['failure'][field] = value
+        with pytest.raises(Exception, match='LOCAL_BUDGET|PROVIDER_ATTEMPT_EVIDENCE'):
+            validate_review_chain(forged)
+    forged = deepcopy(first)
+    forged['failure']['receipt']['provider_invocation_occurred'] = True
+    with pytest.raises(Exception, match='CHAIN_LOCAL_BUDGET_CONTROL_MISMATCH'):
+        validate_review_chain(forged)
     second = json.loads((output / 'checkpoints' / 'EVENT-02' / 'execution-receipt.json').read_text())
     assert second['status'] == 'MODEL_BUDGET_HOLD'
     assert not (output / 'checkpoints' / 'EVENT-02' / 'review-chain.json').exists()

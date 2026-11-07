@@ -436,16 +436,21 @@
       "counterexamples": [
         "逐Checkpoint重置预算使同一病例超限调用",
         "链内第二轮仍越过已耗尽的未缓存调用预算",
-        "预算拒绝后虚构已执行review chain或临床许可"
+        "预算拒绝后虚构已执行review chain或临床许可",
+        "本地预算拒绝被误当作缺失terminal evidence的远端provider失败",
+        "本地预算HOLD被伪造provider evidence或改写provider_invocation_occurred"
       ],
       "controls": [
         "SharedModelBudget累计成功及失败未缓存调用并分开记录缓存命中和拒绝",
         "预算耗尽时当前链保留可核验HOLD，未启动目标仅保留执行回执",
-        "断点续跑继承父链实际model_usage，继续累计同一总预算"
+        "断点续跑继承父链实际model_usage，继续累计同一总预算",
+        "本地预算停止以LOCAL_BUDGET_CONTROL及含receipt_origin=LOCAL_CONTROL、provider_transport_verified=false的固定回执重放，不伪造provider attempt；Python、Schema和Chrome使用相同分类"
       ],
       "required_tests": [
         "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_shared_model_budget_stops_inside_chain_and_preserves_local_hold",
-        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_only_unfinished_targets_and_rebinds_parent_budget"
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_resume_only_unfinished_targets_and_rebinds_parent_budget",
+        "scripts.cohort_construction.p2_checkpoint_ready_pipeline.tests.test_ready_pipeline.test_shared_budget_denies_later_stage_and_resume_replays_parent",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_CE_AMG021_local_budget_hold_replays_in_chrome_without_provider_attempt"
       ]
     },
     {
@@ -575,6 +580,157 @@
         "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_agent_state_convergence.test_CE_AMG027_mask_to_review_research_only_churn_is_rejected_and_replayed",
         "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_replay_valid_multiround_with_new_source",
         "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_actual_revisions_new_source_and_rehashed_bad_history_rejected_in_chrome"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-028",
+      "description": "SCALE-02材料请求约363k字符，其中约355k为重复完整候选图上下文，而纳入原文仅2510字符；模型错误引用不在当前来源清单的来源。provider边界须保留完整来源范围和目标任务上下文，但去除重复全图；研究者链仍保存完整图和hash",
+      "implementation_status": "implemented_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "材料请求重复完整图淹没当前Checkpoint任务和来源范围",
+        "紧凑payload替换目标事件或来源范围后冒充完整请求",
+        "将任务投影误称为无损JSON压缩或临床无关来源认证"
+      ],
+      "controls": [
+        "完整chain保持图快照；provider仅接收目标任务语义投影",
+        "目标事件、相关Episode和relation、全部纳入/候选/排除原文及response binding保留",
+        "投影逐项重建核验，篡改目标事件拒绝replay"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_fast_feedback.test_CE_AMG028_projection_retains_full_sources_and_binds_target_without_whole_graph"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-029",
+      "description": "SCALE-07同轮多个SET_DISPOSITION各自可在输入manifest唯一定位，但顺序执行拆分分区后，后续跨区引文报DISPOSITION_MUST_RESOLVE_WITHIN_ONE_SEGMENT；同轮应相对同一输入形成原子计划",
+      "implementation_status": "implemented_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "跨既有REVIEW/KEEP分区的引文因同轮其他操作先拆分而无法执行",
+        "同一来源相交且目标disposition相反的计划被顺序覆盖",
+        "相同操作集合仅改变顺序产生不同输出"
+      ],
+      "controls": [
+        "所有引文先相对同一输入manifest定位，再检查冲突并统一重编",
+        "同向跨区操作可执行且顺序无关，相反相交操作拒绝",
+        "重复引文仍拒绝；Python和Chrome镜像核验逐操作执行回执"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_fast_feedback.test_CE_AMG029_cross_partition_operations_are_atomic_and_order_independent",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_CE_AMG029_atomic_plan_replays_and_conflict_is_rejected_in_chrome"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-030",
+      "description": "快速迭代不能因自动材料HOLD或正式交付gate而始终看不到结果；新增独立研究性试阅出口，只含已生成doctor_view可见文本，不伪造正式盲评包、SemanticAudit、冻结问卷、FHIR交付或临床Reference",
+      "implementation_status": "implemented_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "材料HOLD时全链路终止且无可读反馈产物",
+        "研究性草稿包含被遮原文、完整图、模型理由或未来Checkpoint",
+        "研究性反馈绕过delivery gate形成正式delivery或READY"
+      ],
+      "controls": [
+        "独立RESEARCH_FEEDBACK_DRAFT_READY状态不复用READY_FOR_HUMAN_SAMPLING",
+        "材料HOLD或delivery gate时仍可形成未审定试阅稿，但无正式delivery、SemanticAudit或临床放行",
+        "导出响应绑定Checkpoint、草稿、资料集、图、compiled、doctor_view及表单版本hash",
+        "模型无调用replay逐字重建草稿和HTML"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_fast_feedback.test_CE_AMG030_feedback_contains_only_visible_text_and_no_model_or_formal_packet",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_fast_feedback.test_CE_AMG030_material_hold_reaches_feedback_but_never_formal_delivery",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_fast_feedback.test_CE_AMG030_pass_and_delivery_gate_keep_feedback_separate_from_formal_ready"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-031",
+      "description": "Episode／决策点可行性评价区别于正式盲阅与材料可读性试阅；须有代理标注的时间顺序、完整原文定位、选择理由来源和结构反馈，且跨JSON保存／重建的类型表示须一致",
+      "implementation_status": "implemented_with_synthetic_and_browser_regression_SCALE07_SCALE03_private_viewer_replays_verified",
+      "counterexamples": [
+        "把可行性评价误当未来信息隔离的正式盲阅或治疗答案",
+        "选择时刻缺失时补造精确时点或隐去阶段排序代理",
+        "问卷常量由内存元组经JSON变成数组，导致相同语义对象直接重放比较失败",
+        "原文、引文、来源或graph audit绑定被替换后仍展示为原候选结构"
+      ],
+      "controls": [
+        "左侧展示管理问题、候选动作、上游LLM选择提案及理由来源，右侧为私有完整原文及字符定位",
+        "已接受选择时刻优先；记录时间、阶段或候选顺序均明确标为代理",
+        "问卷schema采用JSON原生数组；保存后review与HTML逐字重建一致",
+        "记录时间代理也在显示标签中明确写出“代理”，不能仅在程序枚举中标记",
+        "结构反馈绑定review、material set及graph hash，所有临床治理升级保持false"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility.test_CE_AMG031_feasibility_shows_full_originals_rationale_and_structure_questions",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility.test_CE_AMG031_order_never_fabricates_missing_choice_time",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility.test_CE_AMG031_source_and_proposal_bindings_fail_closed",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility.test_CE_AMG031_hash_governance_and_browser_bindings_cannot_be_silently_changed",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_CE_AMG031_feasibility_viewer_source_navigation_and_feedback_in_chrome"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-032",
+      "description": "Checkpoint可行性页不能只呈现事件本身；须逐点展示其前已保存的资料、选择前引文、材料可见投影及LLM结构判断，并严格区分投影与完整原文、模型意见与程序回执",
+      "implementation_status": "implemented_with_synthetic_browser_and_real_v020_r2_replays_and_per_checkpoint_chrome_navigation_verified",
+      "counterexamples": [
+        "多个Checkpoint只有孤立事件卡片，看不到每个事件前的数据和相邻过程",
+        "把候选事件的选择前引文冒充全部既往病历",
+        "将材料HOLD或空投影补写为已审定可见材料",
+        "将完整原文与该时点材料投影混称，泄漏选择后信息而不标识",
+        "将LLM材料审核status当作程序实际执行成功"
+      ],
+      "controls": [
+        "每个Checkpoint前有独立资料板块；过程总览和右侧Checkpoint选择器可逐点导航",
+        "选择前引文按source_id及字符区间核验，缺失明确不等于无资料",
+        "右侧分开显示完整原文与已保存算法投影；空投影、HOLD和失败保留真实状态",
+        "展示有来源的结构化LLM判断、材料审核轮次、操作回执和版本hash",
+        "本私有增量展示不创建正式盲评包、临床Reference、医生答案或临床放行"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility.test_CE_AMG031_feasibility_shows_full_originals_rationale_and_structure_questions",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility.test_CE_AMG032_checkpoint_context_projection_and_llm_provenance_fail_closed",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_browser.test_CE_AMG031_feasibility_viewer_source_navigation_and_feedback_in_chrome"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-034",
+      "description": "发现处理单位input_context_summary.source_ledger独有omitted_budget时，事件级ledger没有遗漏记录，材料装配不能把已恢复完整原文误作excluded；只能成为同一unit目标Checkpoint的研究者候选，不自动进入医生可见材料",
+      "implementation_status": "implemented_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "发现阶段整份超预算既往文书没有事件级actual_model_evidence或ledger行",
+        "恢复原文被归入excluded_sources而非candidate_sources",
+        "其他unit的Checkpoint无依据继承该候选",
+        "恢复原文未找到仍继续材料装配"
+      ],
+      "controls": [
+        "assembly只读取目标event.unit_id匹配处理单位的发现遗漏回执",
+        "完整原文、source_version和sha256原样进入candidate_sources与材料审核registry",
+        "preparation_audit记录DISCOVERY_INPUT_CONTEXT、恢复状态、非临床缺失及非选择前可见证明",
+        "缺原文以ASSEMBLY_DISCOVERY_OMITTED_SOURCE_MISSING局部HOLD；初始manifest不增加该来源"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL015_discovery_only_omission_reaches_graph_and_material_exactly",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL015_batch_execution_uses_recovered_graph_sources_and_materials"
+      ]
+    },
+    {
+      "issue_id": "CE-AMG-033",
+      "description": "真实Client材料transport失败须保存独立终端attempt证据并绑定正确hash域；新链缺证据或旧合成异常不得被宣称为本地终端失败重算",
+      "implementation_status": "implemented_v040_with_synthetic_real_client_regression_pending_real_case_validation",
+      "counterexamples": [
+        "材料业务canonical request_sha256与transport request hash误作同一域",
+        "HTTP 503正文被脱敏回执丢弃或泄漏到安全回执",
+        "合法envelope内Schema缺review_id只留下ModelRequestFailed类名",
+        "篡改diagnostic并重算外层hash仍冒充原终端失败",
+        "无真实证据的普通RuntimeError被当作已重放provider失败"
+      ],
+      "controls": [
+        "真实Client仅mock HTTP，材料链保存终端stage/reason和私有响应证据",
+        "provider evidence与receipt的transport hash绑定，材料canonical request独立重建比较",
+        "旧合成adapter只能获得有限类别绑定且标明未本地重算；生产新链必须fail closed",
+        "材料链0.4.0的previous-round、真实diff和来源pending在Python及Chrome保持同版"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_chain_validation.py::test_CE_AMG033_real_client_material_schema_failure_preserves_private_evidence_and_replays",
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_chain_validation.py::test_provider_failure_retains_zero_completed_rounds_only_as_hold",
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_browser.py::test_actual_revisions_new_source_and_rehashed_bad_history_rejected_in_chrome"
       ]
     }
   ]

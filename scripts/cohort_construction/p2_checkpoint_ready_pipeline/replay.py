@@ -58,7 +58,12 @@ def validate_pipeline_run(run, *, output=None, verify_implementation=True):
     if run.get('expected_checkpoint_ids') != episode['checkpoint_ids']:
         raise ValueError('READY_PIPELINE_EXPECTED_TARGETS_CHANGED')
     _usage(run.get('model_usage'), contract)
-    stages = _stages(run)
+    stages, stage_records = _stages(run)
+    episode_tasks, _ = prepare_candidate_materials(graph, sources,
+        decision_task_id=contract['decision_task_id'],
+        visibility_policy_version=contract['visibility_policy_version'])
+    episode_tasks = [task for task in episode_tasks if task['episode_id'] == contract['episode_id']]
+    _model_accounting(run, stages, stage_records, episode_tasks)
     if output is not None:
         if read(output / 'input-contract.json') != contract:
             raise ValueError('READY_PIPELINE_SAVED_CONTRACT_CHANGED')
@@ -187,14 +192,39 @@ def validate_pipeline_run(run, *, output=None, verify_implementation=True):
     if output is not None:
         _saved(output, 'episode-material-set.json', material_set)
     else:
-        _stage_receipt(run, 'EPISODE_MATERIAL_SET', material_set['checkpoint_materials'][0]['state']
-            if len({item['state'] for item in material_set['checkpoint_materials']}) == 1
-            and material_set['checkpoint_materials'][0]['state'] == 'AUTO_REVIEW_PASS'
-            else 'HOLD')
+        if len({item['state'] for item in material_set['checkpoint_materials']}) != 1 \
+                or material_set['checkpoint_materials'][0]['state'] != 'AUTO_REVIEW_PASS':
+            _stage_receipt(run, 'EPISODE_MATERIAL_SET', 'HOLD')
+        else:
+            _stage_receipt(run, 'EPISODE_MATERIAL_SET', 'AUTO_REVIEW_PASS')
     inherited.append('EPISODE_MATERIAL_SET')
+    if run.get('research_feedback_draft') is not None:
+        from scripts.cohort_construction.p2_checkpoint_material_governance.feedback import (
+            build_research_feedback_draft, render_research_feedback_html,
+            validate_research_feedback_draft,
+        )
+        if contract['config'].get('research_feedback_enabled') is not True:
+            raise ValueError('READY_PIPELINE_RESEARCH_FEEDBACK_NOT_AUTHORIZED')
+        expected_draft = build_research_feedback_draft(material_set,
+            source_limitations=contract['config'].get('research_feedback_limitations', []))
+        if run['research_feedback_draft'] != expected_draft:
+            raise ValueError('READY_PIPELINE_RESEARCH_FEEDBACK_RECONSTRUCTION_MISMATCH')
+        validate_research_feedback_draft(expected_draft)
+        if run.get('research_feedback_html') != render_research_feedback_html(expected_draft):
+            raise ValueError('READY_PIPELINE_RESEARCH_FEEDBACK_HTML_RECONSTRUCTION_MISMATCH')
+        _stage_receipt(run, 'RESEARCH_FEEDBACK_DRAFT', 'RESEARCH_FEEDBACK_DRAFT_READY')
+        if output is not None:
+            _saved(output, 'research-feedback-draft.json', expected_draft)
+            if (output / 'research-feedback.html').read_text(encoding='utf-8') != run['research_feedback_html']:
+                raise ValueError('READY_PIPELINE_RESEARCH_FEEDBACK_HTML_CHANGED')
+    elif contract['config'].get('research_feedback_enabled') is True:
+        raise ValueError('READY_PIPELINE_RESEARCH_FEEDBACK_MISSING')
+    elif 'RESEARCH_FEEDBACK_DRAFT' in stages or run.get('research_feedback_html') is not None:
+        raise ValueError('READY_PIPELINE_UNEXPECTED_RESEARCH_FEEDBACK')
     if any(item['state'] != 'AUTO_REVIEW_PASS' for item in material_set['checkpoint_materials']):
         if run.get('actual_deliveries') is not None or run.get('ready_resource') is not None:
             raise ValueError('READY_PIPELINE_MATERIAL_HOLD_CANNOT_DELIVER')
+        _expect_feedback_or_formal_hold(run, stages, 'HOLD')
         return _receipt(run, inherited, material_set_rebuildable=True)
     if stages.get('EPISODE_MATERIAL_SET') != 'AUTO_REVIEW_PASS':
         raise ValueError('READY_PIPELINE_MATERIAL_SET_GATE_MISMATCH')
@@ -206,8 +236,9 @@ def validate_pipeline_run(run, *, output=None, verify_implementation=True):
             _saved(output, 'delivery-gate.json', run['delivery_gate'])
         if (run.get('actual_deliveries') is not None or run.get('delivery_audit_chain') is not None
                 or run.get('ready_resource') is not None or run.get('resolved_semantic_audits') is not None
-                or run.get('state') != 'HOLD'):
+                or run.get('state') not in ('HOLD', 'RESEARCH_FEEDBACK_DRAFT_READY')):
             raise ValueError('READY_PIPELINE_DELIVERY_GATE_BYPASSED')
+        _expect_feedback_or_formal_hold(run, stages, 'HOLD')
         return _receipt(run, inherited, material_set_rebuildable=True)
 
     deliveries = run.get('actual_deliveries')
@@ -285,12 +316,13 @@ def _saved(output, path, value):
 def _stages(run):
     if not isinstance(run.get('stages'), list):
         raise ValueError('READY_PIPELINE_STAGES_REQUIRED')
-    result = {}
+    states, records = {}, {}
     for item in run['stages']:
-        if not isinstance(item, dict) or not isinstance(item.get('stage'), str) or item['stage'] in result:
+        if not isinstance(item, dict) or not isinstance(item.get('stage'), str) or item['stage'] in states:
             raise ValueError('READY_PIPELINE_STAGE_IDENTITY_INVALID')
-        result[item['stage']] = item.get('state')
-    return result
+        states[item['stage']] = item.get('state')
+        records[item['stage']] = item
+    return states, records
 
 
 def _stop(state):
@@ -305,6 +337,89 @@ def _expect_terminal(run, stages, prefix, state):
         raise ValueError('READY_PIPELINE_TERMINAL_STAGE_MISMATCH')
 
 
+def _expect_feedback_or_formal_hold(run, stages, terminal_state):
+    if run.get('research_feedback_draft') is not None:
+        if run.get('state') != 'RESEARCH_FEEDBACK_DRAFT_READY':
+            raise ValueError('READY_PIPELINE_RESEARCH_FEEDBACK_TERMINAL_STATE_INVALID')
+        return
+    if run.get('state') != terminal_state:
+        raise ValueError('READY_PIPELINE_FORMAL_HOLD_STATE_INVALID')
+
+
+def _model_accounting(run, stages, stage_records, tasks=()):
+    """Reconcile recorded usage to the exact chains and chainless stage deltas."""
+    from .model_accounting import chain_usage, usage_sum, validate_usage, zero_usage
+    for stage, item in stage_records.items():
+        if not isinstance(item.get('reason_code'), (str, type(None))) \
+                or item.get('execution_origin') not in ('EXECUTED', 'INHERITED') \
+                or (item['execution_origin'] == 'EXECUTED') != item.get('model_accounted', False) \
+                or item.get('parent_run_sha256') != (run.get('continuation') or {}).get('parent_run_sha256'):
+            raise ValueError('READY_PIPELINE_STAGE_RECEIPT_INVALID')
+    expected = {'GRAPH_AUDIT', 'RESEARCH_FEEDBACK_DRAFT', 'READY_RESOURCE'}
+    if stages.get('GRAPH_AUDIT') == 'AUTO_GRAPH_AUDIT_PASS':
+        expected.add('MATERIAL_PREPARATION')
+        if stages.get('MATERIAL_PREPARATION') == 'PASS':
+            expected |= {'MATERIAL:' + task['compiled']['target']['checkpoint_id'] for task in tasks}
+            if all(stage_records.get('MATERIAL:' + task['compiled']['target']['checkpoint_id'], {}).get('state')
+                   != 'ORCHESTRATION_HOLD' for task in tasks):
+                expected.add('EPISODE_MATERIAL_SET')
+                if stages.get('EPISODE_MATERIAL_SET') == 'AUTO_REVIEW_PASS':
+                    expected |= {'DELIVERY_GATE', 'DELIVERY_AUDIT'}
+    if set(stages) - expected:
+        raise ValueError('READY_PIPELINE_STAGE_IDENTITY_UNKNOWN')
+    usage = zero_usage(run['model_usage']['max_model_invocations'])
+    for stage, item in stage_records.items():
+        if item['execution_origin'] == 'INHERITED':
+            if item.get('model_usage_base') != run.get('model_usage_base'):
+                raise ValueError('READY_PIPELINE_INHERITED_STAGE_BASE_MISMATCH')
+            continue
+        if stage == 'GRAPH_AUDIT' and run.get('graph_audit_chain') is not None:
+            chain_usage(run['graph_audit_chain'], 'graph', usage)
+        elif stage.startswith('MATERIAL:'):
+            checkpoint_id = stage[len('MATERIAL:'):]
+            chain = (run.get('material_chains') or {}).get(checkpoint_id)
+            if chain is None and run.get('episode_material_set') is not None:
+                matches = [item['auto_review_chain'] for item in run['episode_material_set']['checkpoint_materials']
+                    if item['checkpoint_id'] == checkpoint_id]
+                chain = matches[0] if len(matches) == 1 else None
+            if chain is not None:
+                chain_usage(chain, 'material', usage)
+            elif item.get('state') == 'ORCHESTRATION_HOLD':
+                # A chainless handled failure must carry its exact before/after
+                # delta. Inferring zero or one from its name would be unsound.
+                delta = item.get('model_usage_delta')
+                if not isinstance(delta, dict):
+                    raise ValueError('READY_PIPELINE_ORCHESTRATION_ATTEMPT_EVIDENCE_REQUIRED')
+                usage = usage_sum(usage, validate_usage(delta, usage['max_model_invocations']),
+                    usage['max_model_invocations'])
+        elif stage == 'DELIVERY_AUDIT' and run.get('delivery_audit_chain') is not None:
+            chain_usage(run['delivery_audit_chain'], 'delivery', usage)
+        elif item.get('model_accounted'):
+            raise ValueError('READY_PIPELINE_UNBACKED_MODEL_ATTEMPT')
+    if any(item.get('execution_origin') == 'EXECUTED' and item.get('state') == 'PREPARED_NOT_EXECUTED'
+           for item in stage_records.values()):
+        raise ValueError('READY_PIPELINE_PREPARED_STAGE_EXECUTION_CONFLICT')
+    if run.get('graph_reconstruction_chain') is not None:
+        if run.get('model_usage_base', {}).get('binding', {}).get('kind') != 'GRAPH_RECONSTRUCTION':
+            raise ValueError('READY_PIPELINE_RECONSTRUCTION_BASE_REQUIRED')
+        # Reconstruction precedes the fresh graph; do not count it again as a
+        # fresh-graph/material/delivery call.
+        from .model_accounting import validate_graph_reconstruction_usage
+        reconstruction = zero_usage(run['model_usage']['max_model_invocations'])
+        validate_graph_reconstruction_usage(run['graph_reconstruction_chain'], reconstruction,
+            run['model_usage']['max_model_invocations'])
+        if reconstruction != run['model_usage_base']['usage']:
+            raise ValueError('READY_PIPELINE_RECONSTRUCTION_BASE_USAGE_MISMATCH')
+    base = run.get('model_usage_base', {}).get('usage')
+    if base is None:
+        base = zero_usage(run['model_usage']['max_model_invocations'])
+    expected_usage = usage_sum(validate_usage(base, run['model_usage']['max_model_invocations']),
+        validate_usage(usage, run['model_usage']['max_model_invocations']),
+        run['model_usage']['max_model_invocations'])
+    if expected_usage != run['model_usage']:
+        raise ValueError('READY_PIPELINE_STAGE_MODEL_ACCOUNTING_MISMATCH')
+
+
 def _usage(usage, contract):
     if not isinstance(usage, dict):
         raise ValueError('READY_PIPELINE_MODEL_USAGE_REQUIRED')
@@ -317,6 +432,9 @@ def _usage(usage, contract):
             or total > contract['max_model_invocations']
             or not isinstance(usage.get('stage_call_counts'), dict)):
         raise ValueError('READY_PIPELINE_MODEL_BUDGET_MISMATCH')
+    if 'stage_usage' in usage:
+        from .model_accounting import validate_usage
+        validate_usage(usage, contract['max_model_invocations'])
 
 
 def _receipt(run, inherited, *, material_set_rebuildable=False, deliveries_rebuildable=False):

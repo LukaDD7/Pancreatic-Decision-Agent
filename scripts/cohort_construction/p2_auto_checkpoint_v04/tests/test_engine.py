@@ -317,6 +317,22 @@ class MappingAndReviewTests(unittest.TestCase):
         self.assertEqual({block["source_id"] for block in sent["evidence_source_pool"]},
                          {block["source_id"] for block in out["actual_model_evidence"]})
         self.assertEqual(out["validated_observation_citations"]["invalid"][0]["source_id"], "BULK")
+        # The actual v04 disposition must survive into material review. It is
+        # not an assertion that this full original was absent or irrelevant.
+        from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import (
+            freeze_candidate_graph, normalize_sources, prepare_checkpoint_task,
+        )
+        from scripts.cohort_construction.p2_checkpoint_material_governance.review import build_review_request
+        graph = freeze_candidate_graph([out], [], [dict(episode_id='EP-BUDGET',
+            candidate_ids=[out['event_id']], checkpoint_ids=[out['event_id']])],
+            graph_version='SYNTHETIC-PROVIDER-BUDGET')
+        task = prepare_checkpoint_task(graph, normalize_sources(sources), out['event_id'],
+            decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC')
+        self.assertEqual([s['source_id'] for s in task['candidate_sources'] if s['source_id'] == 'BULK'], ['BULK'])
+        request = build_review_request(task['manifest'], task['compiled'],
+            candidate_sources=task['candidate_sources'], excluded_sources=task['excluded_sources'],
+            task_context=task['task_context'])
+        self.assertEqual([s['source_id'] for s in request['candidate_sources'] if s['source_id'] == 'BULK'], ['BULK'])
 
     def test_ENG017_shared_request_pool_does_not_expand_another_events_allowed_facts(self):
         s = source(text="手术时间：2022-01-02 08:00-2022-01-02 12:00\n初次所见：甲。决定甲方案。新所见：乙。决定乙方案。")

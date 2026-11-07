@@ -8,6 +8,7 @@ import tempfile
 import json
 
 from scripts.cohort_construction.p2_auto_checkpoint_v04.engine import resolve_model_quotes
+from scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_engine import quotes
 from scripts.cohort_construction.p2_auto_checkpoint_v04.prompts import UNCERTAINTY_KEYS
 from scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_v05_semantic_contract import fixture
 from . import refine
@@ -22,7 +23,8 @@ class FakeClient:
         self.calls.append(deepcopy(dict(task=task, payload=payload)))
         if self.failure:
             raise RuntimeError('synthetic transport failure')
-        receipt = dict(request_sha256='repair-hash', model='qwen3.8-max', task=task, cached=False)
+        receipt = dict(request_sha256=refine.digest(payload), model='qwen3.8-max', task=task,
+                       cached=False)
         self.receipts.append(receipt)
         return deepcopy(self.result), receipt
 
@@ -30,9 +32,14 @@ class FakeClient:
 def setup():
     old, cur, previous, e, corrected, ctx = fixture()
     corrected['connection_quotes'] = [dict(source_id='C', quote=cur['text'])]
+    # CE-REM-002/003: migrate the positive synthetic proposal to the new required
+    # schema while retaining the legacy evidence-informed proof obligations.
+    corrected['checkpoint_kind'] = 'evidence_informed_choice'
+    corrected['evidence_relations'] = []
     corrected['uncertainty_dimensions'] = {key: dict(status='uncertain', reason_category='genuine_missing_information',
         explanation='Synthetic fixture preserves unspecified uncertainty.', source_quotes=[]) for key in UNCERTAINTY_KEYS}
     e.update(evidence_context=ctx, actual_model_evidence=deepcopy(ctx['blocks']),
+        choice_boundary_citations=quotes(cur, '决定补充检查。'),
         provided_prior_event_ids=['E0'], provided_identity_event_ids=['E0', 'E1'],
         review_request_sha256='original-hash', validation_reasons=['NO_VALID_PRIOR_OBSERVATION'],
         checkpoint_status='UNCERTAIN_CONTRACT_OR_SOURCE')
@@ -66,7 +73,7 @@ class RefinementTests(unittest.TestCase):
         original = deepcopy(e)
         repaired, audit, client = perform(e, prev, sources, corrected, payload)
         self.assertEqual(repaired['checkpoint_status'], 'CANDIDATE_NEW_EVIDENCE')
-        self.assertEqual(repaired['review_request_sha256'], 'repair-hash')
+        self.assertEqual(repaired['review_request_sha256'], refine.digest(client.calls[0]['payload']))
         self.assertEqual(repaired['semantic_review_before_refinement'], original['semantic_review'])
         self.assertEqual(e, original)
         self.assertEqual(repaired['actual_model_evidence'], original['actual_model_evidence'])
@@ -112,7 +119,7 @@ class RefinementTests(unittest.TestCase):
         corrected['checkpoint'] = 'uncertain'
         repaired, audit, client = perform(e, prev, sources, corrected, payload)
         self.assertEqual(repaired['checkpoint_status'], 'UNCERTAIN_SEMANTIC_JUDGMENT')
-        self.assertEqual(repaired['review_request_sha256'], 'repair-hash')
+        self.assertEqual(repaired['review_request_sha256'], refine.digest(client.calls[0]['payload']))
 
     def test_pure_semantic_uncertainty_and_valid_proxy_availability_not_targeted(self):
         e, prev, sources, corrected, payload = setup()
@@ -237,6 +244,38 @@ class RefinementTests(unittest.TestCase):
             is_declared_observation=True, eligible_as_known_prechoice=True,
             validated_observation=dict(invalid=[]), validated_basis=dict(invalid=[]))]
         self.assertIn('EXPLICIT_KNOWN_COMPARISON_COVERAGE_MISMATCH', refine.repair_triggers(e))
+
+    def test_invalid_repair_receipt_preserves_original_state_and_receipt(self):
+        e, prev, sources, corrected, payload = setup()
+        original = deepcopy(e)
+        client = FakeClient({'items':[corrected]})
+        def invalid_receipt(task, submitted, schema):
+            result, receipt = FakeClient.ask(client, task, submitted, schema)
+            receipt['status'] = 'FAILED'
+            return result, receipt
+        client.ask = invalid_receipt
+        with patch.object(refine, 'original_payload', return_value=payload):
+            revised, audit = refine.repair_group([e], [prev,e], sources, 'unused',
+                {'semantic_model':'qwen3.8-max'}, client)
+        self.assertEqual(revised[0]['semantic_review'], original['semantic_review'])
+        self.assertEqual(revised[0]['review_refinement']['status'], 'REPAIR_NOT_APPLIED')
+        self.assertEqual(audit['receipt']['request_sha256'], refine.digest(client.calls[0]['payload']))
+        self.assertEqual(audit['receipt']['status'], 'FAILED')
+
+    def test_cache_failure_preserves_original_state_without_model_call(self):
+        e, prev, sources, corrected, payload = setup()
+        original = deepcopy(e)
+        client = FakeClient({'items': [corrected]})
+        with patch.object(refine, 'original_payload', side_effect=OSError('synthetic cache unreadable')):
+            revised, audit = refine.repair_group([e], [prev, e], sources, 'unused',
+                {'semantic_model': 'qwen3.8-max'}, client)
+        self.assertEqual(revised[0]['semantic_review'], original['semantic_review'])
+        self.assertEqual(revised[0]['review_request_sha256'], original['review_request_sha256'])
+        self.assertEqual(revised[0]['review_refinement']['status'], 'REPAIR_NOT_APPLIED')
+        self.assertEqual(revised[0]['review_refinement']['error'], 'OSError')
+        self.assertEqual(audit['status'], 'REPAIR_NOT_APPLIED')
+        self.assertNotIn('original_review_payload', audit)
+        self.assertEqual(client.calls, [])
 
 
 if __name__ == '__main__':

@@ -16,11 +16,14 @@ from scripts.cohort_construction.p2_checkpoint_packet.compiler import (
     project_doctor_materials, text_sha256,
 )
 from scripts.cohort_construction.p2_checkpoint_packet.semantic_audit import _verified_compiled
+from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+    diagnostics_for, private_chain_evidence, reason_for,
+)
 
 AUTO_PROTOCOL_VERSION = 'checkpoint-automated-material-review-0.3.0'
 LEGACY_PROTOCOL_VERSIONS = ('checkpoint-automated-material-review-0.2.0',)
 REVIEW_RESPONSE_FORMAT = 'material-review-0.3.0'
-CHAIN_FORMAT = 'automated-material-review-chain-0.3.0'
+CHAIN_FORMAT = 'automated-material-review-chain-0.4.0'
 TASK = 'checkpoint_material_full_source_and_doctor_view_review'
 DIMENSIONS = ('scope', 'target', 'leakage', 'evidence', 'boundaries', 'time', 'evaluability')
 APPLICABLE = ('APPLICABLE', 'NOT_APPLICABLE', 'UNKNOWN')
@@ -32,6 +35,90 @@ DISPOSITIONS = ('KEEP', 'MASK', 'REVIEW')
 
 class MaterialReviewError(ContractError):
     pass
+
+
+def _transport_binding(request, *, projection_format='FULL_REQUEST', projection=None):
+    """Declare the exact provider payload separately from the persisted request.
+
+    ``FULL_REQUEST`` preserves the historical default. Compact transport is an
+    explicit registered projection and never silently replaces the full request.
+    """
+    from .projection import FORMAT as COMPACT_FORMAT, compact_material_review_request
+    # Callers without a precomputed projection use the default full request.
+    # Compact callers must supply the exact registered projection and are
+    # checked below; the legacy initial/default validation cannot omit it.
+    if projection_format == 'FULL_REQUEST':
+        if projection is not None:
+            raise MaterialReviewError('TRANSPORT_FULL_REQUEST_PROJECTION_UNEXPECTED')
+        payload = deepcopy(request)
+    elif projection_format == COMPACT_FORMAT:
+        payload = compact_material_review_request(request)
+        if projection is not None and projection != payload:
+            raise MaterialReviewError('TRANSPORT_DECLARED_PROJECTION_MISMATCH')
+    else:
+        raise MaterialReviewError('TRANSPORT_PROJECTION_FORMAT_UNSUPPORTED')
+    return dict(provider_payload=deepcopy(payload), transport=dict(
+        transport_projection_format=projection_format,
+        declared_provider_payload_sha256=canonical_sha256(payload)))
+
+
+def _synthetic_receipt(receipt, transport):
+    """Make offline adapter provenance explicit; do not invent provider proof."""
+    receipt = deepcopy(receipt) if isinstance(receipt, dict) else {}
+    origin = receipt.get('receipt_origin', 'SYNTHETIC_ADAPTER')
+    if origin != 'SYNTHETIC_ADAPTER':
+        raise MaterialReviewError('TRANSPORT_RECEIPT_ORIGIN_INVALID')
+    receipt.update(receipt_origin='SYNTHETIC_ADAPTER',
+        provider_invocation_occurred=False, provider_transport_verified=False,
+        transport_projection_format=transport['transport_projection_format'],
+        declared_provider_payload_sha256=transport['declared_provider_payload_sha256'])
+    return receipt
+
+
+def _client_receipt(receipt, transport, *, success):
+    """Bind real Client receipt domains to the payload actually declared here."""
+    cached = isinstance(receipt, dict) and receipt.get('receipt_origin') == 'PROVIDER_CLIENT_CACHE'
+    if not isinstance(receipt, dict) \
+            or receipt.get('receipt_origin') not in ('PROVIDER_CLIENT', 'PROVIDER_CLIENT_CACHE') \
+            or receipt.get('declared_provider_payload_sha256') \
+            != transport['declared_provider_payload_sha256'] \
+            or receipt.get('provider_invocation_occurred') is not (not cached) \
+            or receipt.get('cached') is not cached:
+        raise MaterialReviewError('TRANSPORT_PROVIDER_RECEIPT_PAYLOAD_MISMATCH')
+    if success and (receipt.get('status') != 'SUCCESS'
+                    or receipt.get('provider_transport_verified') is not (not cached)):
+        raise MaterialReviewError('TRANSPORT_PROVIDER_SUCCESS_RECEIPT_INVALID')
+    if not success and (receipt.get('status') != 'FAILED'
+                        or cached or receipt.get('provider_transport_verified') is not False):
+        raise MaterialReviewError('TRANSPORT_PROVIDER_FAILURE_RECEIPT_INVALID')
+    result = deepcopy(receipt)
+    result['transport_projection_format'] = transport['transport_projection_format']
+    return result
+
+
+def _round_transport(request, receipt, *, success, failure=False):
+    """Return one replayable transport record, including local non-invocation."""
+    transport = _transport_binding(request,
+        projection_format=receipt.get('transport_projection_format', 'FULL_REQUEST'))
+    if receipt.get('receipt_origin') == 'SYNTHETIC_ADAPTER':
+        receipt = _synthetic_receipt(receipt, transport)
+    elif receipt.get('receipt_origin') in ('PROVIDER_CLIENT', 'PROVIDER_CLIENT_CACHE'):
+        receipt = _client_receipt(receipt, transport, success=success)
+    elif receipt.get('status') == 'LOCAL_BUDGET_DENIED' \
+            and receipt.get('provider_invocation_occurred') is False \
+            and receipt.get('cached') is False:
+        receipt = deepcopy(receipt)
+        receipt.update(receipt_origin='LOCAL_CONTROL',
+            provider_transport_verified=False, **transport['transport'])
+    else:
+        raise MaterialReviewError('TRANSPORT_RECEIPT_ORIGIN_REQUIRED')
+    evidence = receipt.pop('terminal_attempt_evidence', None)
+    result = dict(request=request, request_sha256=canonical_sha256(request),
+        request_binding_sha256=request['response_binding']['request_sha256'],
+        receipt=receipt, **transport['transport'])
+    if evidence is not None:
+        result['provider_attempt_evidence'] = evidence
+    return result
 
 
 def doctor_view(compiled):
@@ -249,9 +336,41 @@ def _revise(manifest, compiled, review, candidate_sources, excluded_sources):
                      resolved_span=dict(start=span['start'], end=span['end'], exact_quote=span['text']))
                 for source in compiled['sources'] for span in source['segments']]
     operations, reasons, flags, human, holds = [], [], [], [], []
+    # Resolve every interval against the same input version before changing any
+    # partition. A quote may cross existing REVIEW/MASK boundaries. Operations
+    # in one response form one atomic plan, not a sequence of new model states.
+    pending_intervals = []
+    for operation in review['operations']:
+        if operation['operation'] != 'SET_DISPOSITION':
+            continue
+        sid = operation['source_id']
+        if sid not in source_map or operation['disposition'] not in DISPOSITIONS:
+            raise MaterialReviewError('INVALID_DISPOSITION_OPERATION')
+        match = locate_exact_quote(manifest, sid, operation['exact_quote'],
+                                   operation.get('prefix'), operation.get('suffix'))
+        if match['status'] != 'UNIQUE':
+            raise MaterialReviewError('DISPOSITION_QUOTE_NOT_UNIQUE')
+        anchor = match['anchors'][0]
+        pending_intervals.append(dict(operation=operation, anchor=anchor,
+            start=anchor['start'], end=anchor['end'], status='PENDING_ATOMIC_PLAN'))
+    for index, left in enumerate(pending_intervals):
+        for right in pending_intervals[index + 1:]:
+            if (left['operation']['source_id'] == right['operation']['source_id']
+                    and left['start'] < right['end'] and right['start'] < left['end']
+                    and left['operation']['disposition'] != right['operation']['disposition']):
+                raise MaterialReviewError('DISPOSITION_ATOMIC_PLAN_CONFLICT')
+    # Later source-scope operations control inclusion. Excluding a source makes
+    # its proposed interval a recorded no-op, never a cross-version relocation.
+    for operation in review['operations']:
+        if operation['operation'] == 'EXCLUDE_SOURCE' and operation['source_id'] in source_map:
+            for interval in pending_intervals:
+                if interval['operation']['source_id'] == operation['source_id']:
+                    interval['status'] = 'SOURCE_EXCLUDED_IN_ATOMIC_PLAN'
     for operation in review['operations']:
         kind, sid = operation['operation'], operation['source_id']
         record = dict(operation=deepcopy(operation), status='REJECTED')
+        if kind == 'SET_DISPOSITION':
+            record['execution_scope'] = 'ATOMIC_INPUT_VERSION_PLAN'
         operations.append(record)
         if kind in ('INCLUDE_SOURCE', 'EXCLUDE_SOURCE', 'MARK_SOURCE_UNRESOLVED'):
             if sid not in sources and sid not in candidates:
@@ -274,36 +393,47 @@ def _revise(manifest, compiled, review, candidate_sources, excluded_sources):
                                     scope='specific_source_not_patient_or_hospital'))
             record['status'] = 'APPLIED'
         elif kind == 'SET_DISPOSITION':
-            if sid not in source_map or operation['disposition'] not in DISPOSITIONS:
-                raise MaterialReviewError('INVALID_DISPOSITION_OPERATION')
-            match = locate_exact_quote(manifest, sid, operation['exact_quote'],
-                                       operation.get('prefix'), operation.get('suffix'))
-            if match['status'] != 'UNIQUE':
-                raise MaterialReviewError('DISPOSITION_QUOTE_NOT_UNIQUE')
-            anchor = match['anchors'][0]
-            start, end = anchor['start'], anchor['end']
+            interval = next(item for item in pending_intervals
+                            if item['operation']['operation_id'] == operation['operation_id'])
+            if interval['status'] != 'PENDING_ATOMIC_PLAN':
+                record.update(status='NO_CHANGE', reason=interval['status'])
+                continue
+            anchor = interval['anchor']
+            start, end = interval['start'], interval['end']
             target = [s for s in segments if s['source_id'] == sid
                       and s['resolved_span']['start'] <= start and end <= s['resolved_span']['end']]
-            if len(target) != 1:
-                raise MaterialReviewError('DISPOSITION_MUST_RESOLVE_WITHIN_ONE_SEGMENT')
-            target = target[0]
-            if (target['disposition'] == operation['disposition']
-                    and target['resolved_span']['start'] == start and target['resolved_span']['end'] == end):
+            # A no-op exact interval needs no split. A requested interval may
+            # cover several current segments only if their disposition is same;
+            # the final deterministic union below handles those boundaries.
+            same_disposition = all(s['disposition'] == operation['disposition'] for s in target)
+            if same_disposition and len(target) == 1 \
+                    and target[0]['resolved_span']['start'] == start \
+                    and target[0]['resolved_span']['end'] == end:
                 record.update(status='NO_CHANGE', reason='SAME_DISPOSITION_AND_SPAN')
                 continue
-            base = target['resolved_span']
+            covered = [s for s in segments if s['source_id'] == sid
+                       and start < s['resolved_span']['end']
+                       and s['resolved_span']['start'] < end]
+            if not covered:
+                raise MaterialReviewError('DISPOSITION_ATOMIC_INTERVAL_OUTSIDE_SOURCE')
             replacement = []
-            for a, b in ((base['start'], start), (start, end), (end, base['end'])):
-                if a == b:
-                    continue
-                replacement.append(dict(
-                    segment_id='MR-' + canonical_sha256([review['review_id'], sid, a, b,
-                        operation['disposition'] if (a, b) == (start, end) else target['disposition']])[:24],
-                    source_id=sid,
-                    disposition=operation['disposition'] if (a, b) == (start, end) else target['disposition'],
-                    resolved_span=dict(start=a, end=b, exact_quote=source_map[sid]['text'][a:b])))
-            segments[segments.index(target):segments.index(target) + 1] = replacement
-            record.update(status='APPLIED', resolved_anchor=anchor)
+            for old in covered:
+                base = old['resolved_span']
+                for a, b, disposition in (
+                    (base['start'], min(start, base['end']), old['disposition']),
+                    (max(start, base['start']), min(end, base['end']), operation['disposition']),
+                    (max(end, base['start']), base['end'], old['disposition']),
+                ):
+                    if a >= b:
+                        continue
+                    replacement.append(dict(
+                        segment_id='MR-' + canonical_sha256([review['review_id'], sid, a, b, disposition])[:24],
+                        source_id=sid, disposition=disposition,
+                        resolved_span=dict(start=a, end=b, exact_quote=source_map[sid]['text'][a:b])))
+            first = segments.index(covered[0])
+            segments[first:first + len(covered)] = replacement
+            record.update(status='APPLIED', resolved_anchor=anchor,
+                execution_scope='ATOMIC_INPUT_VERSION_PLAN')
         else:
             if kind == 'FLAG_EVENT_GRAPH_ISSUE':
                 flags.append(deepcopy(operation))
@@ -473,7 +603,7 @@ def _previous_round_history(round_, round_index):
 
 def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_sources=(),
                      max_rounds=3, protocol_version=AUTO_PROTOCOL_VERSION, task_context=None,
-                     journal=None):
+                     journal=None, transport_projection_format='FULL_REQUEST'):
     """Run bounded reviews; record exact inputs and retain completed rounds on failure.
 
     ``journal`` is a local persistence hook, never a model authorization. A failed
@@ -490,6 +620,14 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
                                      excluded_sources=excluded_sources)
     registry_sha = canonical_sha256(registry)
     rounds, current_manifest, current = [], deepcopy(manifest), deepcopy(compiled)
+    transport_projection = None
+    if transport_projection_format != 'FULL_REQUEST':
+        from .projection import FORMAT as COMPACT_FORMAT, compact_material_review_request
+        if transport_projection_format != COMPACT_FORMAT:
+            raise MaterialReviewError('TRANSPORT_PROJECTION_FORMAT_UNSUPPORTED')
+        transport_projection = compact_material_review_request
+    # Validate the explicit default/projection before any provider invocation.
+    _transport_binding(initial_request, projection_format=transport_projection_format)
     seen = {_content_signature(current): 0}
     seen_included = {s['source_id'] for s in current_manifest['sources']}
     stop, failure = None, None
@@ -498,16 +636,38 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
         request = build_review_request(current_manifest, current, candidate_sources=active_candidates,
             excluded_sources=active_excluded, protocol_version=protocol_version, task_context=task_context,
             round_index=index, max_rounds=max_rounds, previous_round=rounds[-1] if rounds else None)
+        declared = _transport_binding(request, projection_format=transport_projection_format)
         round_input = dict(input_manifest=deepcopy(current_manifest), input_compiled=deepcopy(current),
             request=deepcopy(request), request_sha256=canonical_sha256(request),
             request_binding_sha256=request['response_binding']['request_sha256'],
-            source_registry_sha256=registry_sha)
+            source_registry_sha256=registry_sha, **declared['transport'])
         if journal:
             journal('REQUEST', index, deepcopy(round_input))
-        response, receipt, stage = None, {}, 'PROVIDER_REQUEST'
+        response, receipt, stage = None, dict(receipt_origin='SYNTHETIC_ADAPTER',
+            transport_projection_format=transport_projection_format,
+            declared_provider_payload_sha256=declared['transport']['declared_provider_payload_sha256'],
+            provider_transport_verified=False), 'PROVIDER_REQUEST'
         try:
-            answer = ask(TASK, deepcopy(request), deepcopy(MATERIAL_REVIEW_SCHEMA))
-            response, receipt = answer if isinstance(answer, tuple) else (answer, {})
+            import inspect
+            parameters = inspect.signature(ask).parameters
+            accepts_projection = any(p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in parameters.values()) or 'transport_projection' in parameters
+            if accepts_projection:
+                answer = ask(TASK, deepcopy(request), deepcopy(MATERIAL_REVIEW_SCHEMA),
+                             transport_projection=transport_projection)
+            else:
+                # Existing offline test/library adapters keep their old call
+                # signature; a compact declaration may not silently claim that
+                # such an adapter transmitted the projected payload.
+                if transport_projection is not None:
+                    raise MaterialReviewError('TRANSPORT_PROJECTION_ADAPTER_UNSUPPORTED')
+                answer = ask(TASK, deepcopy(request), deepcopy(MATERIAL_REVIEW_SCHEMA))
+            response, receipt = answer if isinstance(answer, tuple) else (answer, receipt)
+            if isinstance(receipt, dict) and 'receipt_origin' not in receipt:
+                receipt = dict(receipt, receipt_origin='SYNTHETIC_ADAPTER',
+                    transport_projection_format=transport_projection_format,
+                    declared_provider_payload_sha256=declared['transport']['declared_provider_payload_sha256'],
+                    provider_transport_verified=False)
             stage = 'RESPONSE_VALIDATION'
             plan = validate_material_review(current_manifest, current, response,
                 candidate_sources=active_candidates, excluded_sources=active_excluded,
@@ -525,18 +685,76 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
         except Exception as exc:
             # Keep sanitized failure categories; original error strings can contain
             # clinical text or provider credentials. Specific contract codes are safe.
-            code = str(exc) if isinstance(exc, MaterialReviewError) else type(exc).__name__
+            exception_receipt = getattr(exc, 'receipt', receipt)
+            if isinstance(exception_receipt, dict):
+                receipt = exception_receipt
+            evidence = getattr(exc, 'failure_evidence', None)
+            recovered = getattr(exc, 'response_evidence', None)
+            if response is None and isinstance(recovered, dict) \
+                    and isinstance(recovered.get('response'), dict):
+                response = recovered['response']
+            local_budget = (type(exc).__name__ == 'LocalModelBudgetHold'
+                    and str(exc) == 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED'
+                    and receipt.get('provider_invocation_occurred') is False
+                    and receipt.get('status') == 'LOCAL_BUDGET_DENIED'
+                    and receipt.get('cached') is False and response is None
+                    and not isinstance(evidence, dict))
+            if local_budget:
+                # Local control flow stopped before transport. It must not be
+                # mistaken for a provider request lacking terminal evidence.
+                stage = 'LOCAL_BUDGET_CONTROL'
+                code = 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED'
+            elif isinstance(evidence, dict):
+                stage = evidence['terminal_stage']
+            elif response is not None:
+                stage = 'RESPONSE_VALIDATION'
+            code = reason_for(exc)
+            if type(exc).__name__ == 'LocalModelBudgetHold' \
+                    and str(exc) == 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED' \
+                    and receipt.get('provider_invocation_occurred') is False \
+                    and receipt.get('status') == 'LOCAL_BUDGET_DENIED' \
+                    and receipt.get('cached') is False and response is None \
+                    and not isinstance(evidence, dict):
+                code = 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED'
+            if type(exc).__name__ == 'ModelRequestFailed' \
+                    and isinstance(evidence, dict) and isinstance(evidence.get('reason_code'), str):
+                # Preserve the terminal transport reason even when its private
+                # evidence also contains a parsed response rejected by Schema.
+                code = evidence['reason_code']
             failure = dict(stage=stage, error_type=type(exc).__name__, reason_code=code,
                 round_index=index, receipt=deepcopy(getattr(exc, 'receipt', receipt)),
-                request=deepcopy(request), request_sha256=canonical_sha256(request))
+                request=deepcopy(request), request_sha256=canonical_sha256(request),
+                request_binding_sha256=request['response_binding']['request_sha256'],
+                **declared['transport'])
             if response is not None:
                 failure['response'] = deepcopy(response)
+            if isinstance(evidence, dict):
+                failure['provider_attempt_evidence'] = private_chain_evidence(evidence)
+            failure_receipt = failure['receipt']
+            if isinstance(failure_receipt, dict) and failure_receipt.get('receipt_origin') in \
+                    ('PROVIDER_CLIENT', 'PROVIDER_CLIENT_CACHE'):
+                failure['receipt'] = _client_receipt(failure_receipt, declared['transport'], success=False)
+            elif local_budget:
+                failure['receipt'] = dict(failure_receipt, receipt_origin='LOCAL_CONTROL',
+                    provider_transport_verified=False)
+            elif isinstance(failure_receipt, dict):
+                failure['receipt'] = _synthetic_receipt(failure_receipt, declared['transport'])
+            diagnostics = diagnostics_for(exc)
+            if diagnostics is not None:
+                failure['program_diagnostics'] = diagnostics
             if journal:
                 journal('FAILURE', index, deepcopy(failure))
             stop = 'EXECUTION_FAILED'
             break
         plan.update(round_input)
-        plan['receipt'] = deepcopy(receipt)
+        bound_receipt = _client_receipt(receipt, declared['transport'], success=True) \
+            if isinstance(receipt, dict) and receipt.get('receipt_origin') in \
+                    ('PROVIDER_CLIENT', 'PROVIDER_CLIENT_CACHE') \
+            else _synthetic_receipt(receipt, declared['transport'])
+        terminal_evidence = bound_receipt.pop('terminal_attempt_evidence', None)
+        plan['receipt'] = bound_receipt
+        if terminal_evidence is not None:
+            plan['provider_attempt_evidence'] = terminal_evidence
         application = dict(input_manifest_sha256=canonical_sha256(current_manifest),
             input_compiled_sha256=current['compiled_sha256'],
             output_manifest_sha256=canonical_sha256(plan['manifest']),

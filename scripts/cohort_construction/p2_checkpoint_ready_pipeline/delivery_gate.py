@@ -38,7 +38,10 @@ def delivery_gate_hold(run, output, persist):
     if run.get('delivery_gate') is None:
         return False
     run['stages'].append(dict(stage='DELIVERY_GATE', state='HOLD',
-        reason_code=';'.join(run['delivery_gate']['reason_codes'])))
+        reason_code=';'.join(run['delivery_gate']['reason_codes']),
+        execution_origin='INHERITED', model_accounted=False,
+        parent_run_sha256=(run.get('continuation') or {}).get('parent_run_sha256'),
+        model_usage_base=deepcopy(run['model_usage_base'])))
     if persist:
         from .persistence import write
         write(output / 'delivery-gate.json', deepcopy(run['delivery_gate']))

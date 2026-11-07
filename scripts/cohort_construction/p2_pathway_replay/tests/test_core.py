@@ -4,7 +4,7 @@ import unittest
 from scripts.cohort_construction.p2_pathway_replay.core import (
     project_sources,clock,relation_to_cutoff,cite,operative_partition,
     validate_partition,resource_selection,compile_view,validate_assessment_round,
-    exact_duplicate_groups)
+    exact_duplicate_groups,body_record_clock,available_source_clock)
 
 class SourceReplayRegression(unittest.TestCase):
     def image(self,time='2022-09-28 11:29:10',uid='p',identity='I1',finding='未见明确局限性狭窄。'):
@@ -15,6 +15,35 @@ class SourceReplayRegression(unittest.TestCase):
         return dict(patient_uid='p',source_record_id='L1',检验项目名称='高敏肌钙蛋白I',检验结果值='> 2.224',检验结果单位='μg/L',检验参考值='0-0.04',送检时间=sample,报告时间=report)
     def doc(self,text,create='2022-09-29 18:00:00'):
         return dict(patient_uid='p',source_record_key='D1',document_text=text,create_time=create,admission_time='2022-09-26 10:00:00',文书名称='原文')
+
+    def test_CEREM002_direct_projection_history_never_becomes_body_clock(self):
+        for text in ['既往2022-01-01 10:00曾于外院检查。\n当前拟评估。',
+                     '现病史：2022-01-01 10:00行检查。\n记录时间待补。']:
+            with self.subTest(text=text):
+                source = self.sources(dict(documents_all=[self.doc(text, create=None)]))[0]
+                self.assertIsNone(source['clocks']['body_record_time']['value'])
+                self.assertEqual(body_record_clock(text), clock(None))
+                _, selected, _, _ = available_source_clock(source)
+                self.assertIsNone(selected['value'])
+
+    def test_CEREM002_direct_projection_preserves_valid_body_and_creation_clocks(self):
+        for text in ['记录时间：2022-09-28 18:25\n既往2022-01-01 10:00曾于外院检查。',
+                     '2022-09-28 18:25　查房\n既往2022-01-01 10:00曾于外院检查。']:
+            with self.subTest(text=text):
+                source = self.sources(dict(documents_all=[self.doc(text)]))[0]
+                self.assertEqual(source['clocks']['body_record_time']['value'], '2022-09-28 18:25:00')
+                self.assertEqual(source['clocks']['source_create_time']['value'], '2022-09-29 18:00:00')
+                _, selected, basis, _ = available_source_clock(source)
+                self.assertEqual(selected['value'], '2022-09-28 18:25:00')
+                self.assertEqual(basis, 'body_record_time')
+                self.assertNotEqual(selected['value'][:10], '2022-01-01')
+
+    def test_CEREM002_invalid_creation_does_not_fall_back_to_history(self):
+        source = self.sources(dict(documents_all=[
+            self.doc('既往2022-01-01 10:00曾于外院检查。', create='not-a-clock')]))[0]
+        self.assertEqual(source['clocks']['source_create_time']['precision'], 'invalid')
+        _, selected, _, _ = available_source_clock(source)
+        self.assertIsNone(selected['value'])
 
     def test_src001_cta_is_not_lost_by_document_only_projection(self):
         ss,inv=project_sources(dict(documents_all=[],imaging_all=[self.image()]),'p')

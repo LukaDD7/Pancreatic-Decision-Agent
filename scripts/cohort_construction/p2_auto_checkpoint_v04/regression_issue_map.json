@@ -99,6 +99,76 @@
       "required_tests": [
         "test_Q012_issue_map_references_existing_tests"
       ]
+    },
+    {
+      "id": "V04-NET005",
+      "problem": "Transport failure snapshots must be written before HTTP status, envelope JSON, content JSON and Schema handling; each invocation and attempt has immutable private evidence while operational receipts exclude raw bodies and credentials.",
+      "fixture_origin": "synthetic_counterexamples",
+      "clinical_gold": false,
+      "counterexamples": [
+        "HTTP 503 response body is lost by raise_for_status",
+        "Malformed envelope JSON loses line, column and byte-identical raw text",
+        "Transport Schema rejection discards the parsed response and failed field",
+        "A later retry overwrites the earlier attempt or a receipt contains provider credentials"
+      ],
+      "controls": [
+        "Independent provider-response snapshot is saved before status/JSON/Schema parsing",
+        "Private attempt evidence and safe structural receipt coordinates are separately bound",
+        "Cached successful responses cannot turn failed attempts into a clinical or pipeline pass"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET005_raw_response_snapshot_precedes_http_json_and_schema_failures",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_reconstruction_audit.py::ReconstructionAuditTests::test_failure_evidence_preserves_json_schema_http_and_whitespace_quote_details"
+      ]
+    },
+    {
+      "id": "V04-NET006",
+      "problem": "A legal JSON envelope with invalid structure or missing/non-text content must not escape as IndexError or acquire an unrelated JSON diagnostic; embedded evidence must bind invocation, transport hash, attempt, terminal stage and reason without conflating canonical chain payload hashes.",
+      "fixture_origin": "synthetic_counterexamples",
+      "clinical_gold": false,
+      "counterexamples": [
+        "choices is empty or envelope is an array",
+        "message lacks content or content is null",
+        "A self-consistent evidence object is attached to a different invocation or reason",
+        "Canonical material request_sha256 is incorrectly compared to transport_request_sha256",
+        "A new real transport failure without terminal evidence is reported as replayed"
+      ],
+      "controls": [
+        "Envelope structure and content type/missing-value failures replay deterministically",
+        "Transport and canonical business request hashes remain explicitly separate domains",
+        "Historical or explicitly synthetic no-evidence shells are labelled unverified, never locally recomputed",
+        "Only production Client failures count as terminal provider evidence replay"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET006_structural_envelope_and_content_failures_have_bound_replayable_diagnostics",
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_chain_validation.py::test_CE_AMG033_real_client_material_schema_failure_preserves_private_evidence_and_replays",
+        "scripts/cohort_construction/p2_checkpoint_reconstruction_audit/tests/test_graph_reconstruction.py::test_CE_GRA010_real_client_schema_exception_preserves_private_response_and_binding"
+      ]
+    },
+    {
+      "id": "V04-NET007",
+      "problem": "Provider success, cached replay, retry archives and operational metadata must preserve the same terminal response and caller Schema without append-only collisions or fabricated transport provenance.",
+      "fixture_origin": "synthetic_counterexamples",
+      "clinical_gold": false,
+      "counterexamples": [
+        "The integer retry index is shadowed by the success-attempt dictionary, terminal evidence is written twice and exception handling performs dictionary-plus-integer arithmetic.",
+        "A cached result differs from the terminal provider response or a cached retry has no replayable archived failed-attempt evidence.",
+        "Archived failed-attempt pointers are added to the original attempts list after the cached receipt receives a deepcopy, leaving the returned cache receipt unverifiable.",
+        "A generic caller response is replayed against the material-review Schema rather than the Schema used for that invocation.",
+        "Nested provider usage extensions or unsafe returned-model text escape into operational usage/model fields."
+      ],
+      "controls": [
+        "Each attempt uses a stable integer index and saves terminal SUCCESS evidence exactly once.",
+        "Fresh and cached success replay raw response, envelope, content, parsed response and the actual caller Schema; cached result equals terminal response.",
+        "Cached failed attempts carry private archived evidence bound to invocation, attempt, terminal stage and failure reason.",
+        "Fresh provider success alone verifies provider transport; cached, synthetic and local-control receipts retain distinct non-invocation provenance.",
+        "Only bounded token usage fields and a safe returned-model string enter operational receipt metadata; full provider evidence remains private."
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CEREM_ADV034_cached_result_retries_and_metadata_are_replayable",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET006_structural_envelope_and_content_failures_have_bound_replayable_diagnostics",
+        "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_chain_validation.py::test_CE_AMG033_real_client_material_schema_failure_preserves_private_evidence_and_replays"
+      ]
     }
   ],
   "evaluation_issues": [

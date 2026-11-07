@@ -12,15 +12,26 @@ from scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_engine import
 def fixture(kind='changed_state',availability='explicitly_known_before'):
     old=source('P','此前病灶稳定。拟继续观察。','2022-01-01 09:00')
     cur=source('C','复查提示病灶增大。因病灶增大，决定补充检查。','2022-01-02 09:00')
-    prev=event('E0',old,action='拟继续观察。',phase='术前',time_basis='record_time_proxy',prechoice_citations=quotes(old,'此前病灶稳定。'))
-    e=event('E1',cur,action='决定补充检查。',phase='术前',time_basis='record_time_proxy',prechoice_citations=quotes(cur,'复查提示病灶增大。'))
     def q(s,t):return {'source_id':s['source_id'],'quote':t}
+    prev=event('E0',old,action='拟继续观察。',phase='术前',time_basis='record_time_proxy',prechoice_citations=quotes(old,'此前病灶稳定。'))
+    e=event('E1',cur,action='决定补充检查。',phase='术前',time_basis='record_time_proxy',prechoice_citations=quotes(cur,'复查提示病灶增大。'),
+        choice_boundary_citations=engine.resolve_model_quotes([q(cur,'决定补充检查。')],[cur],[]))
     obs=q(cur,'复查提示病灶增大。')
     r=review(observation_quotes=[obs],evidence_comparison={'previous_known_quotes':[q(old,'此前病灶稳定。')],
         'current_information_quotes':[obs],'change_kind':kind,'reinterpretation_quotes':[],'explanation':'前后比较'},
         observation_availability=[{'observation':obs,'availability':availability,
             'basis_quotes':[q(cur,'复查提示病灶增大。因病灶增大，决定补充检查。')],
-            'explanation':'同文已知观察连接当前安排'}],evidence_connection='supported')
+            'explanation':'同文已知观察连接当前安排',
+            'proof_channels':['semantic_prechoice'] if availability=='explicitly_known_before' else [],
+            'semantic_order':'before' if availability=='explicitly_known_before' else ('after' if availability=='after_choice' else 'unknown'),
+            'action_quote':q(cur,'决定补充检查。'),
+            'connection_quote':q(cur,'复查提示病灶增大。因病灶增大，决定补充检查。'),
+            'proof_explanation':'纯虚构：分开证据子句、动作子句和连接原文。'}],evidence_connection='supported',
+        checkpoint_kind='evidence_informed_choice',evidence_relations=[],
+        proof_event_role='evidence_informed_management_choice',
+        temporal_channel_status='unresolved',
+        semantic_channel_status='explicit_before_choice' if availability=='explicitly_known_before' else 'unresolved',
+        key_management_predecessor_rationale='纯虚构相关前轮。')
     ctx=engine.build_evidence_context(e,[old,cur],[prev,e],preserve_current_context=True)
     return old,cur,prev,e,r,ctx
 
@@ -98,8 +109,12 @@ def test_AVAIL002_old_known_fact_cannot_certify_unknown_new_fact():
     r['evidence_comparison']['current_information_quotes']=[old_q,new_q]
     r['observation_quotes']=[old_q,new_q]
     r['observation_availability']=[
-        {'observation':old_q,'availability':'explicitly_known_before','basis_quotes':[old_q],'explanation':'旧状态确实已知'},
-        {'observation':new_q,'availability':'uncertain','basis_quotes':[],'explanation':'新结果何时获得不明'}]
+        {'observation':old_q,'availability':'explicitly_known_before','basis_quotes':[old_q],'explanation':'旧状态确实已知',
+         'proof_channels':['semantic_prechoice'],'semantic_order':'before','action_quote':{'source_id':'C','quote':'决定补充检查。'},
+         'connection_quote':{'source_id':'C','quote':'复查提示病灶增大。因病灶增大，决定补充检查。'},'proof_explanation':'纯虚构旧事实'},
+        {'observation':new_q,'availability':'uncertain','basis_quotes':[],'explanation':'新结果何时获得不明',
+         'proof_channels':[],'semantic_order':'unknown','action_quote':{'source_id':'C','quote':'决定补充检查。'},
+         'connection_quote':None,'proof_explanation':'纯虚构新事实未决'}]
     v,a,reasons=validate(f)
     assert not v['known_current_information_supported']
     assert 'NEW_INFORMATION_AVAILABILITY_ONLY_PROXY_OR_UNRESOLVED' in reasons

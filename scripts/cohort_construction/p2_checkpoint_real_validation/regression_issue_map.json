@@ -233,6 +233,130 @@
       ]
     },
     {
+      "issue_id": "CE-REAL-015",
+      "description": "发现阶段处理单位input_context_summary.source_ledger中的discovery-only omitted_budget整份既往文书未进入Episode来源依赖闭包，导致图审核无完整原文且材料装配无法形成候选；恢复只属来源核验，不证明目标选择前可见或授予医生权限",
+      "implementation_status": "implemented_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "超预算既往完整文书只存在于发现处理单位回执，当前unit选中Checkpoint没有任何事件级引用",
+        "恢复原文仅进入材料而未进入图审核，或仅进入图审核而未成为目标事件candidate_sources",
+        "恢复时发现原文未在交付包找到却仍装配材料",
+        "无发现遗漏回执的阴性对照被推断为遗漏，或把遗漏解释为临床不存在",
+        "其他unit事件无依据继承该发现遗漏候选",
+        "为恢复discovery遗漏而把event历史证据依赖一并送入图审核，破坏CE-REAL-012当前单位加发现遗漏的图来源边界"
+      ],
+      "controls": [
+        "resolve_episode_source_dependencies读取所选Episode处理单位的发现遗漏回执并与当前及历史事件依赖求并集",
+        "图审核只使用当前单位与发现遗漏完整原文，逐字内容及sha256绑定；event历史证据仍只供材料闭包，发现遗漏在图审核coverage中显式声明",
+        "持久化graph-audit-sources供初次执行和重建使用；只将发现遗漏加入同unit目标事件的candidate_sources，不加入初始manifest或doctor_view",
+        "来源恢复与未找到状态逐条记录，并固定不认证目标时点可见性、不授权医生盲评",
+        "完整原文缺失产生ASSEMBLY_DISCOVERY_OMITTED_SOURCE_MISSING局部HOLD，畸形或未知遗漏处置失败关闭"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL015_discovery_only_omission_reaches_graph_and_material_exactly",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_REAL015_batch_execution_uses_recovered_graph_sources_and_materials"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-016",
+      "description": "多代重建、续跑和归档异常必须按阶段核销真实adapter调用；本地预算拒绝、缓存、失败和未结算调用不得混记，已返回响应不得因归档失败而重复调用",
+      "implementation_status": "implemented_with_synthetic_regression_pending_real_case_validation",
+      "counterexamples": [
+        "cached=true同时provider_invocation_occurred=true仍被记为一次真实调用",
+        "本地预算拒绝被记为uncached provider failure",
+        "continuation多代共享可变usage snapshot导致基线串改",
+        "重建响应已返回但归档失败后再次请求模型",
+        "后续generation的reconstruction request丢失reconstruction_lineage而绑定错误父请求",
+        "缺失重建链被自哈希summary的泛化格式错误掩盖"
+      ],
+      "controls": [
+        "SharedModelBudget先核验receipt再记账，本地denial与cache/uncached失败分别记录",
+        "stage receipt保存origin、parent/base、精确usage delta，replay实际重建各阶段用量",
+        "重建summary与accounting hold自哈希；未结算provider、拒绝重建和持久化失败保持不同状态",
+        "已结算模型调用永不因归档或fresh-pipeline写入失败而自动重试",
+        "每代重建request保留谱系，批次replay绑定完整chain inventory和最后可重放parent"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_model_accounting_counterexamples.py::test_CEREM_ADV021_contradictory_cached_invocation_never_spends_zero_budget",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_model_accounting_counterexamples.py::test_CEREM_ADV021_local_denial_cache_hit_and_cached_failure_are_not_uncached",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_model_accounting_counterexamples.py::test_CEREM_ADV022_reconstruction_provider_failure_does_not_retry_or_settle_usage",
+        "scripts/cohort_construction/p2_checkpoint_ready_pipeline/tests/test_model_accounting_counterexamples.py::test_CEREM_ADV022_reconstruction_write_failure_returns_chain_without_second_call",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_revision_hold_remediation.py::test_CEREM_ADV024_second_generation_batch_hold_replays_parent_and_chain",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_revision_hold_remediation.py::test_CEREM_ADV024_multigeneration_budget_exhaustion_replays_both_generations",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_revision_hold_remediation.py::test_CEREM_ADV024_fresh_pipeline_batch_failure_binds_latest_replayable_parent",
+        "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_real_validation.py::test_CE_GRA010_provider_failure_chain_requires_parent_and_ledger_binding"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-017",
+      "description": "报告执行时间、报告发布时间和选择前语义可见性不得混同；首锚点及新增补充检查/EUS管理安排不强制前置临床决策事件，证据驱动的后续管理选择仍须相关前轮、选择前证据与连接",
+      "implementation_status": "implemented_in_isolated_workspace_with_independent_postfix_synthetic_audit_and_full_offline_regression_pending_real_case_validation_and_production_merge",
+      "stable_cross_component_issue": "V04-TIME-008",
+      "historical_observations": {
+        "frozen_ten_imaging_sources_without_release_clock": 102,
+        "archived_normalized_imaging_rows_without_named_release_field": 4942,
+        "original_hospital_export_status": "UNAVAILABLE_NOT_PROVEN_ABSENT",
+        "final_first_anchor_candidates": 87,
+        "final_first_anchor_candidates_with_previous_event_id": 0,
+        "first_anchor_demotions_from_PRIOR_ROUND_UNRESOLVED": 0,
+        "independent_report_events": 20
+      },
+      "counterexamples": [
+        "旧投影将report_time固定为空，随后把检查执行时间解释为报告发布时间或医生已读",
+        "标准化缓存没有报告时间字段，被扩大解释为医院原始导出不存在该字段",
+        "安排增强CT、肝MRI或EUS-FNA被要求先于其自身选择，或仅因属于补充检查而被排除在手术管理路径外",
+        "首个可见管理安排没有前置决策事件，被错误套用PRIOR_ROUND_UNRESOLVED",
+        "前置常规CT被虚构成前置临床决策节点，而不是保留为背景检查或EvidenceObject",
+        "根据某项检查XX结果决定后续管理，被额外LLM伪造成精确报告发布时间",
+        "选择后执行/复述被反向用作该选择前证据，或报告A结果由报告B相似文字替代",
+        "已有相关前轮和证据演化声明，却借首锚点不需前轮绕过证据连接证明"
+      ],
+      "controls": [
+        "缺失、空值、非法值、冲突、原始导出未读取分别保留，不用exam_time补齐release",
+        "当前新管理安排、历史检查执行锚点、证据驱动后续选择分别采用其证明义务，不强制所有Checkpoint具有前置决策事件",
+        "LLM仅可基于提供原文提议报告引用/复述、相对目标选择的语义先后和该先后是否必要；程序核验引文及EvidenceObject对象一致性",
+        "语义先于选择支持来源约束的选择前已知，不生成精确issued、不证明实际阅读、不自动证明因果采用或升Checkpoint",
+        "保留原始LLM理由、请求/响应receipt、来源路径与hash；局部未决不删除事件或原文",
+        "真实原始导出核查、端到端语义连接反例及真实十例新版diff完成前，不报告真实候选恢复数量或临床召回改善",
+        "初次review与一次受限修订共用同一证明组合器；当前动作、事实、复述和连接必须满足机械引文契约，semantic support不能掩盖缺connection或第二个未覆盖current fact",
+        "实际EO局部的SEMANTIC_PROOF引文错误进入字段级有界反馈；时间冲突、选择后记录和纯未决不因可修订而放宽",
+        "生产PROVIDER_CLIENT及其缓存回执分别绑定transport request、canonical repair payload、返回result和terminal evidence，不把transport request hash误当canonical payload hash",
+        "缓存重放前重算保存的endpoint/request body身份，并核验回执request hash、SUCCESS状态及task；陈旧身份不得返回成功结果",
+        "字段反馈保留诊断中的原始event_id，且只向同一event_id投递；外来EvidenceObject错误不得重标为当前事件或触发其修订"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_evidence_chain_remediation.py::test_CE_REM001_named_report_issue_verify_header_and_fhir_roundtrip",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_evidence_chain_remediation.py::test_CE_REM002_new_EUS_choice_does_not_have_to_predate_itself",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_evidence_chain_remediation.py::test_CE_REM003_paraphrase_requires_both_original_and_separate_narrative",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_evidence_adversarial_remediation.py::test_CEREM_ADV004_conflicting_release_aliases_fail_closed_with_receipt",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::EngineAuthorityTests::test_ENG008_report_execution_can_be_uncertain_time_process_anchor",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_two_channel_semantic_proof.py::test_TIME008_semantic_channel_does_not_require_or_invent_publication_time",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_two_channel_semantic_proof.py::test_TIME008_real_narrative_publication_conflict_cannot_be_relabelled_semantic",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_two_channel_semantic_proof.py::test_TIME008_declaration_requires_same_observation_object_not_longer_parent_quote",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_two_channel_semantic_proof.py::test_TIME008_invalid_current_action_span_cannot_borrow_valid_connection_allowlist",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_two_channel_semantic_proof.py::test_TIME008_semantic_support_cannot_hide_missing_connection_until_composition",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_time008_harness_audit.py::test_audit_real_eo_channel_error_reaches_bounded_feedback",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_time008_harness_audit.py::test_audit_mislocalized_relation_error_cannot_repair_other_event",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_time008_harness_audit.py::test_audit_wrong_payload_success_receipt_fails_closed",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_time008_harness_audit.py::test_audit_client_stale_cache_request_and_receipt_identity",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_time008_provider_repair_receipt.py::test_TIME008_production_transport_binds_repair_without_cross_domain_hash",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_time008_provider_repair_receipt.py::test_TIME008_production_receipt_rejects_cross_domain_and_result_substitution"
+      ],
+      "design_registration": "docs/P2-报告时间-语义先后与首锚点规则-V04-TIME-008.md",
+      "read_only_probe_receipt": "/private/tmp/p2-recovery-20261107/receipts/report-time-and-anchor-probe-20261107.json",
+      "verification_receipts": {
+        "independent_postfix_harness_audit": "/private/tmp/p2-recovery-20261107/receipts/time008-harness-adversarial-audit-post-fix.json",
+        "independent_focused_result": "27 passed in 0.41s",
+        "independent_focused_log_sha256": "8fd2a3bc31e92c0dafccdd33da4d1fbd3aacbc4f6e7dc3d300095b2d5b04c6fd",
+        "serial_full_offline_log": "/private/tmp/p2-recovery-20261107/receipts/time008-full-offline-final-candidate-20261108.log",
+        "serial_full_offline_result": "738 passed, 71 subtests passed in 84.22s",
+        "serial_full_offline_log_sha256": "ebd70b2eb64ea2b7667ea0f3a91612ecdef7be99bbba7069bfb58eaab36d81dc",
+        "TIME008_HARNESS_004_status": "NOT_REPRODUCED_AFTER_FIX_ON_RECORDED_HASHES"
+      },
+      "real_case_model_invocation_performed": false,
+      "production_merge_performed": false,
+      "clinical_reference_established": false
+    },
+    {
       "issue_id": "CE-REAL-013",
       "description": "首次/恢复replay只遍历进度行而漏核台账病例；冻结完整执行清单并核对授权、结算和实际产物",
       "implementation_status": "implemented_with_synthetic_regression",
@@ -256,6 +380,24 @@
         "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_unsettled_calls_and_missing_inventory_cannot_bypass_replay",
         "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_versioned_settled_budget_recovery_and_legacy_coverage",
         "scripts/cohort_construction/p2_checkpoint_real_validation/tests/test_batch_inventory.py::test_CE_REAL013_existing_receipt_and_authorization_binding_remain_protected"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-014",
+      "description": "执行报告须保留安全、具体的transport失败阶段和原因，不得只显示PROVIDER_REQUEST_FAILED，也不得把provider正文写入公开汇总",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "HTTP 503、envelope或content解析失败均落入笼统request failure",
+        "transport Schema原因丢失",
+        "失败分类复制原始provider正文"
+      ],
+      "controls": [
+        "按持久化failure stage和reason_code生成脱敏failure_class",
+        "RESPONSE_VALIDATION仍按原图审核规则重放",
+        "直接反例覆盖五种安全分类及缺失reason回退"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL014_execution_report_uses_safe_specific_transport_failure_class"
       ]
     }
   ]

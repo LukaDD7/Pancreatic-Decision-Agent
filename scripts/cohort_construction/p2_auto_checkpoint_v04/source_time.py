@@ -13,10 +13,13 @@ from datetime import datetime
 import hashlib
 import re
 
-from scripts.cohort_construction.p2_pathway_replay.core import clock as parse_clock
+from scripts.cohort_construction.p2_pathway_replay.core import (
+    clock as parse_clock, _structured_clock,
+)
 
 
 RULE_ID = 'V04-TIMEINDEX001'
+SIGNATURE_RULE_IDS = ('V04-TIMEINDEX001', 'V04-TIMEINDEX002')
 _REQUEST_TITLE = re.compile(r'^(?:汇总[:：])?消化内镜检查申请单$')
 # A date must occupy the next nonblank line after the physician signature.
 # Dates in the history, a scheduling remark, or a free-form future appointment
@@ -27,16 +30,19 @@ _SIGNATURE_DAY = re.compile(
     r'(?P<date>(?P<year>20\d{2})年(?P<month>\d{1,2})月(?P<day>\d{1,2})日)'
     r'[ \t　]*(?=\r?\n|$)'
 )
+# V04-TIMEINDEX002: only an actual signatory can support the narrow record-day
+# proxy. Placeholders and explicit unsigned/pending states must not consume the
+# following date as though it belonged to a physician's completed signature.
+_SIGNATURE_NOT_EXECUTED = re.compile(
+    r'(?:待\s*签(?:名|字)?|未\s*签(?:名|字|署)?|待\s*签\s*署|尚未\s*签(?:名|字|署)?|'
+    r'无\s*签(?:名|字)|空\s*白|待\s*补\s*签(?:名|字)?|'
+    r'_{2,}|＿{2,}|…{1,}|\.{3,}|[/／\\]{2,}|—{2,}|-{3,}|'
+    r'^(?:N/?A|NONE|NULL|PENDING|TBD|XXX+)$)', re.I)
 
 
 def _clock(value):
-    if isinstance(value, dict):
-        if value.get('value') is None:
-            return dict(value=None, precision=value.get('precision', 'unknown'), raw=value.get('raw'))
-        if value.get('precision'):
-            return deepcopy(value)
-        return parse_clock(value['value'])
-    return parse_clock(value)
+    # Do not reparse normalized :00 values or trust precision/raw contradictions.
+    return _structured_clock(value)
 
 
 def source_record_time(source):
@@ -51,13 +57,41 @@ def source_record_time(source):
     """
     raw_clock = deepcopy(source.get('clock'))
     clock = _clock(raw_clock)
-    result = dict(rule_id=RULE_ID, clock=clock,
+    result = dict(rule_id=RULE_ID, rule_ids=list(SIGNATURE_RULE_IDS), clock=clock,
                   clock_basis=source.get('clock_basis', 'source_time_proxy'),
                   raw_clock=raw_clock, raw_clock_basis=source.get('clock_basis'),
                   status='STRUCTURED_CLOCK_PRESERVED' if clock['value'] else 'NOT_APPLICABLE',
                   actual_choice_time_established=False, availability_certified=False,
                   supports=[], uncertainty=[])
-    if clock['value']:
+    # A body/create clock is the native document record role. Legacy source.clock
+    # may instead be a signature-day proxy produced by this adapter; do not let
+    # that earlier proxy hide the preferred structured clock on replay.
+    structured_clocks = source.get('clocks') or {}
+    if clock['value'] and not (
+            source.get('clock_basis') == 'request_physician_signature_record_day_proxy'
+            and any((structured_clocks.get(role) or {}).get('value') is not None
+                    for role in ('body_record_time', 'source_create_time'))):
+        return result
+    for role in ('body_record_time', 'source_create_time'):
+        candidate = structured_clocks.get(role)
+        if not candidate or candidate.get('value') is None:
+            continue
+        parsed = _clock(candidate)
+        if parsed['value']:
+            result.update(clock=parsed, clock_basis=role,
+                          status='STRUCTURED_CLOCK_PRESERVED')
+            return result
+    if clock['precision'] == 'invalid':
+        result.update(status='SOURCE_CLOCK_INVALID_REVIEW_REQUIRED',
+                      uncertainty=['SOURCE_CLOCK_RAW_VALUE_OR_PRECISION_CONTRADICTION'])
+        return result
+    for role in ('body_record_time', 'source_create_time'):
+        candidate = structured_clocks.get(role)
+        if not candidate or candidate.get('value') is None:
+            continue
+        result.update(clock=_clock(None), clock_basis=role,
+                      status='SOURCE_CLOCK_INVALID_REVIEW_REQUIRED',
+                      uncertainty=['SOURCE_CLOCK_RAW_VALUE_OR_PRECISION_CONTRADICTION:' + role])
         return result
     title = re.sub(r'\s+', '', source.get('title') or '')
     if source.get('kind') != 'document' or not _REQUEST_TITLE.fullmatch(title):
@@ -73,10 +107,22 @@ def source_record_time(source):
         result['uncertainty'].append('SOURCE_HASH_MISMATCH_NO_SIGNATURE_PROXY_ASSIGNED')
         return result
     dates = set()
+    signature_rejected = False
     for match in _SIGNATURE_DAY.finditer(text):
         signatory = re.sub(r'^(?:申请)?医[师生](?:签名)?[ \t　：:]*', '', match['signature']).strip()
         if not signatory:
+            signature_rejected = True
             result['uncertainty'].append('PHYSICIAN_SIGNATURE_NAME_FIELD_EMPTY')
+            continue
+        if _SIGNATURE_NOT_EXECUTED.search(signatory):
+            signature_rejected = True
+            result['uncertainty'].append('PHYSICIAN_SIGNATURE_UNSIGNED_PENDING_OR_PLACEHOLDER')
+            continue
+        # The parser may not turn a date-bearing revision/prose footer into a
+        # physician identity. Unknown non-date names remain source-bound text.
+        if parse_clock(signatory)['value'] or re.search(
+                r'20\d{2}\s*[年./-]\s*\d{1,2}\s*[月./-]\s*\d{1,2}\s*日?', signatory):
+            result['uncertainty'].append('PHYSICIAN_SIGNATURE_NAME_CONTAINS_DATE_OR_PROSE')
             continue
         try:
             day = datetime(int(match['year']), int(match['month']), int(match['day'])).strftime('%Y-%m-%d')
@@ -97,6 +143,8 @@ def source_record_time(source):
         return result
     if not dates:
         result['uncertainty'].append('NO_UNAMBIGUOUS_PHYSICIAN_SIGNATURE_RECORD_DAY')
+        if signature_rejected:
+            result['status'] = 'REQUEST_SIGNATURE_NOT_EXECUTED_OR_PLACEHOLDER'
         return result
     result.update(status='PHYSICIAN_SIGNATURE_RECORD_DAY_PROXY',
                   clock=dict(value=next(iter(dates)), precision='date', raw=result['supports'][0]['quote']),

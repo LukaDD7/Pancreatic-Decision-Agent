@@ -8,7 +8,8 @@ from copy import deepcopy
 
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import ContractError, canonical_sha256
 
-LEGACY_CHAIN_FORMATS = ('automated-material-review-chain-0.2.0',)
+LEGACY_CHAIN_FORMATS = ('automated-material-review-chain-0.2.0',
+                        'automated-material-review-chain-0.3.0')
 
 
 def _same(actual, expected, code):
@@ -65,12 +66,13 @@ def validate_review_chain(chain, *, expected_graph_context=None):
                          _new_source_resolution_pending, _state_is_new_source_pending)
     if not isinstance(chain, dict) or (chain.get('format') != CHAIN_FORMAT
             and chain.get('format') not in LEGACY_CHAIN_FORMATS):
-        raise ContractError('CHAIN_VERSION_REQUIRES_REPLAYABLE_V02_OR_V03')
+        raise ContractError('CHAIN_VERSION_REQUIRES_REPLAYABLE_V02_V03_OR_V04')
     protocol_version = chain.get('protocol_version')
     current = chain['format'] == CHAIN_FORMAT
     if (current and protocol_version != AUTO_PROTOCOL_VERSION) \
             or (not current and protocol_version not in LEGACY_PROTOCOL_VERSIONS):
         raise ContractError('CHAIN_PROTOCOL_MISMATCH')
+    previous_v03 = chain['format'] == 'automated-material-review-chain-0.3.0'
     if current:
         from .schema import validate_schema
         validate_schema('AutomatedMaterialReviewChain', chain)
@@ -113,12 +115,56 @@ def validate_review_chain(chain, *, expected_graph_context=None):
             raise ContractError('CHAIN_ROUND_AFTER_TERMINAL_STATE')
         if not isinstance(round_, dict):
             raise ContractError('CHAIN_ROUND_OBJECT_REQUIRED')
+        if current:
+            from .review import _transport_binding
+            from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+                validate_provider_success_binding,
+            )
+            receipt = round_.get('receipt')
+            if not isinstance(receipt, dict):
+                raise ContractError('CHAIN_ROUND_RECEIPT_REQUIRED')
+            declared = _transport_binding(round_.get('request'),
+                projection_format=receipt.get('transport_projection_format'))
+            _same(round_.get('transport_projection_format'),
+                  declared['transport']['transport_projection_format'], 'CHAIN_TRANSPORT_PROJECTION_MISMATCH')
+            _same(round_.get('declared_provider_payload_sha256'),
+                  declared['transport']['declared_provider_payload_sha256'], 'CHAIN_TRANSPORT_PAYLOAD_HASH_MISMATCH')
+            if receipt.get('receipt_origin') == 'SYNTHETIC_ADAPTER':
+                if (receipt.get('provider_invocation_occurred') is not False
+                        or receipt.get('provider_transport_verified') is not False
+                        or receipt.get('declared_provider_payload_sha256')
+                        != declared['transport']['declared_provider_payload_sha256']
+                        or 'provider_attempt_evidence' in round_):
+                    raise ContractError('CHAIN_SYNTHETIC_RECEIPT_PROVENANCE_MISMATCH')
+            elif receipt.get('receipt_origin') in ('PROVIDER_CLIENT', 'PROVIDER_CLIENT_CACHE'):
+                cached = receipt.get('receipt_origin') == 'PROVIDER_CLIENT_CACHE'
+                evidence = round_.get('provider_attempt_evidence')
+                if cached:
+                    # A cache hit has no fresh HTTP bytes to certify. Require
+                    # each retained retry to embed its exact archived evidence.
+                    from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+                        private_chain_evidence,
+                    )
+                    for attempt in receipt.get('attempts', [])[:-1]:
+                        archived = attempt.get('archived_evidence')
+                        pointer = attempt.get('evidence', {})
+                        if not isinstance(archived, dict) \
+                                or private_chain_evidence(archived) != archived \
+                                or pointer.get('sha256') != archived['evidence_content_sha256']:
+                            raise ContractError('CHAIN_CACHE_RETRY_EVIDENCE_REQUIRED')
+                        archived.pop('evidence_content_sha256', None)
+                        private_chain_evidence(archived)
+                validate_provider_success_binding(evidence,
+                    dict(round_, stage='SUCCESS', cached=cached),
+                    round_['request'], declared['provider_payload'], cached=cached)
+            else:
+                raise ContractError('CHAIN_ROUND_RECEIPT_ORIGIN_INVALID')
         _same(round_.get('input_manifest'), manifest, 'CHAIN_INPUT_MANIFEST_CONTINUITY_MISMATCH')
         _same(round_.get('input_compiled'), compiled, 'CHAIN_INPUT_COMPILED_CONTINUITY_MISMATCH')
         candidates, excluded = registry_review_sources(registry, manifest, previously_included_ids=previously_included_ids)
         request = build_review_request(manifest, compiled, candidate_sources=candidates,
             excluded_sources=excluded, task_context=context, protocol_version=protocol_version,
-            round_index=index, max_rounds=maximum, previous_round=rounds[index-2] if current and index > 1 else None)
+            round_index=index, max_rounds=maximum, previous_round=rounds[index-2] if (current or previous_v03) and index > 1 else None)
         _same(round_.get('request'), request, 'CHAIN_REQUEST_RECONSTRUCTION_MISMATCH')
         _same(round_.get('request_sha256'), canonical_sha256(request), 'CHAIN_REQUEST_HASH_MISMATCH')
         _same(round_.get('request_binding_sha256'), request['response_binding']['request_sha256'],
@@ -127,7 +173,7 @@ def validate_review_chain(chain, *, expected_graph_context=None):
         plan = validate_material_review(manifest, compiled, round_.get('review'),
             candidate_sources=candidates, excluded_sources=excluded, task_context=context,
             expected_request=request, protocol_version=protocol_version, round_index=index,
-            max_rounds=maximum, previous_round=rounds[index-2] if current and index > 1 else None)
+            max_rounds=maximum, previous_round=rounds[index-2] if (current or previous_v03) and index > 1 else None)
         for key in ('manifest', 'compiled', 'ledger', 'review', 'changed', 'input_compiled_sha256',
                     'input_manifest_sha256', 'compiled_changed_requires_new_review',
                     'human_review_created', 'clinical_release_permitted', 'event_graph_modified',
@@ -135,12 +181,12 @@ def validate_review_chain(chain, *, expected_graph_context=None):
             _same(round_.get(key), plan.get(key), 'CHAIN_REPLAY_' + key.upper() + '_MISMATCH')
         _same(round_.get('diff'), _diff(compiled, plan['compiled']), 'CHAIN_DIFF_REPLAY_MISMATCH')
         if plan['review']['status'] == 'AUTO_REVIEW_REVISE' and not _diff(compiled, plan['compiled'])['changed'] \
-                and not _new_source_resolution_pending(compiled, rounds[index-2] if current and index > 1 else None):
+                and not _new_source_resolution_pending(compiled, rounds[index-2] if (current or previous_v03) and index > 1 else None):
             raise ContractError('CHAIN_REVISE_REQUIRES_ACTUAL_NEW_CONTENT')
-        if current and plan['review']['status'] == 'AUTO_REVIEW_REVISE' \
+        if (current or previous_v03) and plan['review']['status'] == 'AUTO_REVIEW_REVISE' \
                 and not (_diff(compiled, plan['compiled'])['doctor_visible_material_changed']
                          or _diff(compiled, plan['compiled'])['source_scope_changed']) \
-                and not _new_source_resolution_pending(compiled, rounds[index-2] if index > 1 else None):
+                and not _new_source_resolution_pending(compiled, rounds[index-2] if (current or previous_v03) and index > 1 else None):
             raise ContractError('CHAIN_REVISE_REQUIRES_DOCTOR_VISIBLE_OR_SOURCE_SCOPE_CHANGE')
         manifest, compiled = plan['manifest'], plan['compiled']
         previously_included_ids.update(s['source_id'] for s in manifest['sources'])
@@ -154,7 +200,7 @@ def validate_review_chain(chain, *, expected_graph_context=None):
         else:
             digest = _content_signature(compiled)
             if digest in seen and not _state_is_new_source_pending(compiled,
-                    rounds[index-2] if current and index > 1 else None):
+                    rounds[index-2] if (current or previous_v03) and index > 1 else None):
                 expected_stop = 'REVISION_CYCLE'
             seen[digest] = index
             if expected_stop is None and index == maximum:
@@ -169,25 +215,96 @@ def validate_review_chain(chain, *, expected_graph_context=None):
         request = build_review_request(manifest, compiled, candidate_sources=candidates,
             excluded_sources=excluded, task_context=context, protocol_version=protocol_version,
             round_index=len(rounds)+1, max_rounds=maximum,
-            previous_round=rounds[-1] if current and rounds else None)
+            previous_round=rounds[-1] if (current or previous_v03) and rounds else None)
         _same(failure.get('request'), request, 'CHAIN_FAILURE_REQUEST_MISMATCH')
         _same(failure.get('request_sha256'), canonical_sha256(request), 'CHAIN_FAILURE_REQUEST_HASH_MISMATCH')
+        if current:
+            _same(failure.get('request_binding_sha256'), request['response_binding']['request_sha256'],
+                  'CHAIN_FAILURE_BINDING_HASH_MISMATCH')
+        if current:
+            from .review import _transport_binding
+            declared = _transport_binding(request,
+                projection_format=failure.get('transport_projection_format'))
+            _same(failure.get('declared_provider_payload_sha256'),
+                declared['transport']['declared_provider_payload_sha256'], 'CHAIN_FAILURE_PAYLOAD_HASH_MISMATCH')
+        else:
+            declared = None
         if not all(isinstance(failure.get(key), str) and failure[key] for key in ('stage', 'error_type', 'reason_code')):
             raise ContractError('CHAIN_FAILURE_REASON_REQUIRED')
+        if failure.get('program_diagnostics') is not None:
+            from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import diagnostics_for
+            try:
+                validate_material_review(manifest, compiled, failure.get('response'),
+                    candidate_sources=candidates, excluded_sources=excluded, task_context=context,
+                    expected_request=request, protocol_version=protocol_version,
+                    round_index=len(rounds)+1, max_rounds=maximum,
+                    previous_round=rounds[-1] if (current or previous_v03) and rounds else None)
+            except Exception as exc:
+                _same(failure['program_diagnostics'], diagnostics_for(exc),
+                    'CHAIN_FAILURE_DIAGNOSTIC_REPLAY_MISMATCH')
+            else:
+                raise ContractError('CHAIN_FAILURE_DIAGNOSTIC_RESPONSE_DID_NOT_FAIL')
+        local_budget = (failure['stage'] == 'LOCAL_BUDGET_CONTROL'
+            and failure['error_type'] == 'LocalModelBudgetHold'
+            and failure['reason_code'] == 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED'
+            and failure.get('receipt') == dict(cached=False,
+                status='LOCAL_BUDGET_DENIED', provider_invocation_occurred=False,
+                receipt_origin='LOCAL_CONTROL', provider_transport_verified=False))
+        if local_budget:
+            if not current or 'provider_attempt_evidence' in failure \
+                    or 'response' in failure or 'program_diagnostics' in failure:
+                raise ContractError('CHAIN_LOCAL_BUDGET_CONTROL_MISMATCH')
+        elif failure['stage'] == 'LOCAL_BUDGET_CONTROL':
+            raise ContractError('CHAIN_LOCAL_BUDGET_CONTROL_MISMATCH')
+        elif failure['stage'] != 'RESPONSE_VALIDATION':
+            if current and failure.get('provider_attempt_evidence') is not None:
+                from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+                    replay_transport_evidence, validate_private_chain_evidence,
+                    validate_provider_attempt_binding,
+                )
+                from .review import MATERIAL_REVIEW_SCHEMA
+                evidence = failure.get('provider_attempt_evidence')
+                validate_private_chain_evidence(evidence, evidence)
+                if failure['receipt'].get('receipt_origin') != 'PROVIDER_CLIENT':
+                    raise ContractError('CHAIN_PROVIDER_RECEIPT_ORIGIN_INVALID')
+                validate_provider_attempt_binding(evidence, failure)
+                replay_transport_evidence(evidence, MATERIAL_REVIEW_SCHEMA)
+                if failure['receipt'].get('declared_provider_payload_sha256') \
+                        != declared['transport']['declared_provider_payload_sha256']:
+                    raise ContractError('CHAIN_FAILURE_RECEIPT_PAYLOAD_MISMATCH')
+            elif 'provider_attempt_evidence' in failure:
+                raise ContractError('CHAIN_LEGACY_PROVIDER_EVIDENCE_REQUIRES_REVIEW')
+            elif current and failure.get('receipt', {}).get('receipt_origin') == 'SYNTHETIC_ADAPTER':
+                # Explicitly unverified offline adapter outcome. Full request,
+                # declared payload and local HOLD remain replayable; no provider
+                # invocation or transport authenticity is asserted.
+                receipt = failure['receipt']
+                if (receipt.get('provider_invocation_occurred') is not False
+                        or receipt.get('provider_transport_verified') is not False
+                        or receipt.get('declared_provider_payload_sha256')
+                        != declared['transport']['declared_provider_payload_sha256']):
+                    raise ContractError('CHAIN_SYNTHETIC_FAILURE_PROVENANCE_MISMATCH')
+            elif current:
+                raise ContractError('CHAIN_PROVIDER_ATTEMPT_EVIDENCE_REQUIRED')
+        elif failure.get('provider_attempt_evidence') is not None:
+            raise ContractError('CHAIN_RESPONSE_FAILURE_PROVIDER_EVIDENCE_REQUIRES_REVIEW')
         if failure['stage'] == 'RESPONSE_VALIDATION':
             if 'response' not in failure:
-                raise ContractError('CHAIN_FAILURE_RESPONSE_REQUIRED')
+                if evidence is None or not isinstance(evidence.get('response'), dict):
+                    raise ContractError('CHAIN_FAILURE_RESPONSE_REQUIRED')
+                failure = deepcopy(failure)
+                failure['response'] = deepcopy(evidence['response'])
             try:
                 failed_plan = validate_material_review(manifest, compiled, failure['response'],
                     candidate_sources=candidates, excluded_sources=excluded, task_context=context,
                     expected_request=request, protocol_version=protocol_version,
                     round_index=len(rounds)+1, max_rounds=maximum,
-                    previous_round=rounds[-1] if current and rounds else None)
+                    previous_round=rounds[-1] if (current or previous_v03) and rounds else None)
                 if (failed_plan['review']['status'] == 'AUTO_REVIEW_REVISE'
                         and not _diff(compiled, failed_plan['compiled'])['changed']
-                        and not _new_source_resolution_pending(compiled, rounds[-1] if current and rounds else None)):
+                        and not _new_source_resolution_pending(compiled, rounds[-1] if (current or previous_v03) and rounds else None)):
                     raise MaterialReviewError('REVISE_REQUIRES_ACTUAL_NEW_CONTENT')
-                if current and failed_plan['review']['status'] == 'AUTO_REVIEW_REVISE' \
+                if (current or previous_v03) and failed_plan['review']['status'] == 'AUTO_REVIEW_REVISE' \
                         and not (_diff(compiled, failed_plan['compiled'])['doctor_visible_material_changed']
                                  or _diff(compiled, failed_plan['compiled'])['source_scope_changed']) \
                         and not _new_source_resolution_pending(compiled, rounds[-1] if rounds else None):
@@ -198,7 +315,10 @@ def validate_review_chain(chain, *, expected_graph_context=None):
                 _same(failure['reason_code'], code, 'CHAIN_FAILURE_REASON_REPLAY_MISMATCH')
             else:
                 raise ContractError('CHAIN_FAILURE_RESPONSE_DID_NOT_FAIL_REPLAY')
-        elif failure['stage'] != 'PROVIDER_REQUEST' or 'response' in failure:
+        elif not local_budget and (failure['stage'] not in ('PROVIDER_REQUEST', 'PROVIDER_HTTP_RESPONSE',
+                'PROVIDER_ENVELOPE_PARSE', 'PROVIDER_CONTENT_PARSE', 'RESPONSE_SCHEMA_VALIDATION')
+                or ('response' in failure and failure['stage'] != 'RESPONSE_SCHEMA_VALIDATION')
+                or (not current and 'provider_attempt_evidence' not in failure)):
             raise ContractError('CHAIN_FAILURE_STAGE_MISMATCH')
         expected_stop = 'EXECUTION_FAILED'
     if expected_stop is None:

@@ -4,6 +4,9 @@ import re
 
 from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import normalize_sources
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
+from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+    DiagnosticValueError, schema_diagnostic,
+)
 
 PROTOCOL_VERSION = 'checkpoint-candidate-reconstruction-audit-0.2.0'
 LEGACY_PROTOCOL_VERSIONS = ('checkpoint-candidate-reconstruction-audit-0.1.0',)
@@ -29,11 +32,12 @@ def _object_list(value, name):
     return deepcopy(value)
 
 
-def _quote_evidence(value, sources):
+def _quote_evidence(value, sources, *, response_path=()):
     if not isinstance(value, list):
         raise ValueError('GRAPH_AUDIT_EVIDENCE_LIST_REQUIRED')
     result = []
-    for item in value:
+    for index, item in enumerate(value):
+        path = [*response_path, index]
         if not isinstance(item, dict):
             raise ValueError('GRAPH_AUDIT_EVIDENCE_OBJECT_REQUIRED')
         sid, quote = item.get('source_id'), item.get('exact_quote')
@@ -42,7 +46,16 @@ def _quote_evidence(value, sources):
         text = sources[sid]['text']
         count = text.count(quote)
         if count != 1:
-            raise ValueError('GRAPH_AUDIT_EVIDENCE_QUOTE_NOT_UNIQUE')
+            normalized = re.sub(r'\s+', '', quote)
+            compact = re.sub(r'\s+', '', text)
+            normalized_count = compact.count(normalized) if normalized else 0
+            diagnostic = dict(kind='EVIDENCE_QUOTE', code='GRAPH_AUDIT_EVIDENCE_QUOTE_NOT_UNIQUE',
+                instance_path=[*path, 'exact_quote'], source_id=sid,
+                source_sha256=sources[sid]['sha256'], exact_quote=quote,
+                exact_match_count=count, normalized_match_count=normalized_count,
+                whitespace_only_candidate_match=bool(normalized and normalized_count == 1),
+                auto_repair_permitted=False)
+            raise DiagnosticValueError('GRAPH_AUDIT_EVIDENCE_QUOTE_NOT_UNIQUE', [diagnostic])
         start = text.index(quote)
         result.append(dict(source_id=sid, source_sha256=sources[sid]['sha256'],
             exact_quote=quote, start=start, end=start + len(quote),
@@ -128,10 +141,12 @@ def validate_graph_audit(request, response):
     if response.get('target') != {'graph_sha256': binding['graph_sha256']}:
         raise ValueError('GRAPH_AUDIT_TARGET_MISMATCH')
     sources = {s['source_id']: s for s in request['audit_scope']['complete_originals_supplied']}
-    for finding in response['findings']:
-        _quote_evidence(finding['evidence'], sources)
-    for revision in response['revision_requests']:
-        _quote_evidence(revision['evidence'], sources)
+    for index, finding in enumerate(response['findings']):
+        _quote_evidence(finding['evidence'], sources,
+            response_path=['findings', index, 'evidence'])
+    for index, revision in enumerate(response['revision_requests']):
+        _quote_evidence(revision['evidence'], sources,
+            response_path=['revision_requests', index, 'evidence'])
     dimensions = [item['dimension'] for item in response['dimensions']]
     if len(dimensions) != len(set(dimensions)) or set(dimensions) != set(DIMENSIONS):
         raise ValueError('GRAPH_AUDIT_DIMENSIONS_MISMATCH')
@@ -182,7 +197,8 @@ def _validate_schema(value, schema):
     try:
         Draft202012Validator(schema).validate(value)
     except ValidationError as exc:
-        raise ValueError('GRAPH_AUDIT_SCHEMA_INVALID') from exc
+        raise DiagnosticValueError('GRAPH_AUDIT_SCHEMA_INVALID',
+            [schema_diagnostic(exc, schema, value)]) from exc
 
 
 _EVIDENCE = {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,

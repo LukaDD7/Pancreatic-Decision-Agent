@@ -246,6 +246,19 @@
       ]
     },
     {
+      "id": "P2AUTO-023",
+      "failure": "Generic FHIR multi-inline attachments were concatenated and mixed inline+URL resources dropped URL content; neither mapping was reversible.",
+      "fixture_origin": "synthetic_counterexamples",
+      "clinical_gold": false,
+      "required_tests": [
+        "test_P2AUTO023_multi_inline_and_mixed_generic_resources_fail_closed",
+        "test_P2AUTO023_generic_single_inline_still_imports_verbatim",
+        "test_P2AUTO023_adapter_single_inline_roundtrip_remains_lossless"
+      ],
+      "required_test_file": "tests/test_fhir_attachment_remediation.py",
+      "design": "Reject generic multi-part and inline+URL attachment layouts explicitly; preserve single-inline generic import and adapter roundtrips."
+    },
+    {
       "id": "P2PAT-001",
       "failure": "coarse document and section classes",
       "required_tests": [
@@ -321,6 +334,7 @@
   "required_test_files": [
     "tests/test_contract.py",
     "tests/test_diagnostic_decisions.py",
-    "tests/test_document_flow.py"
+    "tests/test_document_flow.py",
+    "tests/test_fhir_attachment_remediation.py"
   ]
 }

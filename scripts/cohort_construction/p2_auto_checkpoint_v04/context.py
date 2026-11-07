@@ -11,7 +11,9 @@ import hashlib
 import json
 import re
 
-from scripts.cohort_construction.p2_pathway_replay.core import clock as parse_clock
+from scripts.cohort_construction.p2_pathway_replay.core import (
+    clock as parse_clock, available_source_clock, _structured_clock, relation_to_cutoff,
+)
 from .source_time import source_record_time
 
 
@@ -36,29 +38,13 @@ _SUPPORT_DISCOVERY_PRIOR = '仅为文书类型提示，不是研究相关性或�
 
 
 def _clock(value):
-    if isinstance(value, dict):
-        result = deepcopy(value)
-        if result.get('value') is None:
-            return {'value': None, 'precision': result.get('precision', 'unknown'), 'raw': result.get('raw')}
-        if not result.get('precision'):
-            return parse_clock(result['value'])
-        return result
-    return parse_clock(value)
+    return _structured_clock(value)
 
 
 def time_order(value, cutoff):
-    """Precision-aware relation; a same-day date is never silently midnight."""
-    value, cutoff = _clock(value), _clock(cutoff)
-    a, b = value.get('value'), cutoff.get('value')
-    if not a or not b:
-        return 'UNKNOWN'
-    if a[:10] != b[:10]:
-        return 'BEFORE' if a[:10] < b[:10] else 'AFTER'
-    if value['precision'] == 'date' or cutoff['precision'] == 'date':
-        return 'SAME_DAY_UNORDERED'
-    if ('minute' in (value['precision'], cutoff['precision'])) and a[:16] == b[:16]:
-        return 'SAME_MINUTE_UNORDERED'
-    return 'BEFORE' if a < b else 'AFTER' if a > b else 'SAME_TIME_UNORDERED'
+    """Exact, precision-aware relation shared with source retrieval/assessment."""
+    relation = relation_to_cutoff(value, cutoff)
+    return 'UNKNOWN' if relation == 'UNKNOWN_TIME' else relation
 
 
 def source_clock(source):
@@ -327,6 +313,12 @@ def context_for_discovery(unit, sources, budget=80000):
     if excluded_labs:
         excluded.append(dict(kind='lab_catalog_group', disposition='EXCLUDE_FUTURE_METADATA_ONLY',
                              source_count=excluded_labs, source_id_index_path=index_path))
+    current_over_budget = sum(len(x['text']) for x in unit['original_texts']) > budget
+    if current_over_budget:
+        omissions.append(dict(disposition='CURRENT_UNIT_OVER_BUDGET_RETAINED_NOT_TRUNCATED',
+                              category='current_unit', source_ids=list(unit['source_ids']),
+                              source_characters=sum(len(x['text']) for x in unit['original_texts']),
+                              full_source_not_truncated=True, requires_explicit_budget_waiver=True))
     return dict(**({'comparison_boundary_basis': cutoff_basis} if unit.get('document_profile') == 'operative' else {}),
                 current_unit=deepcopy(unit), prior_clinical_documents=kept_recent,
                 background_clinical_documents=kept_background, prior_source_catalog=catalog,
@@ -335,20 +327,18 @@ def context_for_discovery(unit, sources, budget=80000):
                                          index_lookup='source-clock-and-provenance extension source_id; use group lookup_selector'),
                 cutoff=cutoff, availability_certified=False,
                 budget=dict(limit=budget, text_characters=used, current_unit_over_budget=used > budget,
-                            omitted_source_count=len(omissions), complete_sources_not_truncated=True),
+                            omitted_source_count=len(omissions), complete_sources_not_truncated=True,
+                            current_unit_budget_waiver_required=current_over_budget),
                 uncertainty=dict(prechoice_state_certified=False, source_time_is_availability_proxy=True,
                                  context_coverage_complete=not omissions,
+                                 current_unit_over_budget=current_over_budget,
                                  prior_note_clock_is_only_before_test_bound=unit.get('kind') == 'performed_test_report'))
 
 
 def _available_clock(source):
-    clocks = source.get('clocks') or {}
-    if source.get('kind') in ('imaging', 'lab', 'pathology'):
-        released = _clock(clocks.get('report_time') or clocks.get('report_date'))
-        if released['value']:
-            return released, 'report_time_proxy'
-    record = source_record_time(source)
-    return record['clock'], record['clock_basis']
+    _, value, basis, _ = available_source_clock(
+        source, document_record_time=source_record_time)
+    return value, basis
 
 
 def _citation_entries(event, field):
@@ -637,6 +627,20 @@ def build_evidence_context(event, sources, prior_events=None, budget=150000, pre
         priority = 1 if _primary_document(source) else 2 if kind == 'imaging' else 3 if kind == 'lab' else 5
         interval = 'before_test_upper_bound_not_certified_prechoice' if unknown_test_choice else 'cumulative_prior_state'
         block = _block(source, 0, len(source.get('text', '')), interval, source_basis, priority)
+        from .evidence import report_objects
+        if source.get('kind') in ('imaging', 'lab', 'pathology'):
+            anchor, evidence = report_objects(source)
+            block['test_execution_anchor_id'] = anchor['anchor_id']
+            block['evidence_object_id'] = evidence['evidence_object_id']
+            block['evidence_object_format'] = evidence['format']
+            block['time_provenance'] = deepcopy(source.get('time_provenance', {}))
+            block['execution_time'] = deepcopy(anchor['execution_time'])
+            block['publication_time'] = deepcopy(evidence['publication_time'])
+            block['publication_status'] = evidence['publication_status']
+            block['clock'] = deepcopy(available_clock)
+            block['execution_clock'] = source_clock(source)
+            block['publication_before_choice_certified'] = False
+            block['reading_before_choice_certified'] = False
         block['available_clock_proxy'] = available_clock
         block['source_text_complete'] = True
         candidates.append(block)

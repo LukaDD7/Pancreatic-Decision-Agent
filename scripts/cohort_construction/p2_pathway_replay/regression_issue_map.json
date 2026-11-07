@@ -1,0 +1,26 @@
+{
+  "version": "2026-11-07",
+  "fixture_origin": "synthetic_counterexamples",
+  "clinical_gold": false,
+  "scope": "P2 direct source projection and shared strict body clock only; no P1 gate or episode rule changes",
+  "issues": [
+    {
+      "id": "CE-REM-002",
+      "problem": "Direct project_sources promoted an arbitrary timestamp in the first 120 characters, including a historical event, to body_record_time and then to the availability proxy.",
+      "counterexamples": [
+        "既往2022-01-01 10:00 at the start of a document with no body record clock",
+        "A history timestamp with invalid or absent structured creation clock"
+      ],
+      "controls": [
+        "An explicit 记录时间 label is parsed by the shared strict parser",
+        "A document-anchored timestamp remains valid",
+        "Structured source_create_time is preserved separately and history never supplies its fallback"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_pathway_replay/tests/test_core.py::SourceReplayRegression::test_CEREM002_direct_projection_history_never_becomes_body_clock",
+        "scripts/cohort_construction/p2_pathway_replay/tests/test_core.py::SourceReplayRegression::test_CEREM002_direct_projection_preserves_valid_body_and_creation_clocks",
+        "scripts/cohort_construction/p2_pathway_replay/tests/test_core.py::SourceReplayRegression::test_CEREM002_invalid_creation_does_not_fall_back_to_history"
+      ]
+    }
+  ]
+}

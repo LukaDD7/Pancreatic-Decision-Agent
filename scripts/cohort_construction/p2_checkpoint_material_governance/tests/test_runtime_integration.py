@@ -55,9 +55,14 @@ class TestMaterialRuntime:
                                      reason='虚构传输测试') for d in DIMENSIONS], findings=[], operations=[],
                     status='AUTO_REVIEW_HOLD', required_actions=['虚构待核，未发生实际人工审核'])
                 class Response:
+                    status_code = 200
+                    def __init__(self):
+                        envelope = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(answer)}}]}
+                        self.text = json.dumps(envelope)
+                        self._envelope = envelope
                     def raise_for_status(self): pass
                     def json(self):
-                        return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(answer)}}]}
+                        return self._envelope
                 return Response()
 
         settings = ModelAPISettings('FICTIONAL-NOT-A-SECRET', 'https://example.invalid/v1', 'fictional-base-model')
@@ -85,13 +90,17 @@ class TestMaterialRuntime:
             def post(self, url, **kwargs):
                 captured.update(kwargs)
                 class Response:
+                    status_code = 200
+                    text = '{"choices":[{"finish_reason":"stop","message":{"content":"{\\"ok\\":true}"}}]}'
                     def raise_for_status(self): pass
                     def json(self):
-                        return {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ok":true}'}}]}
+                        return json.loads(self.text)
                 return Response()
         settings = ModelAPISettings('synthetic-secret', 'https://example.invalid/v1', 'synthetic-model')
         client = Client(tmp_path / 'cache', {'model_temperature': 0, 'max_output_tokens': 20}, settings)
-        with patch('scripts.cohort_construction.p2_auto_checkpoint_v04.client.requests.Session', return_value=Session()):
+        import threading
+        with patch('scripts.cohort_construction.p2_auto_checkpoint_v04.client._thread', threading.local()), \
+                patch('scripts.cohort_construction.p2_auto_checkpoint_v04.client.requests.Session', return_value=Session()):
             result, _ = material_review_client(client)('synthetic', {'no_patient_data': True},
                 {'type': 'object', 'required': ['ok'], 'properties': {'ok': {'type': 'boolean'}}})
         messages = captured['json']['messages']
@@ -130,11 +139,17 @@ class TestMaterialRuntime:
         second['target']['checkpoint_id'] = 'cp2'
         second['compiled_sha256'] = canonical_sha256(
             {k: v for k, v in second.items() if k != 'compiled_sha256'})
-        graph = dict(events=[dict(event_id='e1'), dict(event_id='e2')],
-                     episodes=[dict(episode_id='ep1', event_ids=['e1', 'e2'])])
+        graph = dict(format='candidate-reconstruction-graph-snapshot-0.1.0', graph_version='v1',
+                     events=[dict(event_id='e1', checkpoint_status='CANDIDATE_SYNTHETIC'),
+                             dict(event_id='e2', checkpoint_status='CANDIDATE_SYNTHETIC')],
+                     episodes=[dict(episode_id='ep1', event_ids=['e1', 'e2'], checkpoint_ids=['e1', 'e2'])],
+                     relations=[], discovery_units=[], unit_inventory=None, final_graph_audit=None,
+                     graph_is_candidate_not_clinical_reference=True)
+        graph['graph_sha256'] = canonical_sha256(graph)
         def item(compiled, event_id):
             context = bind_candidate_graph(graph, graph_version='v1', target_event_id=event_id,
-                                           checkpoint_id=compiled['target']['checkpoint_id'])
+                                           checkpoint_id=compiled['target']['checkpoint_id'],
+                                           task_context=dict(candidate_episode_id='ep1'))
             answer = review_for(manifest, compiled, status='AUTO_REVIEW_HOLD', blocking=True, task_context=context)
             chain = run_review_chain(manifest, compiled, lambda *args: answer, task_context=context)
             return dict(manifest=manifest, compiled=compiled, doctor_view=doctor_view(compiled),

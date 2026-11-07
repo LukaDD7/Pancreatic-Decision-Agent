@@ -60,12 +60,10 @@ def review_repair_triggers(event):
     triggers = repair_triggers(event)
     if event.get('review_refinement', {}).get('attempted') or not event.get('review_request_sha256'):
         return triggers
-    review = event.get('semantic_review') or {}
-    rationale = review.get('rationale', '')
-    uncertainty = review.get('uncertainty', [])
-    markers = {marker for marker in _INITIAL_ID_ERRORS
-               if (isinstance(rationale, str) and marker in rationale)
-               or (isinstance(uncertainty, list) and marker in uncertainty)}
+    markers = {marker for marker in event.get('initial_response_id_errors', [])
+               if marker in _INITIAL_ID_ERRORS}
+    # Only a structured engine receipt can authorize this repair. Marker-like
+    # words in free-text model rationale or uncertainty are not failure proof.
     return sorted(set(triggers) | markers)
 
 
@@ -78,6 +76,8 @@ def validate_feedback_config(config):
         raise ValueError('FINAL_GRAPH_VALIDATION_MUST_BE_BOOLEAN')
     if type(config.get('include_support_documents', False)) is not bool:
         raise ValueError('INCLUDE_SUPPORT_DOCUMENTS_MUST_BE_BOOLEAN')
+    if type(config.get('allow_overbudget_current_unit', False)) is not bool:
+        raise ValueError('ALLOW_OVERBUDGET_CURRENT_UNIT_MUST_BE_BOOLEAN')
 
 
 def run_review_feedback(events, original_payload, discovery_events, sources,
@@ -85,7 +85,7 @@ def run_review_feedback(events, original_payload, discovery_events, sources,
     """Return revised copies and a request-bound audit; failure retains originals."""
     validate_feedback_config(config)
     from scripts.cohort_construction.p2_auto_checkpoint_v05_refine.refine import (
-        prepare_payload, revalidate,
+        _valid_success_receipt, prepare_payload, revalidate, request_provenance,
     )
     output = deepcopy(events)
     targets = [e for e in events if review_repair_triggers(e)]
@@ -117,9 +117,11 @@ def run_review_feedback(events, original_payload, discovery_events, sources,
         result, receipt = client.ask(_TASK, payload, REVIEW_SCHEMA)
         if digest(payload) != audit['repair_payload_sha256']:
             raise ValueError('REVIEW_FEEDBACK_CLIENT_MUTATED_PAYLOAD')
-        if not _valid_success_receipt(receipt):
+        if not _valid_success_receipt(receipt, payload, result):
             raise ValueError('REVIEW_FEEDBACK_RECEIPT_INVALID')
-        audit.update(result=deepcopy(result), receipt=deepcopy(receipt))
+        audit.update(result=deepcopy(result), receipt=deepcopy(receipt),
+                     provenance=request_provenance(audit['original_review_request_sha256'],
+                                                   original_payload, payload, receipt, config))
         Draft202012Validator(REVIEW_SCHEMA).validate(result)
     except Exception as exc:
         # Never pick a shared last receipt: other unit requests run concurrently.

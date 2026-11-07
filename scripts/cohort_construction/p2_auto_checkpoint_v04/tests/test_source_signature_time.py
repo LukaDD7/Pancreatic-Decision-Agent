@@ -140,6 +140,51 @@ class SourceSignatureTimeTests(unittest.TestCase):
                 self.assertIsNone(checked['clock']['value'])
                 self.assertIn('PHYSICIAN_SIGNATURE_NAME_FIELD_EMPTY', checked['uncertainty'])
 
+    def test_SIG016_unsigned_pending_and_placeholder_never_supply_clock(self):
+        placeholders = ['待签名', '未签', '未签名', '待签字', '尚未签署',
+                        '___', 'N/A', 'PENDING', 'TBD', '空白', '待补签']
+        for placeholder in placeholders:
+            text = f'申请目的：超声内镜\n医师：{placeholder}\n2022年9月3日\n'
+            with self.subTest(placeholder=placeholder):
+                result = source_record_time(source(text))
+                self.assertIsNone(result['clock']['value'])
+                self.assertEqual(result['status'], 'REQUEST_SIGNATURE_NOT_EXECUTED_OR_PLACEHOLDER')
+                self.assertIn('PHYSICIAN_SIGNATURE_UNSIGNED_PENDING_OR_PLACEHOLDER', result['uncertainty'])
+                self.assertEqual(result['supports'], [])
+                self.assertIn('V04-TIMEINDEX002', result['rule_ids'])
+
+    def test_SIG017_placeholder_signature_cannot_cutoff_evidence_context(self):
+        for placeholder in ['待签名', '未签', '___']:
+            with self.subTest(placeholder=placeholder):
+                request = source(f'申请目的：超声内镜\n医师：{placeholder}\n2022年9月3日\n')
+                earlier = source('CT建议进一步检查', title='CT', when='2022-08-31 16:03', sid='CT', kind='imaging')
+                later = source('后续报告', title='CT', when='2022-09-02 16:03', sid='LATE', kind='imaging')
+                event = dict(source_id='REQUEST', source_ids=['REQUEST'], choice_time=None,
+                             time_basis='record_time_proxy', action_citations={'valid': []},
+                             prechoice_citations={'valid': []}, postchoice_citations={'valid': []})
+                context = build_evidence_context(event, [request, earlier, later])
+                self.assertIsNone(context['cutoff']['value'])
+                self.assertEqual(context['blocks'], [])
+                self.assertFalse(context['blind_replay_ready'])
+                self.assertEqual(
+                    {x['source_id'] for x in context['ledger'] if x['disposition'] == 'REVIEW'},
+                    {'CT', 'LATE'})
+
+    def test_SIG018_valid_signature_still_establishes_day_only_cutoff(self):
+        request = source('申请目的：超声内镜\n医师：甲\n2022年9月3日\n')
+        earlier = source('CT建议进一步检查', title='CT', when='2022-08-31 16:03', sid='CT', kind='imaging')
+        later = source('后续报告', title='CT', when='2022-09-02 16:03', sid='LATE', kind='imaging')
+        result = source_record_time(request)
+        self.assertEqual(result['status'], 'PHYSICIAN_SIGNATURE_RECORD_DAY_PROXY')
+        event = dict(source_id='REQUEST', source_ids=['REQUEST'], choice_time=None,
+                     time_basis='record_time_proxy', action_citations={'valid': []},
+                     prechoice_citations={'valid': []}, postchoice_citations={'valid': []})
+        context = build_evidence_context(event, [request, earlier, later])
+        self.assertEqual(context['cutoff']['value'], '2022-09-03')
+        self.assertEqual(context['cutoff']['precision'], 'date')
+        self.assertIn('CT', {x['source_id'] for x in context['blocks']})
+        self.assertIn('LATE', {x['source_id'] for x in context['blocks']})
+
 
 if __name__ == '__main__':
     unittest.main()

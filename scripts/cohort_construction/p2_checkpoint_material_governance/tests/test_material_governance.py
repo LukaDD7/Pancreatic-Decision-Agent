@@ -3,7 +3,7 @@ from copy import deepcopy
 import unittest
 
 from scripts.cohort_construction.p2_checkpoint_packet.compiler import (
-    PLACEHOLDER, build_source_manifest, compile_partition,
+    PLACEHOLDER, build_source_manifest, canonical_sha256, compile_partition,
 )
 from scripts.cohort_construction.p2_checkpoint_packet.semantic_audit import validate_semantic_audit
 from scripts.cohort_construction.p2_checkpoint_material_governance.chain_validation import bind_candidate_graph
@@ -241,8 +241,10 @@ class ChainTests(unittest.TestCase):
 class EpisodeTests(unittest.TestCase):
     def test_episode_versions_and_graph_handoff(self):
         manifest, compiled = inputs()
-        graph = dict(events=[dict(event_id='event1')], episodes=[dict(episode_id='ep1', event_ids=['event1'])])
-        context = bind_candidate_graph(graph, graph_version='v1', target_event_id='event1', checkpoint_id='cp1')
+        graph = dict(events=[dict(event_id='event1', checkpoint_status='CANDIDATE_SYNTHETIC')], episodes=[dict(episode_id='ep1',
+            event_ids=['event1'], checkpoint_ids=['event1'])])
+        context = bind_candidate_graph(graph, graph_version='v1', target_event_id='event1', checkpoint_id='cp1',
+                                    task_context=dict(candidate_episode_id='ep1'))
         answer = review_for(manifest, compiled, status='AUTO_REVIEW_HOLD', blocking=True, task_context=context)
         chain = run_review_chain(manifest, compiled, lambda *args: answer, task_context=context)
         item = dict(manifest=manifest, compiled=compiled, doctor_view=doctor_view(compiled),
@@ -257,6 +259,32 @@ class EpisodeTests(unittest.TestCase):
         self.assertFalse(handoff['material_layer_may_change_event_graph'])
         self.assertFalse(handoff['previous_material_pass_transferable'])
         self.assertIn('rerun_final_graph_dependency_audit', handoff['required_reconstruction_steps'])
+
+    def test_CEREM_ADV020_legacy_hashed_graph_subset_replays_retained_identity(self):
+        graph = dict(format='candidate-reconstruction-graph-snapshot-0.1.0',
+            graph_version='v1', relations=[],
+            events=[dict(event_id='event1', checkpoint_status='CANDIDATE_SYNTHETIC')],
+            episodes=[dict(episode_id='ep1', candidate_ids=['event1'], checkpoint_ids=['event1'])])
+        graph['graph_sha256'] = canonical_sha256({key: value for key, value in graph.items()
+            if key != 'graph_sha256'})
+        context = bind_candidate_graph(graph, graph_version='v1', target_event_id='event1',
+            checkpoint_id='cp1', task_context=dict(candidate_episode_id='ep1'))
+        manifest, compiled = inputs()
+        answer = review_for(manifest, compiled, status='AUTO_REVIEW_HOLD',
+            blocking=True, task_context=context)
+        chain = run_review_chain(manifest, compiled, lambda *args: answer, task_context=context)
+        item = dict(manifest=manifest, compiled=compiled, doctor_view=doctor_view(compiled),
+            auto_review_chain=chain, revision_ledger=[r['ledger'] for r in chain['rounds']],
+            state=chain['state'], event_reference='event1')
+        result = build_episode_material_set(dict(episode_id='ep1', candidate_version='v1',
+            input_sha256=canonical_sha256(graph), graph_snapshot=graph), [item])
+        self.assertEqual(result['episode_reference']['episode_id'], 'ep1')
+        graph['episodes'][0]['event_ids'] = []
+        graph['graph_sha256'] = canonical_sha256({key: value for key, value in graph.items()
+            if key != 'graph_sha256'})
+        with self.assertRaisesRegex(Exception, 'CANDIDATE_EPISODE_MEMBERSHIP_ALIAS_MISMATCH'):
+            from scripts.cohort_construction.p2_checkpoint_material_governance.episode import _validate_candidate_snapshot
+            _validate_candidate_snapshot(graph)
 
 
 if __name__ == '__main__':

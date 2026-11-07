@@ -34,6 +34,25 @@
     },
     "failures": {"type": "array", "items": {"type": "object"}},
     "discovery_coverage": {"type": "array", "items": {"type": "object"}},
+    "event_material_coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "candidate_checkpoint", "material_assembly_requested", "materialization_status", "disposition", "event_preserved", "physical_deletion", "material_review_passed", "doctor_blind_review_permission_granted"],
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1},
+          "candidate_checkpoint": {"type": "boolean"},
+          "material_assembly_requested": {"type": "boolean"},
+          "materialization_status": {"enum": ["ASSEMBLY_REQUESTED_OUTCOME_NOT_CERTIFIED", "PREPARED_NOT_REVIEWED", "ASSEMBLY_HOLD", "RETAINED_CANDIDATE_NOT_REQUESTED_IN_THIS_ASSEMBLY", "RETAINED_NOT_REQUESTED_NONCHECKPOINT_EVENT"]},
+          "disposition": {"enum": ["ASSEMBLY_REQUESTED_OUTCOME_NOT_CERTIFIED", "PREPARED_NOT_REVIEWED", "ASSEMBLY_HOLD", "RETAINED_CANDIDATE_NOT_REQUESTED_IN_THIS_ASSEMBLY", "RETAINED_NOT_REQUESTED_NONCHECKPOINT_EVENT"]},
+          "event_preserved": {"const": true},
+          "physical_deletion": {"const": false},
+          "material_review_passed": {"const": false},
+          "doctor_blind_review_permission_granted": {"const": false}
+        }
+      }
+    },
     "graph_clinical_semantics_certified": {"const": false},
     "material_quality_measured": {"const": false},
     "budget_omissions_remain_review_candidates": {"const": true},
@@ -43,6 +62,6 @@
     "clinical_release_permitted": {"const": false},
     "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   },
-  "required": ["format", "assembly_version", "graph_version", "graph_sha256", "supplied_source_count", "supplied_sources_sha256", "candidate_episode_count", "candidate_checkpoint_count", "prepared_checkpoint_count", "assembly_hold_count", "tasks", "failures", "discovery_coverage", "graph_clinical_semantics_certified", "material_quality_measured", "budget_omissions_remain_review_candidates", "human_sample_status", "doctor_packet_created", "clinical_reference_created", "clinical_release_permitted", "receipt_sha256"],
+  "required": ["format", "assembly_version", "graph_version", "graph_sha256", "supplied_source_count", "supplied_sources_sha256", "candidate_episode_count", "candidate_checkpoint_count", "prepared_checkpoint_count", "assembly_hold_count", "tasks", "failures", "discovery_coverage", "event_material_coverage", "graph_clinical_semantics_certified", "material_quality_measured", "budget_omissions_remain_review_candidates", "human_sample_status", "doctor_packet_created", "clinical_reference_created", "clinical_release_permitted", "receipt_sha256"],
   "additionalProperties": false
 }
