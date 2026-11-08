@@ -590,6 +590,27 @@
         "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL026_partial_release_preserves_missing_cases_without_cohort_substitution"
       ],
       "clinical_release_permitted": false
+    },
+    {
+      "issue_id": "CE-REAL-027",
+      "description": "新版完整重跑图的下游离线preflight必须将graph_version贯穿图冻结、批次合同、执行授权及实际运行输入，不能只改显示字符串或沿用旧版默认前缀",
+      "implementation_status": "implemented_with_synthetic_and_real_scale01_offline_preflight_regression",
+      "counterexamples": [
+        "传入TIME-008新版图版本却仍由inputs.py固定旧版GRAPH_VERSION",
+        "authorization与preflight的graph_version不同仍构造Client",
+        "preflight后替换其他graph_version的图仍执行",
+        "空白版本冒充有效合同"
+      ],
+      "controls": [
+        "load_episode_case接受显式graph_version并用于freeze_candidate_graph",
+        "preflight合同、CLI及冻结graph记录相同版本，授权必须一致",
+        "在任何Client构造前核验所有eligible病例的graph_version为声明前缀加case_id和episode_id",
+        "版本标签不改变临床意义，不自动授权下游provider发送或临床放行"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL027_graph_version_binds_preflight_and_execution"
+      ],
+      "clinical_release_permitted": false
     }
   ]
 }

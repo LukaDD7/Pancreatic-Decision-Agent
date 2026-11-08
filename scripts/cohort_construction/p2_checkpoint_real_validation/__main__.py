@@ -26,6 +26,8 @@ def main(argv=None):
     preflight = commands.add_parser('preflight', help='Offline only; never creates a model Client')
     preflight.add_argument('--manifest', type=Path, default=DEFAULT_BASE / 'sampling_manifest.json')
     preflight.add_argument('--derived-release', type=Path, default=DEFAULT_BASE / 'fixed_ten_development_release')
+    preflight.add_argument('--graph-version', default='fixed-ten-v0.6.0-episode-audit-v1',
+        help='Declared candidate graph version; does not imply a new clinical reference')
     preflight.add_argument('--output', type=Path)
     execute = commands.add_parser('execute', help='Explicitly authorized real remote development calls')
     execute.add_argument('--preflight', type=Path)
@@ -42,7 +44,8 @@ def main(argv=None):
         parser.error('--private-root must be an existing private research directory')
     if args.command == 'preflight':
         result = preflight_batch(manifest=args.manifest, derived_release=args.derived_release,
-            output=args.output or args.output_root / 'preflight', private_root=private_root)
+            output=args.output or args.output_root / 'preflight', private_root=private_root,
+            graph_version=getattr(args, 'graph_version', 'fixed-ten-v0.6.0-episode-audit-v1'))
     elif args.command == 'execute':
         from scripts.cohort_construction.p2_auto_checkpoint_v04.client import Client
         # load_boyu_settings is called only here, after explicit batch execution

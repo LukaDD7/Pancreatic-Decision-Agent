@@ -265,7 +265,8 @@ def resolve_episode_source_dependencies(case, events, units):
     return current_sources, sources, receipt
 
 
-def load_episode_case(directory, *, decision_task_id=None, visibility_policy_version=VISIBILITY_POLICY):
+def load_episode_case(directory, *, decision_task_id=None, visibility_policy_version=VISIBILITY_POLICY,
+                      graph_version=GRAPH_VERSION):
     """Use full current-unit text, not an LLM summary or a stitched fact.
 
     The declared source scope is the complete source(s) of processing units that
@@ -311,10 +312,12 @@ def load_episode_case(directory, *, decision_task_id=None, visibility_policy_ver
     episode_only = deepcopy(episode)
     episode_only['event_ids'] = sorted(ids)
     episode_only.pop('candidate_ids', None)
+    if not isinstance(graph_version, str) or not graph_version.strip():
+        raise ValueError('REAL_BATCH_GRAPH_VERSION_REQUIRED')
     graph = freeze_candidate_graph(events,
         [deepcopy(relation) for relation in case['relations']
          if relation['source_event_id'] in ids and relation['target_event_id'] in ids],
-        [episode_only], graph_version=GRAPH_VERSION + ':' + case['case_id'] + ':' + episode['episode_id'],
+        [episode_only], graph_version=graph_version + ':' + case['case_id'] + ':' + episode['episode_id'],
         discovery_units=discovery_units,
         unit_inventory=dict(units=units, routing_provenance=deepcopy(case['routing_provenance']),
             declared_scope='episode_processing_units_and_recovered_discovery_budget_omissions'),

@@ -53,7 +53,7 @@ def test_CE_REAL026_partial_release_preserves_missing_cases_without_cohort_subst
         monkeypatch.setattr(
             'scripts.cohort_construction.p2_checkpoint_real_validation.batch.episode_inventory', fake_inventory)
         monkeypatch.setattr('scripts.cohort_construction.p2_checkpoint_real_validation.batch.load_episode_case',
-            lambda directory: dict(graph=None, episode=None))
+            lambda directory, **kwargs: dict(graph=None, episode=None))
         result = preflight_batch(manifest=fixture.manifest, derived_release=complete,
             output=private_tmp / 'partial-preflight', private_root=private_tmp)
         assert result['fixed_case_count'] == 10
@@ -71,6 +71,70 @@ def test_CE_REAL026_partial_release_preserves_missing_cases_without_cohort_subst
         assert all(row['input_availability'] ==
             'SOURCE_BUNDLE_NOT_PRESENT_NOT_PATIENT_EXCLUSION' for row in unavailable)
         assert not result['model_call_performed']
+    finally:
+        fixture.tearDown()
+def test_CE_REAL027_graph_version_binds_preflight_and_execution(private_tmp, monkeypatch):
+    """A new graph version changes the frozen graph, not just its display name."""
+    from scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run import FixedTenRunnerTests
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch, preflight_batch
+    fixture = FixedTenRunnerTests(methodName='test_CE_REAL023_dry_run_defaults_full_ten_without_provider_or_cache')
+    fixture.setUp()
+    try:
+        from unittest.mock import patch
+        with patch.object(FixedTenRunnerTests, 'fake_process', wraps=fixture.fake_process):
+            contract, output, cache = fixture.dry_run()
+        complete = private_tmp / 'complete-output'
+        complete.mkdir()
+        case_dir = complete / 'SCALE-01'
+        case_dir.mkdir()
+        from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+        write(case_dir / 'source_fhir_r4_bundle.json', {'resourceType': 'Bundle', 'entry': []})
+        def fake_load(directory, *, graph_version, **kwargs):
+            assert graph_version == 'TIME008-COMPLETE-R1'
+            graph = dict(graph_version=graph_version + ':SCALE-01:EPISODE-01',
+                graph_sha256='SYNTHETIC-GRAPH-HASH')
+            return dict(graph=graph, episode=dict(episode_id='EPISODE-01', checkpoint_ids=[]),
+                sources=[], current_sources=[], graph_audit_sources=[], graph_request={},
+                source_dependency_receipt=dict(recovered_frozen_package_source_ids=[],
+                    not_found_in_delivery_source_ids=[]), failures=[], limitations=[],
+                graph_audit_context={})
+        monkeypatch.setattr('scripts.cohort_construction.p2_checkpoint_real_validation.batch.episode_inventory',
+            lambda directory: [])
+        monkeypatch.setattr('scripts.cohort_construction.p2_checkpoint_real_validation.batch.load_episode_case', fake_load)
+        result = preflight_batch(manifest=fixture.manifest, derived_release=complete,
+            output=private_tmp / 'versioned-preflight', private_root=private_tmp,
+            graph_version='TIME008-COMPLETE-R1')
+        frozen = read(private_tmp / 'versioned-preflight/batch-contract.json')
+        assert frozen['graph_version'] == 'TIME008-COMPLETE-R1'
+        assert read(private_tmp / 'versioned-preflight/preflight/SCALE-01/graph.json')[
+            'graph_version'] == 'TIME008-COMPLETE-R1:SCALE-01:EPISODE-01'
+        assert result['ready_case_count'] == 1
+        authorization = private_tmp / 'authorization.json'
+        write(authorization, dict(frozen, max_requests=60, max_http_attempts=600,
+            remote_execution_authorized=True, semantic_model='deepseek-v4.1-flash',
+            doctor_packet_release=False, real_doctor_assignment_creation=False,
+            clinical_release_permitted=False))
+        for mutation in ('authorization', 'graph'):
+            if mutation == 'authorization':
+                changed = dict(read(authorization), graph_version='OTHER-VERSION')
+                write(private_tmp / 'changed-authorization.json', changed)
+                path = private_tmp / 'changed-authorization.json'
+            else:
+                path = authorization
+                changed = read(private_tmp / 'versioned-preflight/preflight/SCALE-01/graph.json')
+                changed['graph_version'] = 'OTHER-VERSION:SCALE-01:EPISODE-01'
+                graph_path = private_tmp / 'versioned-preflight/preflight/SCALE-01/graph.json'
+                original_graph = graph_path.read_bytes()
+                graph_path.write_text(json.dumps(changed, ensure_ascii=False, indent=2) + '\n')
+            with pytest.raises(ValueError, match='REAL_BATCH_(AUTHORIZATION_BATCH|GRAPH_VERSION_BINDING)_MISMATCH'):
+                execute_batch(preflight_output=private_tmp / 'versioned-preflight', authorization=path,
+                    base_config=CONFIG, model_client_factory=lambda *args: pytest.fail('CLIENT_MUST_NOT_START'),
+                    output=private_tmp / ('execution-' + mutation), private_root=private_tmp)
+            if mutation == 'graph':
+                graph_path.write_bytes(original_graph)
+        with pytest.raises(ValueError, match='GRAPH_VERSION_REQUIRED'):
+            preflight_batch(manifest=fixture.manifest, derived_release=complete,
+                output=private_tmp / 'empty-version', private_root=private_tmp, graph_version='')
     finally:
         fixture.tearDown()
 
@@ -887,17 +951,25 @@ def test_CE_REAL015_batch_execution_uses_recovered_graph_sources_and_materials(p
 def _write_synthetic_batch_case(private_tmp, graph, sources, current_sources):
     """The batch fixtures contain no patient data and never construct a remote Client."""
     from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inputs import GRAPH_VERSION
     preflight = private_tmp / 'preflight'
     case_dir = preflight / 'preflight' / 'SCALE-01'
     case_dir.mkdir(parents=True)
-    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64)
+    episode_id = graph['episodes'][0]['episode_id']
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64,
+        graph_version=GRAPH_VERSION)
+    graph = deepcopy(graph)
+    graph['graph_version'] = GRAPH_VERSION + ':SCALE-01:' + episode_id
+    from scripts.cohort_construction.p2_checkpoint_packet.compiler import canonical_sha256
+    graph['graph_sha256'] = canonical_sha256(
+        {key: value for key, value in graph.items() if key != 'graph_sha256'})
     write(preflight / 'batch-contract.json', contract)
     write(preflight / 'batch-preflight.json', dict(cases=[dict(case_id='SCALE-01',
         status='READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION')]))
     for name, value in [('graph.json', graph), ('sources.json', sources),
             ('current-unit-sources.json', current_sources)]:
         write(case_dir / name, value)
-    write(case_dir / 'execution-request.json', dict(episode_id='EPISODE-01',
+    write(case_dir / 'execution-request.json', dict(episode_id=episode_id,
         decision_task_id='SYNTHETIC', visibility_policy_version='SYNTHETIC',
         graph_audit_context=dict(processing_units=[dict(unit_id='ALL',
             source_ids=[source['source_id'] for source in current_sources])])))

@@ -28,7 +28,8 @@ def _persist_receipt(output, name, value):
             raise ValueError('REAL_BATCH_RECEIPT_CHANGED_REQUIRES_NEW_OUTPUT')
         return
     write(path, value)
-from .inputs import DECISION_TASK_PREFIX, VISIBILITY_POLICY, episode_inventory, load_episode_case
+from .inputs import (DECISION_TASK_PREFIX, GRAPH_VERSION, VISIBILITY_POLICY,
+                     episode_inventory, load_episode_case)
 
 
 BATCH_FORMAT = 'checkpoint-real-development-batch-0.1.0'
@@ -73,6 +74,9 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
                     private_root=None, graph_version=None):
     """Fully inspect all ten before any provider Client is constructed."""
     output = new_output(output, private_root=private_root)
+    graph_version = GRAPH_VERSION if graph_version is None else graph_version
+    if not isinstance(graph_version, str) or not graph_version.strip():
+        raise ValueError('REAL_BATCH_GRAPH_VERSION_REQUIRED')
     manifest = Path(manifest).resolve()
     derived_release = Path(derived_release).resolve()
     contract = dict(format=BATCH_FORMAT, batch_id=batch_id,
@@ -80,15 +84,13 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
         derived_release=str(derived_release), selection='one_lexicographically_first_episode_per_case',
         selection_uses=['episode_id only'], replacements_for_missing_or_failed_cases=False,
         declared_source_scope='complete_originals_of_selected_episode_processing_units',
-        whole_patient_chart_certified=False, graph_version='fixed-ten-v0.6.0-episode-audit-v1',
+        whole_patient_chart_certified=False, graph_version=graph_version,
         remote_execution_authorized_by_preflight=False,
         semantic_audit_status='PENDING_INDEPENDENT_SEMANTIC_AUDIT',
         questionnaire_status='QUESTIONNAIRE_NOT_FROZEN',
         doctor_assignment_created=False, clinical_release_permitted=False)
     write(output / 'batch-contract.json', contract)
     manifest_value = read(manifest)
-    graph_version = graph_version or 'fixed-ten-v0.6.0-episode-audit-v1'
-    contract['graph_version'] = graph_version
     if manifest_value.get('seed') != 20261023 or len(manifest_value.get('selected', [])) != 10:
         raise ValueError('REAL_BATCH_FIXED_TEN_MANIFEST_REQUIRED')
     ids = [item['case_id'] for item in manifest_value['selected']]
@@ -118,7 +120,7 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
         try:
             inventory = episode_inventory(directory)
             write(case_output / 'episode-inventory.json', inventory)
-            loaded = load_episode_case(directory)
+            loaded = load_episode_case(directory, graph_version=graph_version)
             if loaded['graph'] is None:
                 record.update(status='PREFLIGHT_HOLD', reason_codes=['EMPTY_CANDIDATE_EPISODES'],
                     candidate_episode_count=0, candidate_checkpoint_count=0)
@@ -248,11 +250,24 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
     output = new_output(output, private_root=private_root)
     contract = read(authorization)
     batch_contract = read(preflight_output / 'batch-contract.json')
-    for key in ('batch_id', 'manifest_sha256'):
+    for key in ('batch_id', 'manifest_sha256', 'graph_version'):
         if contract.get(key) != batch_contract.get(key):
             raise ValueError('REAL_BATCH_AUTHORIZATION_BATCH_MISMATCH')
     config = _authorized_config(base_config, contract)
     preflight = read(preflight_output / 'batch-preflight.json')
+    # Check every eligible graph identity before constructing a provider Client.
+    # A display-only version parameter or a substituted preflight graph cannot
+    # reach provider I/O; legacy batches remain governed by their saved hashes.
+    if 'graph_version' in batch_contract:
+        for row in preflight['cases']:
+            if row['status'] not in _GRAPH_ELIGIBLE:
+                continue
+            case_dir = preflight_output / 'preflight' / row['case_id']
+            episode_id = read(case_dir / 'execution-request.json')['episode_id']
+            graph = read(case_dir / 'graph.json')
+            if graph.get('graph_version') != (
+                    batch_contract['graph_version'] + ':' + row['case_id'] + ':' + episode_id):
+                raise ValueError('REAL_BATCH_GRAPH_VERSION_BINDING_MISMATCH')
     effective_contract = dict(contract, execution_inventory_version=INVENTORY_FORMAT)
     inventory = freeze_inventory(preflight, batch_contract, effective_contract, initial_budget_state)
     write(output / 'effective-batch-authorization.json', effective_contract)
@@ -319,6 +334,12 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
             continue
         request = read(preflight_output / 'preflight' / case_id / 'execution-request.json')
         graph = read(preflight_output / 'preflight' / case_id / 'graph.json')
+        # Legacy frozen batches predate an explicit version binding and retain
+        # their existing graph hash/replay validation. New preflight contracts
+        # must bind the graph identity, rather than inherit that compatibility.
+        if 'graph_version' in batch_contract and graph.get('graph_version') != (
+                batch_contract['graph_version'] + ':' + case_id + ':' + request['episode_id']):
+            raise ValueError('REAL_BATCH_GRAPH_VERSION_BINDING_MISMATCH')
         sources = read(preflight_output / 'preflight' / case_id / 'sources.json')
         current_sources = read(preflight_output / 'preflight' / case_id / 'current-unit-sources.json')
         graph_audit_sources_path = preflight_output / 'preflight' / case_id / 'graph-audit-sources.json'
