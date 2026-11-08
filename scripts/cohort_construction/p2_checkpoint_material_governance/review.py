@@ -733,7 +733,11 @@ def run_review_chain(manifest, compiled, ask, *, candidate_sources=(), excluded_
             failure_receipt = failure['receipt']
             if isinstance(failure_receipt, dict) and failure_receipt.get('receipt_origin') in \
                     ('PROVIDER_CLIENT', 'PROVIDER_CLIENT_CACHE'):
-                failure['receipt'] = _client_receipt(failure_receipt, declared['transport'], success=False)
+                # A successful provider response can fail local material
+                # validation. Preserve its actual SUCCESS transport receipt;
+                # chain failure does not retroactively make provider I/O fail.
+                failure['receipt'] = _client_receipt(failure_receipt, declared['transport'],
+                    success=failure_receipt.get('status') == 'SUCCESS')
             elif local_budget:
                 failure['receipt'] = dict(failure_receipt, receipt_origin='LOCAL_CONTROL',
                     provider_transport_verified=False)

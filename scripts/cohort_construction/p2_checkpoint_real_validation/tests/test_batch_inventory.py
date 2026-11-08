@@ -5,7 +5,9 @@ import pytest
 
 from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly import _pass_only, fictional_graph
 from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import read
-from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch, replay_batch
+from scripts.cohort_construction.p2_checkpoint_real_validation.batch import (
+    execute_batch, execution_report, replay_batch,
+)
 from scripts.cohort_construction.p2_checkpoint_real_validation.budget import _journal_write
 from scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation import CONFIG, _receipt, _write_synthetic_batch_case
 from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.tests.test_reconstruction_audit import passing_graph_response
@@ -31,6 +33,25 @@ def synthetic_batch(root, *, extra_cases=False, initial_budget=None):
         base_config=CONFIG, model_client_factory=lambda *args: Client(), output=output,
         initial_budget_state=initial_budget, private_root=root)
     return output, result
+
+
+def test_CE_REAL022_report_requires_independently_verified_replay(tmp_path):
+    output, baseline = synthetic_batch(tmp_path / 'report')
+    receipt_path = output / 'batch-replay-receipt.json'
+    receipt_path.unlink()
+    report = execution_report(output, replay=dict(baseline,
+        implementation_snapshot_verified=False))
+    assert report['model_usage'] == baseline['model_usage']
+    assert not report['clinical_release_permitted']
+    for changed in (dict(baseline, batch_id='OTHER'), dict(baseline, cases=[]),
+            dict(baseline, fixed_case_count=99),
+            dict(baseline, replay_verified=False, model_usage={'requests': 999}),
+            dict(baseline, cases=[dict(baseline['cases'][0], replay_verified=False)])):
+        with pytest.raises(ValueError, match='REPORT_REPLAY'):
+            execution_report(output, replay=changed)
+    _journal_write(receipt_path, baseline)
+    with pytest.raises(ValueError, match='REPORT_REPLAY_RECEIPT_MISMATCH'):
+        execution_report(output, replay=dict(baseline, model_usage={}))
 
 
 @pytest.fixture

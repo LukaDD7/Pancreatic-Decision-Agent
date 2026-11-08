@@ -237,7 +237,8 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
     inventory = freeze_inventory(preflight, batch_contract, effective_contract, initial_budget_state)
     write(output / 'effective-batch-authorization.json', effective_contract)
     write(output / 'batch-execution-inventory.json', inventory)
-    write(output / 'implementation-snapshot.json', implementation_snapshot())
+    fingerprint = implementation_snapshot()
+    write(output / 'implementation-snapshot.json', fingerprint)
     ledger = BatchModelBudget(output, max_requests=contract['max_requests'],
         max_http_attempts=contract['max_http_attempts'],
         max_http_attempts_per_request=HTTP_ATTEMPTS_PER_REQUEST, state=initial_budget_state)
@@ -318,7 +319,8 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
                 max_rounds=config.get('material_review_max_rounds', 1),
                 max_model_calls=min(20, ledger.max_requests),
                 delivery_gate=dict(reason_codes=['PENDING_INDEPENDENT_SEMANTIC_AUDIT',
-                    'QUESTIONNAIRE_NOT_FROZEN']), private_root=private_root)
+                    'QUESTIONNAIRE_NOT_FROZEN']), private_root=private_root,
+                implementation_fingerprint=fingerprint)
             context = dict(batch_id=contract['batch_id'], case_id=case_id,
                 episode_id=request['episode_id'], graph_sha256=graph['graph_sha256'])
             if config.get('automatic_graph_reconstruction'):
@@ -340,7 +342,8 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
                     max_graph_revisions=config['graph_reconstruction_max_generations'],
                     max_model_calls=min(20, ledger.max_requests),
                     delivery_gate=dict(reason_codes=['PENDING_INDEPENDENT_SEMANTIC_AUDIT',
-                        'QUESTIONNAIRE_NOT_FROZEN']), private_root=private_root)
+                        'QUESTIONNAIRE_NOT_FROZEN']), private_root=private_root,
+                    implementation_fingerprint=fingerprint)
                 run = revision['final_run']
                 if 'run_sha256' not in run and not revision.get('generations') \
                         and (initial_output / 'run.json').is_file():
@@ -581,11 +584,34 @@ def _graph_failure_class(graph):
     return 'UNCLASSIFIED:' + failure.get('error_type', 'UNSPECIFIED')
 
 
-def execution_report(output):
-    """Aggregate persisted facts without reconstructing provider responses."""
+def execution_report(output, replay=None):
+    """Aggregate persisted facts without reconstructing provider responses.
+
+    A caller may pass the object already returned by ``replay_batch(...,
+    persist=False)``. Historical runs are not modified merely to make a report;
+    if a replay receipt exists, it must bind to that exact verified object.
+    """
     output = Path(output)
     progress = read(output / 'batch-progress.json')
-    replay = read(output / 'batch-replay-receipt.json')
+    receipt_path = output / 'batch-replay-receipt.json'
+    if replay is None:
+        replay = read(receipt_path)
+    elif replay.get('batch_id') != progress.get('batch_id') \
+            or replay.get('fixed_case_count') != len(progress['cases']) \
+            or replay.get('cases') is None:
+        raise ValueError('REAL_BATCH_REPORT_REPLAY_BINDING_MISMATCH')
+    if receipt_path.is_file():
+        if read(receipt_path) != replay:
+            raise ValueError('REAL_BATCH_REPORT_REPLAY_RECEIPT_MISMATCH')
+    else:
+        # Never accept a caller's verification flag or usage as authority. This
+        # is local evidence replay only; it cannot issue any provider request.
+        verified = replay_batch(output, verify_implementation=False, persist=False)
+        if verified != replay:
+            raise ValueError('REAL_BATCH_REPORT_REPLAY_NOT_INDEPENDENTLY_VERIFIED')
+    replay_rows = {row.get('case_id'): row for row in replay['cases']}
+    if list(replay_rows) != [row['case_id'] for row in progress['cases']]:
+        raise ValueError('REAL_BATCH_REPORT_REPLAY_CASE_MISMATCH')
     cases = []
     for row in progress['cases']:
         case = dict(case_id=row['case_id'], state=row['state'], reason_code=row.get('reason_code'))

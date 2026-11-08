@@ -59,7 +59,7 @@ def test_CE_REAL007_relocated_default_output_stays_inside_migrated_private_paren
     monkeypatch.setattr(cli, 'DEFAULT_STORAGE_ROOT', physical)
     monkeypatch.setattr(cli, 'DEFAULT_OUTPUT', physical / 'batch')
     parsed = cli.argparse.Namespace(command='preflight', output=None, output_root=cli.DEFAULT_OUTPUT,
-        manifest=cli.DEFAULT_BASE / 'sampling_manifest.json',
+        private_root=None, manifest=cli.DEFAULT_BASE / 'sampling_manifest.json',
         derived_release=cli.DEFAULT_BASE / 'fixed_ten_development_release')
     monkeypatch.setattr(cli.argparse.ArgumentParser, 'parse_args', lambda self, argv=None: parsed)
     with patch('scripts.cohort_construction.p2_checkpoint_real_validation.__main__.preflight_batch', return_value={}) as preflight:
@@ -74,6 +74,288 @@ def test_CE_REAL007_relocated_default_output_stays_inside_migrated_private_paren
             require_private_output(unrelated / 'output')
     with pytest.raises(ContractError, match='MRA_REAL_ASSIGNMENT_OUTPUT_MUST_BE_PRIVATE'):
         require_private_output(tmp_path / 'public', private_root=PRIVATE_ROOT)
+
+
+def test_CE_REAL022_provider_called_first_stage_hold_without_run_replays(private_tmp):
+    """A settled first-stage call and a pre-run failure remain an explicit HOLD."""
+    from unittest.mock import patch
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import (
+        execute_batch, replay_batch,
+    )
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inventory import (
+        validate_inventory,
+    )
+    graph, sources = fictional_graph()
+    preflight, authorization = _write_synthetic_batch_case(private_tmp, graph, sources, sources)
+    class Client:
+        def ask(self, task, payload, schema, system_instructions):
+            assert task == 'checkpoint_candidate_reconstruction_independent_audit'
+            response = passing_graph_response(payload)
+            response.update(status='AUTO_GRAPH_AUDIT_REVISE', revision_requests=[dict(
+                request_id='REV-PRE-RUN-HOLD', request_kind='EVENT_RECONSTRUCTION', reason='虚构重建',
+                affected_event_ids=['EVENT-01'], affected_episode_ids=['EPISODE-01'],
+                evidence=[dict(source_id='DOC-02', exact_quote='决定：暂缓切除并补充病理证据。')],
+                required_reconstruction=True)])
+            return response, _receipt('SYNTHETIC-FIRST-STAGE')
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch
+    execution = private_tmp / 'execution'
+    def fail_before_finish(run, output, budget, continuation, persist):
+        assert not (output / 'run.json').exists()
+        raise RuntimeError('SYNTHETIC_FAILURE_BEFORE_RUN')
+    with patch(
+            'scripts.cohort_construction.p2_checkpoint_ready_pipeline.orchestration._finish',
+            side_effect=fail_before_finish):
+        execute_batch(preflight_output=preflight, authorization=authorization,
+            base_config=CONFIG, model_client_factory=lambda cache, config: Client(),
+            output=execution, private_root=private_tmp)
+    assert not (execution / 'episodes/SCALE-01/EPISODE-01/run.json').exists()
+    progress = read(execution / 'batch-progress.json')
+    case = progress['cases'][0]
+    assert case['case_id'] == 'SCALE-01'
+    assert case['episode_id'] == 'EPISODE-01'
+    assert case['state'] == 'ORCHESTRATION_HOLD'
+    assert case['reason_code'] == 'RuntimeError'
+    assert 'run_sha256' not in case
+    ledger = read(execution / 'model-call-ledger.json')
+    assert [row['outcome'] for row in ledger['records']] == [
+        'PROVIDER_IO_STARTED_OR_UNSETTLED', 'RESPONSE_RETURNED_PENDING_CHAIN_VALIDATION']
+    inventory = validate_inventory(execution, progress, ledger)
+    assert inventory['recorded_calls_settled'] and inventory['attempted_case_count'] == 1
+    result = replay_batch(execution)
+    replayed = result['cases'][0]
+    assert replayed['state'] == 'ORCHESTRATION_HOLD'
+    assert replayed['episode_id'] == 'EPISODE-01'
+    assert replayed['reason_code'] == 'RuntimeError'
+    assert replayed['case_id'] == 'SCALE-01'
+    assert 'run_sha256' not in replayed and 'replay_verified' not in replayed
+    assert result['case_inventory'] == inventory
+    assert read(execution / 'batch-replay-receipt.json') == result
+
+
+def test_CE_REAL022_called_hold_cannot_bypass_run_evidence_or_claim_success(private_tmp):
+    """Forged hashes and successful no-run states still fail closed."""
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import replay_batch
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inventory import validate_inventory
+    graph, sources = fictional_graph()
+    preflight, _ = _write_synthetic_batch_case(private_tmp, graph, sources, sources)
+    execution = private_tmp / 'execution'
+    execution.mkdir()
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64,
+        semantic_model='kimi-k3', max_requests=60, max_http_attempts=600,
+        remote_execution_authorized=True, doctor_packet_release=False,
+        real_doctor_assignment_creation=False, clinical_release_permitted=False,
+        execution_subset=['SCALE-01'], model_switch_is_explicit=True, no_case_replacement=True,
+        execution_inventory_version='checkpoint-real-execution-inventory-0.1.0')
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inventory import freeze_inventory
+    preflight_value = read(preflight / 'batch-preflight.json')
+    batch_contract = read(preflight / 'batch-contract.json')
+    ledger = BatchModelBudget(execution, max_requests=60, max_http_attempts=600)
+    ledger.adapter('graph', lambda task, payload, schema: (dict(synthetic='settled'),
+        _receipt('SYNTHETIC-FIRST-STAGE')),
+        dict(case_id='SCALE-01', episode_id='EPISODE-01'))('task', {'synthetic': True}, {})
+    write(execution / 'effective-batch-authorization.json', contract)
+    write(execution / 'batch-execution-inventory.json',
+        freeze_inventory(preflight_value, batch_contract, contract))
+    for state, run_sha256, expected in [
+            ('ORCHESTRATION_HOLD', 'f' * 64, 'RUN_EVIDENCE|RUN_BINDING'),
+            ('DELIVERY_GATE_HOLD', None, 'RUN_EVIDENCE_REQUIRED')]:
+        case = dict(case_id='SCALE-01', episode_id='EPISODE-01', state=state,
+            reason_code='SYNTHETIC_EVIDENCE_BYPASS')
+        if run_sha256 is not None:
+            case['run_sha256'] = run_sha256
+        progress = dict(batch_id='SYNTHETIC-BATCH', cases=[case], model_usage=ledger.snapshot())
+        from scripts.cohort_construction.p2_checkpoint_real_validation.budget import _journal_write
+        _journal_write(execution / 'batch-progress.json', progress)
+        with pytest.raises(ValueError, match=expected):
+            validate_inventory(execution, progress, ledger.snapshot())
+        with pytest.raises(ValueError, match=expected):
+            replay_batch(execution)
+
+
+def test_CE_REAL022_called_hold_requires_episode_and_reason(private_tmp):
+    """A bare HOLD label is not an episode-level pre-run failure receipt."""
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inventory import (
+        freeze_inventory, validate_inventory,
+    )
+    graph, sources = fictional_graph()
+    preflight, _ = _write_synthetic_batch_case(private_tmp, graph, sources, sources)
+    execution = private_tmp / 'execution'
+    execution.mkdir()
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64,
+        execution_subset=['SCALE-01'], execution_inventory_version='checkpoint-real-execution-inventory-0.1.0')
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    write(execution / 'effective-batch-authorization.json', contract)
+    write(execution / 'batch-execution-inventory.json', freeze_inventory(
+        read(preflight / 'batch-preflight.json'), read(preflight / 'batch-contract.json'), contract))
+    ledger = BatchModelBudget(execution, max_requests=60, max_http_attempts=600)
+    ledger.adapter('graph', lambda task, payload, schema: (dict(synthetic='settled'),
+        _receipt('SYNTHETIC-FIRST-STAGE')),
+        dict(case_id='SCALE-01', episode_id='EPISODE-01'))('task', {'synthetic': True}, {})
+    for field in ('episode_id', 'reason_code'):
+        case = dict(case_id='SCALE-01', episode_id='EPISODE-01', state='ORCHESTRATION_HOLD',
+            reason_code='RuntimeError')
+        case.pop(field)
+        progress = dict(batch_id='SYNTHETIC-BATCH', cases=[case])
+        with pytest.raises(ValueError, match='CALLED_CASE_HOLD_EVIDENCE_REQUIRED'):
+            validate_inventory(execution, progress, ledger.snapshot())
+
+
+def test_CE_REAL022_unexpected_run_artifact_requires_validation(private_tmp):
+    """A saved run is evidence to validate, never part of the no-run exemption."""
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inventory import validate_inventory
+    graph, sources = fictional_graph()
+    preflight, _ = _write_synthetic_batch_case(private_tmp, graph, sources, sources)
+    execution = private_tmp / 'execution'
+    execution.mkdir()
+    from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+    contract = dict(batch_id='SYNTHETIC-BATCH', manifest_sha256='a' * 64,
+        execution_subset=['SCALE-01'])
+    write(execution / 'effective-batch-authorization.json', contract)
+    ledger = BatchModelBudget(execution, max_requests=60, max_http_attempts=600)
+    ledger.adapter('graph', lambda task, payload, schema: (dict(synthetic='settled'),
+        _receipt('SYNTHETIC-FIRST-STAGE')),
+        dict(case_id='SCALE-01', episode_id='EPISODE-01'))('task', {'synthetic': True}, {})
+    progress = dict(batch_id='SYNTHETIC-BATCH', cases=[dict(case_id='SCALE-01',
+        episode_id='EPISODE-01', state='ORCHESTRATION_HOLD', reason_code='RuntimeError')])
+    run_path = execution / 'episodes/SCALE-01/EPISODE-01/run.json'
+    run_path.parent.mkdir(parents=True)
+    write(run_path, dict(run_sha256='not-a-replayable-run'))
+    with pytest.raises(ValueError, match='CALLED_CASE_RUN_EVIDENCE_REQUIRED'):
+        validate_inventory(execution, progress, ledger.snapshot())
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import replay_batch
+    from scripts.cohort_construction.p2_checkpoint_real_validation.budget import _journal_write
+    _journal_write(execution / 'batch-progress.json', progress)
+    with pytest.raises(ValueError):
+        replay_batch(execution)
+
+
+def test_CE_REAL018_explicit_private_root_is_forwarded_without_weakening_boundary(tmp_path, monkeypatch):
+    """A new private root is explicit; a missing/outside root never grants trust."""
+    from scripts.cohort_construction.p2_checkpoint_material_review_app.build import (
+        private_mkdir, require_private_output,
+    )
+    from scripts.cohort_construction.p2_checkpoint_packet.compiler import ContractError
+    from scripts.cohort_construction.p2_checkpoint_real_validation import __main__ as cli
+    from unittest.mock import patch
+    root = tmp_path / 'research-private'
+    private_mkdir(root, parents=True)
+    output = root / 'fixed-ten-batch'
+    with patch(f'{cli.__name__}.preflight_batch', return_value={}) as preflight:
+        cli.main(['--output-root', str(output), '--private-root', str(root), 'preflight'])
+    assert preflight.call_args.kwargs['private_root'] == root.resolve()
+    assert preflight.call_args.kwargs['output'] == output / 'preflight'
+    assert not output.exists()  # The adapter mock must not create a real batch.
+    with pytest.raises(SystemExit):
+        cli.main(['--output-root', str(root / 'another'),
+            '--private-root', str(root / 'not-created'), 'preflight'])
+    with pytest.raises(ContractError, match='MRA_REAL_ASSIGNMENT_OUTPUT_MUST_BE_PRIVATE'):
+        require_private_output(tmp_path / 'outside' / 'execution', private_root=root)
+
+    with patch('scripts.cohort_construction.model_api.load_boyu_settings'), \
+            patch('scripts.cohort_construction.p2_auto_checkpoint_v04.client.Client'), \
+            patch(f'{cli.__name__}.execute_batch', return_value={}) as execute, \
+            patch(f'{cli.__name__}.read', side_effect=[{}, dict(model_temperature=0, max_output_tokens=16000)]):
+        cli.main(['--output-root', str(output), '--private-root', str(root), 'execute'])
+    assert execute.call_args.kwargs['private_root'] == root.resolve()
+    assert execute.call_args.kwargs['output'] == output / 'execution'
+
+
+def test_CE_REAL019_frozen_graph_retains_actual_discovery_proposals_not_empty_shadow_rows():
+    """Discovery metadata rows must not masquerade as zero-event discovery receipts."""
+    from scripts.cohort_construction.p2_checkpoint_real_validation.inputs import load_episode_case
+    graph, sources = fictional_graph()
+    event = graph['events'][0]
+    current = next(source for source in sources if source['source_id'] == 'DOC-01')
+    event['actual_model_evidence'] = []
+    event['evidence_context']['ledger'] = []
+    event['evidence_context']['source_ledger'] = []
+    routing_unit = dict(unit_id=event['unit_id'], source_ids=['DOC-01'],
+        original_texts=[current], document_profile='clinical_note', kind='clinical_note',
+        clock=current.get('clock'))
+    proposal = dict(unit_id=event['unit_id'], events=[deepcopy(event)],
+        rejected_mentions=[], input_context_summary=dict(source_ledger=[]))
+    case = dict(case_id='SYNTHETIC', sources=[current], units=[routing_unit],
+        discoveries={event['unit_id']: proposal}, events=[event],
+        episodes=[dict(episode_id='EPISODE-01', event_ids=['EVENT-01'],
+            checkpoint_ids=['EVENT-01'])], relations=[], routing=[],
+        routing_provenance=dict(inventory_unit_membership_verified=False),
+        final_graph_audit=None)
+    with __import__('unittest.mock', fromlist=['patch']).patch(
+            'scripts.cohort_construction.p2_checkpoint_real_validation.inputs.load_case', return_value=case):
+        loaded = load_episode_case('SYNTHETIC')
+    assert loaded['graph']['discovery_units'][0]['events'][0]['event_id'] == 'EVENT-01'
+    assert loaded['graph']['discovery_units'][0]['source_ids'] == ['DOC-01']
+    assert loaded['graph']['discovery_units'][0] is not routing_unit
+    assert loaded['graph_request']['zero_discovery_and_rejected_units'][0]['events']
+    coverage = loaded['tasks'][0]['manifest']['sources']
+    assert [source['source_id'] for source in coverage] == ['DOC-01']
+
+
+def test_CE_REAL024_projected_material_receipt_and_batch_ledger_match(private_tmp):
+    """Regression for r6 FULL_REQUEST receipt versus compact wire payload."""
+    from scripts.cohort_construction.p2_checkpoint_material_governance.projection import FORMAT
+    from scripts.cohort_construction.p2_checkpoint_material_governance.review import (
+        run_review_chain,
+    )
+    from scripts.cohort_construction.p2_checkpoint_packet.compiler import (
+        canonical_sha256 as payload_sha256,
+    )
+    from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance import inputs
+    manifest, compiled = inputs('虚构材料原文。')
+    context = dict(decision_time_evidence='UNRESOLVED', clinical_visibility_certified=False)
+    seen = []
+    def ask(task, payload, schema):
+        seen.append(payload)
+        return dict(format='material-review-0.3.0'), dict(cached=False,
+            receipt_origin='PROVIDER_CLIENT', status='SUCCESS',
+            provider_invocation_occurred=True, provider_transport_verified=True,
+            declared_provider_payload_sha256=payload_sha256(payload))
+    adapter = BatchModelBudget(private_tmp, max_requests=2, max_http_attempts=20).adapter(
+        'material', ask, dict(case_id='SYNTHETIC'))
+    def bound(task, payload, schema, *, transport_projection=None):
+        return adapter(task, payload, schema, transport_projection=transport_projection)
+    chain = run_review_chain(manifest, compiled, bound, task_context=context,
+        transport_projection_format=FORMAT)
+    assert chain['stop_reason'] == 'EXECUTION_FAILED'
+    assert chain['failure']['reason_code'] == 'MATERIAL_REVIEW_FIELDS_MISMATCH'
+    assert chain['failure']['receipt']['status'] == 'SUCCESS'
+    # A request without the optional whole-graph snapshot legitimately projects
+    # byte-for-byte to itself; this does not manufacture a projection envelope.
+    assert seen and 'material_transport_projection' not in seen[0]
+    assert chain['failure']['transport_projection_format'] == FORMAT
+    ledger = read(private_tmp / 'model-call-ledger.json')
+    assert ledger['records'][-1]['provider_payload_binding_verified'] is True
+    assert ledger['records'][-1]['receipt']['declared_provider_payload_sha256'] \
+        == ledger['records'][-1]['request_sha256']
+
+
+def test_CE_REAL024_batch_freezes_implementation_once_for_all_episode_runs(private_tmp):
+    """A changed working tree during execution cannot relabel earlier runs."""
+    from unittest.mock import patch
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import execute_batch
+    graph, sources = fictional_graph()
+    preflight, authorization = _write_synthetic_batch_case(private_tmp, graph, sources, sources)
+    class Client:
+        def ask(self, task, payload, schema, system_instructions):
+            return passing_graph_response(payload), _receipt('SYNTHETIC-FROZEN')
+    frozen = dict(format='checkpoint-ready-pipeline-implementation-snapshot-0.1.0',
+        implementation_sha256='FROZEN-ONE')
+    with patch('scripts.cohort_construction.p2_checkpoint_real_validation.batch.implementation_snapshot',
+            return_value=frozen) as outer, patch(
+            'scripts.cohort_construction.p2_checkpoint_ready_pipeline.orchestration.implementation_snapshot',
+            side_effect=AssertionError('LIVE_WORKING_TREE_REHASH_FORBIDDEN')), patch(
+            'scripts.cohort_construction.p2_checkpoint_ready_pipeline.automatic_revision.run_bounded_graph_revision_pipeline',
+            side_effect=AssertionError('NOT_THE_FROZEN_SNAPSHOT_TEST')), patch(
+            'scripts.cohort_construction.p2_checkpoint_real_validation.batch.validate_pipeline_run',
+            side_effect=AssertionError('CURRENT_CODE_CANNOT_REPLAY_FROZEN_SYNTHETIC_HASH')), patch(
+            'scripts.cohort_construction.p2_checkpoint_real_validation.batch.replay_batch',
+            return_value=dict(replay_verified=True, cases=[], test_scope='FROZEN_IMPLEMENTATION_IDENTITY_ONLY')):
+        execute_batch(preflight_output=preflight, authorization=authorization,
+            base_config=CONFIG, model_client_factory=lambda cache, config: Client(),
+            output=private_tmp / 'execution', private_root=private_tmp)
+    assert outer.call_count == 1
+    assert read(private_tmp / 'execution/episodes/SCALE-01/EPISODE-01/implementation-snapshot.json') == frozen
 
 
 def test_CE_REAL002_batch_budget_counts_failures_cache_and_preserves_call_gain(private_tmp):

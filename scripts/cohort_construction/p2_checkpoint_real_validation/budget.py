@@ -67,10 +67,14 @@ class BatchModelBudget:
             _journal_write(self.output / 'model-call-ledger.json', self.snapshot())
 
     def adapter(self, stage, ask, context):
-        def call(task, payload, schema):
-            request_sha256 = canonical_sha256(payload)
-            target = payload.get('target', {})
-            binding = payload.get('response_binding', {})
+        def call(task, payload, schema, *, transport_projection=None):
+            # CE-REAL024: reserve and journal the exact projected provider task,
+            # not its larger persisted full-request envelope. The projection is
+            # deterministic and receipt-bound; it does not change source scope.
+            projected = payload if transport_projection is None else transport_projection(payload)
+            request_sha256 = canonical_sha256(projected)
+            target = projected.get('target', {})
+            binding = projected.get('response_binding', {})
             record = dict(context=deepcopy(context), stage=stage, task=task,
                 request_sha256=request_sha256, target=deepcopy(target),
                 precondition=binding, expected_gain=_gain(stage),
@@ -98,7 +102,7 @@ class BatchModelBudget:
             record['outcome'] = 'PROVIDER_IO_STARTED_OR_UNSETTLED'
             self._save(record)
             try:
-                response, receipt = ask(task, payload, schema)
+                response, receipt = ask(task, projected, schema)
             except Exception as exc:
                 receipt = deepcopy(getattr(exc, 'receipt', {}))
                 if not isinstance(receipt, dict):
@@ -140,8 +144,17 @@ class BatchModelBudget:
         allowed = ('request_sha256', 'invocation_id', 'cached', 'status', 'model',
             'returned_model', 'usage', 'elapsed_seconds', 'attempts', 'response_sha256',
             'max_http_attempts', 'retry_backoff_base_seconds', 'retry_backoff_max_seconds',
-            'min_request_interval_seconds', 'pacing_seconds_total')
+            'min_request_interval_seconds', 'pacing_seconds_total',
+            'declared_provider_payload_sha256', 'receipt_origin',
+            'provider_invocation_occurred', 'provider_transport_verified')
         record['receipt'] = {key: deepcopy(receipt[key]) for key in allowed if key in receipt}
+        # Synthetic adapters without a provider hash are still journaled, but
+        # cannot certify the provider payload binding (real receipts require it).
+        record['provider_payload_binding_verified'] = (
+            record['receipt'].get('declared_provider_payload_sha256') == record['request_sha256'])
+        if receipt.get('declared_provider_payload_sha256') is not None \
+                and not record['provider_payload_binding_verified']:
+            raise ValueError('REAL_BATCH_PROVIDER_PAYLOAD_LEDGER_MISMATCH')
         if not record['receipt'].get('cached'):
             actual = record['receipt'].get('attempts')
             if isinstance(actual, list) and actual:

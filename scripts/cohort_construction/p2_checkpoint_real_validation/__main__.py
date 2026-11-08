@@ -20,6 +20,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-root', type=Path, default=DEFAULT_OUTPUT,
         help='New private batch directory; use a new sibling for every rerun')
+    parser.add_argument('--private-root', type=Path,
+        help='Existing physical private research root; required when output is outside the default migrated archive')
     commands = parser.add_subparsers(dest='command', required=True)
     preflight = commands.add_parser('preflight', help='Offline only; never creates a model Client')
     preflight.add_argument('--manifest', type=Path, default=DEFAULT_BASE / 'sampling_manifest.json')
@@ -35,9 +37,12 @@ def main(argv=None):
     replay.add_argument('--current-implementation', action='store_true',
         help='Also require every saved run to match the current source snapshot')
     args = parser.parse_args(argv)
+    private_root = (args.private_root or DEFAULT_STORAGE_ROOT).resolve()
+    if not private_root.is_dir():
+        parser.error('--private-root must be an existing private research directory')
     if args.command == 'preflight':
         result = preflight_batch(manifest=args.manifest, derived_release=args.derived_release,
-            output=args.output or args.output_root / 'preflight', private_root=DEFAULT_STORAGE_ROOT)
+            output=args.output or args.output_root / 'preflight', private_root=private_root)
     elif args.command == 'execute':
         from scripts.cohort_construction.p2_auto_checkpoint_v04.client import Client
         # load_boyu_settings is called only here, after explicit batch execution
@@ -51,7 +56,7 @@ def main(argv=None):
         result = execute_batch(preflight_output=args.preflight or args.output_root / 'preflight',
             authorization=args.authorization or args.output_root / 'execution-authorization.json',
             base_config=config, model_client_factory=Client,
-            output=args.output or args.output_root / 'execution', private_root=DEFAULT_STORAGE_ROOT)
+            output=args.output or args.output_root / 'execution', private_root=private_root)
     else:
         result = replay_batch(args.output or args.output_root / 'execution',
             verify_implementation=args.current_implementation)

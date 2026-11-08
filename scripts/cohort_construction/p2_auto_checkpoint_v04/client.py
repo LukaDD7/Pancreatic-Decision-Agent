@@ -24,6 +24,11 @@ _pacing_locks = {}
 _pacing_last_started = {}
 _pacing_registry_lock = Lock()
 _thread = local()
+# Optional process-wide ceilings for complete discovery/review batches. Every
+# Client for the same endpoint/model shares the reservation state: per-case
+# workers cannot each spend a nominally global allowance.
+_batch_budget_lock = Lock()
+_batch_budgets = {}
 
 
 def _safe_provider_metadata(raw):
@@ -71,6 +76,26 @@ class Client:
         self.max_http_attempts = self.config.get('max_http_attempts_per_request', 3)
         if type(self.max_http_attempts) is not int or not 1 <= self.max_http_attempts <= 100:
             raise ValueError('MODEL_HTTP_ATTEMPTS_INVALID')
+        self._batch_budget = None
+        limits = ('max_total_model_requests', 'max_total_http_attempts')
+        if any(key in config for key in limits):
+            if not all(key in config for key in limits):
+                raise ValueError('MODEL_TOTAL_BATCH_BUDGET_INCOMPLETE')
+            for key in limits:
+                if type(config[key]) is not int or config[key] < 1:
+                    raise ValueError('MODEL_TOTAL_BATCH_BUDGET_INVALID')
+            batch_id = config.get('execution_batch_id')
+            if not isinstance(batch_id, str) or not batch_id or len(batch_id) > 200:
+                raise ValueError('MODEL_TOTAL_BATCH_ID_REQUIRED')
+            key = (self.settings.chat_completions_url, self.settings.model, batch_id)
+            with _batch_budget_lock:
+                budget = _batch_budgets.setdefault(key, dict(requests=0,
+                    http_attempts=0, invocations=[], lock=Lock()))
+                for field, limit in (('requests', config[limits[0]]),
+                        ('http_attempts', config[limits[1]])):
+                    if budget.setdefault(field + '_limit', limit) != limit:
+                        raise ValueError('MODEL_TOTAL_BATCH_BUDGET_CONFLICT')
+            self._batch_budget = budget
         self.retry_backoff_base_seconds = self.config.get('retry_backoff_base_seconds', 2.0)
         self.retry_backoff_max_seconds = self.config.get('retry_backoff_max_seconds', 60.0)
         self.min_request_interval_seconds = self.config.get('min_request_interval_seconds', 0.0)
@@ -105,6 +130,41 @@ class Client:
                 time.sleep(delay)
             self._pacing_state[1]=time.monotonic()
             return delay
+
+    def _reserve_batch_invocation(self, invocation_id, *, cached=False):
+        budget = self._batch_budget
+        if budget is None:
+            return
+        with budget['lock']:
+            if cached:
+                for row in budget['invocations']:
+                    if row['invocation_id'] == invocation_id:
+                        row['cached_replays'] += 1
+                        return
+                raise ValueError('MODEL_CACHE_ORIGINAL_NOT_IN_AUTHORIZED_BATCH')
+            if budget['requests'] >= budget['requests_limit']:
+                raise ValueError('MODEL_TOTAL_BATCH_REQUEST_BUDGET_EXHAUSTED')
+            if budget['http_attempts'] + self.max_http_attempts > budget['http_attempts_limit']:
+                raise ValueError('MODEL_TOTAL_BATCH_HTTP_BUDGET_EXHAUSTED')
+            budget['requests'] += 1
+            budget['http_attempts'] += self.max_http_attempts
+            budget['invocations'].append(dict(invocation_id=invocation_id,
+                attempts_used=0, cached_replays=0))
+
+    def _settle_batch_invocation(self, receipt):
+        if self._batch_budget is None:
+            return
+        with self._batch_budget['lock']:
+            matches = [row for row in self._batch_budget['invocations']
+                if row['invocation_id'] == receipt.get('invocation_id')]
+            if len(matches) != 1:
+                raise ValueError('MODEL_TOTAL_BATCH_SETTLEMENT_IDENTITY_MISMATCH')
+            actual = len(receipt.get('attempts', []))
+            if not 1 <= actual <= self.max_http_attempts:
+                raise ValueError('MODEL_TOTAL_BATCH_SETTLEMENT_ATTEMPTS_INVALID')
+            self._batch_budget['http_attempts'] -= self.max_http_attempts - actual
+            matches[0]['attempts_used'] = actual
+            matches[0]['status'] = receipt.get('status')
 
     def _record_receipt(self, receipt):
         # Serialize in-memory bookkeeping only; do not add per-call disk scans
@@ -165,8 +225,14 @@ class Client:
         # prepared HTTP bytes. The latter are computed once per request and
         # hashed on every attempt; ``json=body`` alone cannot prove wire bytes.
         key=digest([self.settings.chat_completions_url,body]); path=self.cache/(key+'.json')
-        prepared = requests.Request('POST', self.settings.chat_completions_url,
-            headers={'Authorization':'Bearer '+self.settings.api_key}, json=body).prepare()
+        request = requests.Request('POST', self.settings.chat_completions_url,
+            headers={'Authorization':'Bearer '+self.settings.api_key}, json=body)
+        prepared = request.prepare()
+        # requests.Session.prepare_request requires a Request, not an already
+        # PreparedRequest (the latter lacks ``cookies`` in requests 2.32.x).
+        # First obtain the Request-level body bytes. If Session.send is the
+        # actual transport, its prepared body must equal these bytes; mocked
+        # post-only transports explicitly leave wire-byte identity unknown.
         wire_body = prepared.body
         if isinstance(wire_body, str):
             wire_body = wire_body.encode('utf-8')
@@ -241,6 +307,7 @@ class Client:
                 raise ValueError('PROVIDER_CACHE_DECLARED_PAYLOAD_MISMATCH')
             validate_provider_success_binding(evidence, outcome, payload,
                 payload, cached=True, schema=schema)
+            self._reserve_batch_invocation(original_receipt['invocation_id'], cached=True)
             self._record_receipt(receipt)
             return saved['result'],receipt
         receipt=dict(task=task,model=self.settings.model,request_sha256=key,cached=False,
@@ -253,6 +320,7 @@ class Client:
             provider_invocation_occurred=True,provider_transport_verified=False,
             declared_provider_payload_sha256=declared_payload_sha256,
             actual_provider_http_body_sha256=http_body_sha256)
+        self._reserve_batch_invocation(receipt['invocation_id'])
         archive=self.cache/'invocations'/(receipt['invocation_id']+'.json');write(archive,receipt)
         started=time.monotonic()
         response_evidence=None
@@ -278,7 +346,7 @@ class Client:
                     if not hasattr(_thread,'session'): _thread.session=requests.Session()
                     if hasattr(type(_thread.session), 'prepare_request') \
                             and hasattr(type(_thread.session), 'send'):
-                        prepared_request = _thread.session.prepare_request(prepared)
+                        prepared_request = _thread.session.prepare_request(request)
                         actual_body = prepared_request.body
                         if isinstance(actual_body, str):
                             actual_body = actual_body.encode('utf-8')
@@ -376,7 +444,9 @@ class Client:
                 receipt['terminal_attempt_evidence']=private_chain_evidence(evidence)
                 receipt.pop('original_provider_invocation_verified', None)
                 write(path,dict(request=body,result=result,result_sha256=digest(result),receipt=receipt))
-                write(archive,receipt);self._record_receipt(receipt)
+                write(archive,receipt)
+                self._settle_batch_invocation(receipt)
+                self._record_receipt(receipt)
                 return result,receipt
             except (requests.RequestException,ValueError,KeyError,TypeError,ValidationError,OSError) as exc:
                 # Private files retain provider bodies and exact failed values.
@@ -433,6 +503,8 @@ class Client:
                     write(archive,receipt)
                     time.sleep(delay)
         receipt.update(status='FAILED',elapsed_seconds=round(time.monotonic()-started,3))
-        write(archive,receipt);self._record_receipt(receipt)
+        write(archive,receipt)
+        self._settle_batch_invocation(receipt)
+        self._record_receipt(receipt)
         raise ModelRequestFailed(receipt, response_evidence=response_evidence,
             failure_evidence=failure_evidence)

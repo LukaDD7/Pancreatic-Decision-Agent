@@ -94,14 +94,16 @@ def build_ready_resource_manifest(*, resource_id, graph_audit, material_set,
     if not isinstance(material_set, dict):
         raise ValueError('READY_RESOURCE_MATERIAL_SET_REQUIRED')
     if not isinstance(graph_audit, dict) or graph_audit.get('format') not in (
-            'candidate-reconstruction-audit-chain-0.1.0', 'candidate-reconstruction-audit-chain-0.2.0'):
+            'candidate-reconstruction-audit-chain-0.1.0', 'candidate-reconstruction-audit-chain-0.2.0',
+            'candidate-reconstruction-audit-chain-0.3.0'):
         raise ValueError('READY_RESOURCE_REPLAYABLE_GRAPH_CHAIN_REQUIRED')
     if not isinstance(delivery_audit, dict) or delivery_audit.get('format') != 'episode-delivery-audit-chain-0.1.0':
         raise ValueError('READY_RESOURCE_REPLAYABLE_DELIVERY_CHAIN_REQUIRED')
     validate_episode_material_set(material_set)
     graph_replay = None
     if isinstance(graph_audit, dict) and graph_audit.get('format') in (
-            'candidate-reconstruction-audit-chain-0.1.0', 'candidate-reconstruction-audit-chain-0.2.0'):
+            'candidate-reconstruction-audit-chain-0.1.0', 'candidate-reconstruction-audit-chain-0.2.0',
+            'candidate-reconstruction-audit-chain-0.3.0'):
         from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.chain import validate_graph_audit_chain
         graph_replay = validate_graph_audit_chain(graph_audit)
         graph = graph_audit['initial_request']['candidate_graph']

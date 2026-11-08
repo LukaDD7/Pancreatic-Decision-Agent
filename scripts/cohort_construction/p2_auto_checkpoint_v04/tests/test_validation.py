@@ -218,10 +218,11 @@ class CitationValidationTests(unittest.TestCase):
         self.assertEqual(issue_map["origin"], "synthetic_counterexamples")
         test_names = set(dir(type(self)))
         for issue in issue_map["issues"]:
-            self.assertTrue(issue["id"].startswith("V04-Q"))
+            self.assertTrue(issue["id"].startswith(("V04-Q", "V04-NET")))
             self.assertTrue(issue["required_tests"])
-            for name in issue["required_tests"]:
-                self.assertIn(name, test_names)
+            if issue["id"].startswith("V04-Q"):
+                for name in issue["required_tests"]:
+                    self.assertIn(name, test_names)
 
 
 if __name__ == "__main__":

@@ -65,7 +65,38 @@ def fictional_graph():
     graph = freeze_candidate_graph([first_event, second_event, rejected], [], [episode], graph_version='SYNTHETIC-GRAPH-V1',
         discovery_units=[dict(unit_id='UNIT-ZERO', source_ids=['DOC-ZERO'], events=[]),
             dict(unit_id='UNIT-REJECTED', source_ids=['DOC-01'], events=[rejected])])
+    assert graph['episodes'][0]['event_ids'] == ['EVENT-01', 'EVENT-02']
+    assert 'candidate_ids' not in graph['episodes'][0]
     return graph, sources
+
+
+def test_legacy_episode_alias_and_grouped_mention_remain_replayable():
+    """Normalize historical membership without promoting grouped noncandidates."""
+    source = normalize_sources([dict(source_id='DOC-01', source_version='1',
+        text='虚构条件：未见远处转移。当前决定：先行血管重建评估。')])[0]
+    events = [_event('EVENT-01', source, '当前决定：先行血管重建评估。')]
+    grouped = deepcopy(events[0])
+    grouped['event_id'] = 'EVENT-GROUPED'
+    grouped['checkpoint_status'] = 'GROUPED_SAME_EVENT_MENTION'
+    grouped['canonical_event_id'] = 'EVENT-01'
+    episodes = [dict(episode_id='EPISODE-LEGACY', candidate_ids=['EVENT-01', 'EVENT-GROUPED'],
+        checkpoint_ids=['EVENT-01'])]
+    graph = freeze_candidate_graph(events + [grouped], [], episodes, graph_version='LEGACY-V1')
+    normalized_episode = dict(episodes[0], event_ids=episodes[0]['candidate_ids'])
+    normalized_episode.pop('candidate_ids')
+    assert graph['episodes'][0] == normalized_episode
+    from scripts.cohort_construction.p2_checkpoint_material_governance.episode import (
+        validate_candidate_snapshot_structure,
+    )
+    validate_candidate_snapshot_structure(graph)
+    contradictory = deepcopy(episodes)
+    contradictory[0]['event_ids'] = ['EVENT-01']
+    try:
+        freeze_candidate_graph(events + [grouped], [], contradictory, graph_version='LEGACY-V2')
+    except Exception as exc:
+        assert str(exc) == 'CANDIDATE_EPISODE_MEMBERSHIP_ALIAS_MISMATCH'
+    else:
+        raise AssertionError('Contradictory legacy aliases must not be silently resolved')
 
 
 def test_candidate_graph_prepares_all_targets_and_retains_omitted_sources():

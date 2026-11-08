@@ -289,7 +289,7 @@
     {
       "issue_id": "CE-REAL-017",
       "description": "报告执行时间、报告发布时间和选择前语义可见性不得混同；首锚点及新增补充检查/EUS管理安排不强制前置临床决策事件，证据驱动的后续管理选择仍须相关前轮、选择前证据与连接",
-      "implementation_status": "implemented_in_isolated_workspace_with_independent_postfix_synthetic_audit_and_full_offline_regression_pending_real_case_validation_and_production_merge",
+      "implementation_status": "merged_to_development_branch_with_independent_postfix_synthetic_audit_and_offline_regression; frozen_graph_downstream_real_calls_have_success_and_hold; complete_discovery_review_real_rerun_pending_scope_authorization",
       "stable_cross_component_issue": "V04-TIME-008",
       "historical_observations": {
         "frozen_ten_imaging_sources_without_release_clock": 102,
@@ -352,8 +352,12 @@
         "serial_full_offline_log_sha256": "ebd70b2eb64ea2b7667ea0f3a91612ecdef7be99bbba7069bfb58eaab36d81dc",
         "TIME008_HARNESS_004_status": "NOT_REPRODUCED_AFTER_FIX_ON_RECORDED_HASHES"
       },
-      "real_case_model_invocation_performed": false,
-      "production_merge_performed": false,
+      "real_case_model_invocation_scope": "FROZEN_GRAPH_DOWNSTREAM_ONLY_R5_LOCAL_FAILURE_R6_PARTIAL_REAL_CALLS_WITH_HOLDS_AND_UNSETTLED_INTERRUPTION",
+      "complete_discovery_review_real_rerun_performed": false,
+      "real_old_new_event_checkpoint_episode_diff_available": false,
+      "production_merge_performed": true,
+      "production_merge_commit": "f6dd3acb10916bfdbc7d9125d1b1273d85aa5bd3",
+      "complete_chain_dry_run": "/private/tmp/p2-recovery-20261107/receipts/time008-complete-dry-run-r2-20261108.log",
       "clinical_reference_established": false
     },
     {
@@ -399,6 +403,153 @@
       "required_tests": [
         "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL014_execution_report_uses_safe_specific_transport_failure_class"
       ]
+    },
+    {
+      "issue_id": "CE-REAL-018",
+      "description": "显式私有输出根必须贯穿真实批次preflight与execute，不能因CLI固定旧归档根而绕过或错误阻断新的owner-only研究目录",
+      "implementation_status": "implemented_with_synthetic_and_real_fixed_ten_offline_preflight_regression",
+      "counterexamples": [
+        "新owner-only本地私有根存在，但CLI仍固定传DEFAULT_STORAGE_ROOT",
+        "以私有根参数为名将输出放到不存在目录或越过既有私有根"
+      ],
+      "controls": [
+        "--private-root必须指向既有物理私有研究目录，preflight和execute转发同一resolved根",
+        "不chmod旧归档，不绕过require_private_output，不从输出参数推断临床或远程授权",
+        "真实fixed-ten离线preflight达到10/10 graph eligible；不表示真实模型或临床验证完成"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL018_explicit_private_root_is_forwarded_without_weakening_boundary"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-019",
+      "description": "冻结图的发现阶段真实proposal曾被只有unit元数据且events为空的shadow row替换，错误形成zero-discovery并丢失rejected mentions和原输入上下文；legacy Episode alias和grouped/repeated状态也不得被误升为Checkpoint",
+      "implementation_status": "implemented_with_synthetic_and_real_fixed_ten_offline_preflight_regression",
+      "counterexamples": [
+        "实际发现事件被空metadata row替换后称为零发现",
+        "candidate_ids与event_ids同义但矛盾时不失败关闭",
+        "为接受旧GROUPED_SAME_EVENT_MENTION或REPEATED状态而允许其成为Episode checkpoint"
+      ],
+      "controls": [
+        "以case discoveries恢复原proposal/rejected mentions，只补routing source/original_text元数据",
+        "candidate_ids与event_ids相等时规范化为event_ids，矛盾仍失败",
+        "合法GROUPED_/REPEATED_旧状态可保留在图，Episode checkpoint_ids仍严格要求CANDIDATE_"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL019_frozen_graph_retains_actual_discovery_proposals_not_empty_shadow_rows",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_candidate_assembly.test_legacy_episode_alias_and_grouped_mention_remain_replayable"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-020",
+      "description": "真实requests Session不能把PreparedRequest再次传给prepare_request；offline doubles必须呈现Request到PreparedRequest的真实形状，且不能虚构wire-byte hash",
+      "implementation_status": "implemented_with_synthetic_regression_after_r5_local_failure",
+      "counterexamples": [
+        "PreparedRequest二次prepare导致cookies AttributeError，却被记为真实provider HTTP调用",
+        "测试prepare_request恒等返回Request导致PreparedRequest.body不可用",
+        "旧post mock路径把prepared hash冒充实际wire bytes hash"
+      ],
+      "controls": [
+        "同一thread-local Session接收Request并返回PreparedRequest，发送前核验body bytes与独立request hash",
+        "真实send路径使用PreparedRequest，测试double调用request.prepare()",
+        "post-only doubles的actual_provider_http_body_sha256保持null，不减少hash核验要求"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_client_transport.TransportTests.test_CE_REAL020_prepared_session_transport_does_not_resend_prepared_request",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_CEREM_ADV034_full_and_compact_provider_transport_have_distinct_hash_domains"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-021",
+      "description": "完整链case/unit并发worker必须共享同一execution batch的provider请求和HTTP attempt预算；cache replay不消耗新请求，但不能跨授权batch借用缓存",
+      "implementation_status": "implemented_with_synthetic_regression_and_real_input_zero_call_dry_run",
+      "counterexamples": [
+        "每个worker独立额度使总请求量乘以worker数",
+        "预算检查晚于provider I/O或cache hit再次消耗请求",
+        "不同execution_batch_id共享预算或复用缓存"
+      ],
+      "controls": [
+        "以endpoint/model/execution_batch_id为key在I/O前原子预留，成功和失败均结算",
+        "cache replay核验原invocation属于同一授权batch且request/endpoint/task/status匹配",
+        "522单位固定十例上界为2088 logical requests和20880 HTTP attempts，dry-run未构造Client"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_client_transport.TransportTests.test_CE_REAL021_cross_worker_total_budget_is_shared_and_cache_conserving"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-022",
+      "description": "provider已结算后在run.json生成前失败的ORCHESTRATION_HOLD必须可无模型replay；不能伪造run或把无run HOLD改为成功",
+      "implementation_status": "implemented_with_synthetic_and_historical_r5_no_model_replay",
+      "counterexamples": [
+        "真实pre-run HOLD无run_sha256时replay崩溃",
+        "ORCHESTRATION_HOLD缺episode_id/reason_code却绕过证据检查",
+        "存在run claim或意外run artifact时不提供可replay run"
+      ],
+      "controls": [
+        "无run claim的HOLD保留episode_id和reason_code，run claim/artifact继续严格核验",
+        "execution_report可消费同batch已验证replay对象，不要求为报告改写历史目录或重发请求",
+        "r5无模型replay和独立technical report已保存；台账预留量不表述成真实HTTP发送"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL022_provider_called_first_stage_hold_without_run_replays",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL022_called_hold_cannot_bypass_run_evidence_or_claim_success",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL022_called_hold_requires_episode_and_reason",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL022_unexpected_run_artifact_requires_validation",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_batch_inventory.test_CE_REAL022_report_requires_independently_verified_replay"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-023",
+      "description": "完整discovery/review/final graph/Episode/FHIR真实入口须有精确执行授权、确定性总预算、不可覆盖输出、逐case完成回执和严格resume，不得把下游冻结图入口冒充新版全链重跑",
+      "implementation_status": "implemented_with_synthetic_regression_and_real_input_zero_call_dry_run_pending_scope_authorization",
+      "counterexamples": [
+        "dry-run构造Client或无明确授权开始远程发送",
+        "config/model/schema/source/code/hash或case subset变更仍沿用许可",
+        "部分、失败或篡改case原地resume并覆盖历史",
+        "summary使用预执行actual_model_calls而不来自保存回执"
+      ],
+      "controls": [
+        "授权精确绑定case IDs、完整源上下文字段、模型、预算和实现hash，医生分配与临床放行false",
+        "新执行output/cache为新sibling；resume核验合同、完成回执和输出hash，不完整case要求新目录",
+        "最终summary从保存case输出和invocation receipts计算，异常保存failure.json并非零退出",
+        "完整真实dry-run为522 units/2088 requests/20880 attempts/0 calls；尚未执行完整真实重跑"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run.CompleteRunTests.test_CE_REAL023_dry_run_defaults_full_ten_without_provider_or_cache",
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run.CompleteRunTests.test_CE_REAL023_hash_model_budget_and_governance_mismatch_rejected",
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run.CompleteRunTests.test_CE_REAL023_resume_exact_completed_cases_has_no_duplicate_processing",
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run.CompleteRunTests.test_CE_REAL023_partial_output_resume_rejected_without_overwrite",
+        "scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run.CompleteRunTests.test_CE_REAL023_case_exception_preserves_partial_failure_and_exit_nonzero"
+      ]
+    },
+    {
+      "issue_id": "CE-REAL-024",
+      "description": "材料compact投影后的实际provider payload必须与projection declaration、provider receipt和batch ledger一致；同一outer batch的初次运行及每代重建必须冻结同一implementation snapshot",
+      "implementation_status": "implemented_with_synthetic_regression_after_r6_real_holds",
+      "counterexamples": [
+        "声明FULL_REQUEST却实际发送compact payload，导致receipt hash失配",
+        "ledger绑定完整research envelope而不是投影后的canonical provider payload",
+        "材料Schema失败把真实provider SUCCESS receipt改写为FAILED",
+        "长批次工作树变化或自动重建重算implementation snapshot并改写先前provenance",
+        "无graph snapshot/binding的简单fixture被强迫虚构projection envelope"
+      ],
+      "controls": [
+        "run_review_chain、BatchModelBudget和Client对同一projected payload记账，declared payload hash一致",
+        "response_binding.request_sha256仍绑定完整材料请求，不与transport hash域混用",
+        "本地材料校验失败保留实际provider receipt状态和失败原因，不伪称transport失败",
+        "outer batch只计算一次implementation snapshot并传给初次pipeline及每代自动重建",
+        "无snapshot和binding时compact函数合法返回原request，不制造envelope"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL024_projected_material_receipt_and_batch_ledger_match",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL024_batch_freezes_implementation_once_for_all_episode_runs",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_CEREM_ADV034_cached_success_reuses_original_attempt_without_new_invocation",
+        "scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_chain_validation.test_CEREM_ADV034_retry_failure_then_success_preserves_distinct_terminal_attempt"
+      ],
+      "historical_interruption_audit": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/fixed-ten-downstream-r6/analysis-20261108/interruption-evidence-audit.json",
+      "unsettled_invocation_reclassified_as_terminal_failure": false,
+      "clinical_release_permitted": false
     }
   ]
 }

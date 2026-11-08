@@ -44,7 +44,7 @@ def freeze_candidate_graph(events, relations, episodes, *, graph_version,
         raise ContractError('CANDIDATE_EVENT_IDENTITY_INVALID')
     for event in events:
         status = event.get('checkpoint_status')
-        if not isinstance(status, str) or not status.startswith(('CANDIDATE_', 'UNCERTAIN_', 'EXCLUDED_', 'NOT_')):
+        if not isinstance(status, str) or not status.startswith(('CANDIDATE_', 'UNCERTAIN_', 'EXCLUDED_', 'NOT_', 'GROUPED_', 'REPEATED_')):
             raise ContractError('CANDIDATE_EVENT_STATUS_INVALID')
     known = set(ids)
     targets = []
@@ -68,6 +68,11 @@ def freeze_candidate_graph(events, relations, episodes, *, graph_version,
                 raise ContractError('NONCANDIDATE_CANNOT_BE_EPISODE_CHECKPOINT')
         item = deepcopy(episode)
         item['event_ids'] = deepcopy(members)
+        # ``candidate_ids`` is the historical alias of the complete Episode
+        # membership, not a second Checkpoint list. Keep one normalized value
+        # after the equality check above, rather than leaving contradictory
+        # aliases for the downstream replay validator.
+        item.pop('candidate_ids', None)
         normalized_episodes.append(item)
         targets.extend(checkpoints)
     if len(targets) != len(set(targets)):

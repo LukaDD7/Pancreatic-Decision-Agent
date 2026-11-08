@@ -17,6 +17,25 @@ from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_ma
 NODE_MODULES='/Users/lucachangretta/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules'
 
 
+def test_CE_AMG031_feasibility_viewer_source_navigation_and_feedback_in_chrome(tmp_path):
+    from scripts.cohort_construction.p2_checkpoint_material_governance.feasibility import (
+        build_episode_feasibility_review, render_episode_feasibility_html,
+    )
+    from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_feasibility import fixture
+    review = build_episode_feasibility_review(*fixture(), case_id='SYNTHETIC')
+    page = tmp_path / 'feasibility.html'
+    page.write_text(render_episode_feasibility_html(review), encoding='utf-8')
+    command = [NODE, str(Path(__file__).with_name('feasibility_browser_checks.cjs')),
+        str(page), str(tmp_path)]
+    run = subprocess.run(command, env=dict(os.environ, NODE_PATH=NODE_MODULES),
+        capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr
+    receipt = json.loads((tmp_path / 'browser-receipt.json').read_text())
+    assert receipt['status'] == 'PASS' and receipt['synthetic_only']
+    assert receipt['network_requests'] == 0 and receipt['page_errors'] == []
+    assert len(receipt['checks']) == 11
+
+
 def test_automated_opinion_visible_but_human_export_remains_independent(tmp_path):
     documents,sources,_=synthetic_inputs()
     manifest,compiled=documents['manifest'],documents['compiled']
@@ -76,6 +95,87 @@ def test_actual_revisions_new_source_and_rehashed_bad_history_rejected_in_chrome
     assert audit['status']=='PENDING' and audit['independence_attested'] is False
 
 
+def test_CE_AMG029_atomic_plan_replays_and_conflict_is_rejected_in_chrome(tmp_path):
+    from copy import deepcopy
+    from scripts.cohort_construction.p2_checkpoint_material_governance.review import validate_material_review
+    from scripts.cohort_construction.p2_checkpoint_material_governance.tests.test_material_governance import operation
+    documents, sources, _ = synthetic_inputs()
+    manifest, compiled = documents['manifest'], documents['compiled']
+    source_id = compiled['sources'][0]['source_id']
+    spans = [span['text'] for span in compiled['sources'][0]['segments']]
+    first_operations = [operation(spans[0], 'KEEP', source_id),
+        operation(spans[1], 'KEEP', source_id), operation(spans[2], 'MASK', source_id)]
+    first_answer = review_for(manifest, compiled, operations=first_operations)
+    first = validate_material_review(manifest, compiled, first_answer)
+    # The full text crosses partitions created by the first review. The two
+    # outer operations used to make the third quote fail sequential execution.
+    second_operations = [operation(spans[0], 'MASK', source_id),
+        operation(spans[2], 'MASK', source_id), operation(''.join(spans), 'MASK', source_id)]
+    for index, item in enumerate(first_operations + second_operations):
+        item['operation_id'] = 'OP-ATOMIC-' + str(index)
+    second_answer = review_for(first['manifest'], first['compiled'], operations=second_operations)
+    second = validate_material_review(first['manifest'], first['compiled'], second_answer)
+    third_answer = review_for(second['manifest'], second['compiled'],
+        status='AUTO_REVIEW_HOLD', blocking=True)
+    answers = [first_answer, second_answer, third_answer]
+    calls = []
+    def ask(task_name, request, schema):
+        answer = deepcopy(answers[len(calls)])
+        calls.append(request['review_round']['round_index'])
+        answer.update(request['response_binding'], review_round=deepcopy(request['review_round']),
+            doctor_view_sha256=request['doctor_view']['view_sha256'])
+        return answer
+    chain = run_review_chain(manifest, compiled, ask, max_rounds=3)
+    assert calls == [1, 2, 3] and chain['state'] == 'AUTO_REVIEW_HOLD'
+    draft = create_review_draft(compiled, manifest, documents['preparation_audit'],
+        reviewer_id='AI-DRAFT-NOT-HUMAN')
+    package = build_auto_review_assignment(chain, draft, documents['preparation_audit'],
+        assignment_id='SYNTHETIC-ATOMIC-AUTO-BROWSER', coverage_sources=sources)
+    html = render_auto_opinion(build_researcher_html(package['assignment']),
+        package['assignment'], package['auto_review'])
+    (tmp_path / 'researcher.html').write_text(html, encoding='utf-8')
+    conflict = deepcopy(package['auto_review'])
+    conflict['chain']['rounds'][1]['review']['operations'][2]['disposition'] = 'KEEP'
+    (tmp_path / 'atomic-counterexamples.json').write_text(json.dumps([
+        dict(name='atomic_cross_partition_plan_replayed', opinion=package['auto_review'], accepted=True),
+        dict(name='intersecting_opposite_dispositions_rejected', opinion=conflict, accepted=False),
+    ], ensure_ascii=False), encoding='utf-8')
+    command = [NODE, str(Path(__file__).with_name('browser_checks.cjs')),
+        str(tmp_path / 'researcher.html'), str(tmp_path)]
+    run = subprocess.run(command, env=dict(os.environ, NODE_PATH=NODE_MODULES),
+        capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr
+    assert json.loads((tmp_path / 'browser_receipt.json').read_text())['status'] == 'PASS'
+
+
+def test_CE_AMG021_local_budget_hold_replays_in_chrome_without_provider_attempt(tmp_path):
+    """A denied local call has no provider response and cannot acquire one in replay."""
+    from copy import deepcopy
+    from scripts.cohort_construction.p2_checkpoint_material_governance.orchestrate import LocalModelBudgetHold
+    documents, sources, _ = synthetic_inputs()
+    def denied(*args):
+        raise LocalModelBudgetHold()
+    chain = run_review_chain(documents['manifest'], documents['compiled'], denied)
+    assert chain['failure']['stage'] == 'LOCAL_BUDGET_CONTROL'
+    assert chain['failure']['reason_code'] == 'ASSEMBLY_MODEL_CALL_BUDGET_REACHED'
+    draft = create_review_draft(documents['compiled'], documents['manifest'],
+        documents['preparation_audit'], reviewer_id='SYNTHETIC-DRAFT-NOT-HUMAN')
+    package = build_auto_review_assignment(chain, draft, documents['preparation_audit'],
+        assignment_id='SYNTHETIC-LOCAL-BUDGET-BROWSER', coverage_sources=sources)
+    html = render_auto_opinion(build_researcher_html(package['assignment']),
+        package['assignment'], package['auto_review'])
+    (tmp_path / 'researcher.html').write_text(html, encoding='utf-8')
+    forged = deepcopy(package['auto_review'])
+    forged['chain']['failure']['receipt']['provider_invocation_occurred'] = True
+    (tmp_path / 'bad-opinions.json').write_text(json.dumps([
+        dict(name='local_budget_cannot_be_rewritten_as_provider_attempt', opinion=forged),
+    ], ensure_ascii=False), encoding='utf-8')
+    command = [NODE, str(Path(__file__).with_name('browser_checks.cjs')),
+        str(tmp_path / 'researcher.html'), str(tmp_path)]
+    run = subprocess.run(command, env=dict(os.environ, NODE_PATH=NODE_MODULES),
+        capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr
+    assert json.loads((tmp_path / 'browser_receipt.json').read_text())['status'] == 'PASS'
 def test_tampered_history_boot_is_rejected_by_chrome(tmp_path):
     from copy import deepcopy
     import re

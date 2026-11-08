@@ -164,7 +164,7 @@ def test_CE_GRA010_real_client_schema_exception_preserves_private_response_and_b
         provider = transport.Client(tmp_path / 'cache', config, settings)
         chain = run_graph_reconstruction(audit_request, audit_response,
             lambda task, payload, schema: provider.ask(task, payload, schema))
-    assert chain['failure']['stage'] == 'RESPONSE_VALIDATION'
+    assert chain['failure']['stage'] == 'RESPONSE_SCHEMA_VALIDATION'
     assert chain['response'] == response
     assert chain['provider_receipt']['invocation_id']
     assert chain['provider_receipt']['response_sha256'] == __import__(
@@ -187,6 +187,13 @@ def test_CE_GRA010_real_client_schema_exception_preserves_private_response_and_b
                 payload_sha256=canonical_sha256(chain['request']),
                 transport_request_sha256=chain['failure']['request_sha256'],
                 response_sha256=chain['provider_receipt']['response_sha256']))
+    assert chain['failure']['reason_code'] == 'RESPONSE_SCHEMA_VALIDATION_FAILED'
+    forged = deepcopy(chain)
+    forged['failure']['reason_code'] = 'GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID'
+    forged['chain_sha256'] = canonical_sha256({key: value for key, value in forged.items()
+        if key != 'chain_sha256'})
+    with pytest.raises(ValueError, match='PROVIDER_CHAIN_EVIDENCE_STAGE_OR_REASON_MISMATCH'):
+        validate_graph_reconstruction_chain(forged)
     if hasattr(transport._thread, 'session'):
         del transport._thread.session
 

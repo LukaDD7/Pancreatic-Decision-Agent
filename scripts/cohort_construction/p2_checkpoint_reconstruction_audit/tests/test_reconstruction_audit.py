@@ -145,13 +145,123 @@ class ReconstructionAuditTests(unittest.TestCase):
             processing_units=[dict(unit_id='ALL', source_ids=[s['source_id'] for s in sources])])
         journal = []
         def fail(task, payload, schema):
-            raise RuntimeError('synthetic provider failure')
+            from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.chain import FORMAT
+            error = RuntimeError('synthetic provider failure')
+            error.receipt = dict(invocation_id='SYNTHETIC-GRAPH-AUDIT',
+                legacy_chain_format=FORMAT)
+            raise error
         chain = run_graph_audit_chain(request, fail,
             journal=lambda stage, index, value: journal.append(stage))
         self.assertEqual(chain['state'], 'AUTO_GRAPH_AUDIT_HOLD')
         self.assertFalse(chain['rounds'])
         self.assertEqual(journal, ['REQUEST', 'FAILURE'])
         self.assertEqual(validate_graph_audit_chain(chain)['stop_reason'], 'EXECUTION_FAILED')
+
+    def test_failure_evidence_preserves_json_schema_http_and_whitespace_quote_details(self):
+        import json
+        from unittest.mock import Mock, patch
+        import requests
+        from scripts.cohort_construction.model_api import ModelAPISettings
+        from scripts.cohort_construction.p2_auto_checkpoint_v04.client import Client, _thread
+        graph, sources = fictional_graph()
+        request = build_graph_audit_request(graph, sources,
+            processing_units=[dict(unit_id='ALL', source_ids=[s['source_id'] for s in sources])])
+        config = dict(model_temperature=0, max_output_tokens=64,
+            max_http_attempts_per_request=1, retry_backoff_base_seconds=1)
+        settings = ModelAPISettings('credential-sentinel', 'https://example.invalid/v1', 'synthetic-model')
+
+        def execute(response):
+            session = Mock(); session.post.return_value = response
+            with patch.object(_thread, 'session', session, create=True):
+                provider = Client(self.enterContext(__import__('tempfile').TemporaryDirectory()),
+                    config, settings)
+                return run_graph_audit_chain(request,
+                    lambda task, payload, schema: provider.ask(task, payload, schema))
+
+        malformed = Mock(); malformed.text = '{"status":\n  broken'
+        malformed.json.side_effect = lambda: json.loads(malformed.text)
+        chain = execute(malformed)
+        failure = chain['failure']
+        self.assertEqual(failure['stage'], 'PROVIDER_ENVELOPE_PARSE')
+        diagnostic = failure['provider_attempt_evidence']['diagnostic']
+        self.assertEqual((diagnostic['line'], diagnostic['column'], diagnostic['position']),
+            (failure['receipt']['attempts'][0]['line'], failure['receipt']['attempts'][0]['column'],
+             failure['receipt']['attempts'][0]['position']))
+        self.assertTrue(validate_graph_audit_chain(chain)['local_failure_recomputed'])
+        tampered = deepcopy(chain)
+        tampered['failure']['provider_attempt_evidence']['provider_response_text'] += 'changed'
+        tampered['chain_sha256'] = __import__(
+            'scripts.cohort_construction.p2_checkpoint_packet.compiler', fromlist=['canonical_sha256']
+        ).canonical_sha256({key: value for key, value in tampered.items() if key != 'chain_sha256'})
+        with self.assertRaisesRegex(ValueError, 'CHAIN_EVIDENCE_HASH_MISMATCH'):
+            validate_graph_audit_chain(tampered)
+
+        invalid_enum = passing_graph_response(request)
+        invalid_enum['dimensions'][0]['dimension'] = 'NOT_A_DIMENSION'
+        response = Mock()
+        response.text = json.dumps(dict(choices=[dict(finish_reason='stop',
+            message=dict(content=json.dumps(invalid_enum)))]))
+        response.json.return_value = json.loads(response.text)
+        failed = execute(response)
+        detail = failed['failure']['provider_attempt_evidence']['diagnostic']
+        self.assertEqual(detail['instance_path'], ['dimensions', 0, 'dimension'])
+        self.assertEqual(detail['validator'], 'enum')
+        self.assertIn('source_coverage', detail['allowed_value'])
+        self.assertTrue(validate_graph_audit_chain(failed)['local_failure_recomputed'])
+
+        for bad, path, validator in ((dict(extra_key='blocked'), [], 'additionalProperties'),
+                ({key: value for key, value in passing_graph_response(request).items() if key != 'review_id'},
+                 [], 'required')):
+            response = Mock()
+            response.text = json.dumps(dict(choices=[dict(finish_reason='stop',
+                message=dict(content=json.dumps(bad)))]))
+            response.json.return_value = json.loads(response.text)
+            failed = execute(response)
+            self.assertEqual(failed['failure']['stage'], 'RESPONSE_SCHEMA_VALIDATION')
+            detail = failed['failure']['provider_attempt_evidence']['diagnostic']
+            self.assertEqual((detail['instance_path'], detail['validator']), (path, validator))
+            if validator == 'additionalProperties':
+                self.assertEqual(detail['unexpected_keys'], ['extra_key'])
+            else:
+                self.assertEqual(detail['missing_keys'], ['review_id'])
+            self.assertTrue(validate_graph_audit_chain(failed)['local_failure_recomputed'])
+
+        http = Mock(); http.status_code = 400; http.text = '{"error":"synthetic server detail"}'
+        http.raise_for_status.side_effect = requests.exceptions.HTTPError(response=http)
+        failed = execute(http)
+        self.assertEqual(failed['failure']['reason_code'], 'PROVIDER_HTTP_400')
+        self.assertNotIn('synthetic server detail', json.dumps(failed['failure']['receipt']))
+        self.assertEqual(failed['failure']['provider_attempt_evidence']['provider_response_text'], http.text)
+        replay = validate_graph_audit_chain(failed)
+        self.assertTrue(replay['provider_evidence_binding_verified'])
+        self.assertFalse(replay['local_failure_recomputed'])
+
+        response = passing_graph_response(request)
+        response['findings'] = [dict(finding_id='WHITESPACE-CONTROL', dimension='event_identity',
+            severity='NON_BLOCKING', status='OPEN', reason='虚构空白差异，不自动修复',
+            affected_event_ids=[], affected_episode_ids=[], evidence=[dict(
+                source_id='DOC-01', exact_quote='当前 决定')])]
+        source_text = sources[0]['text'].replace('当前决定', '当前 决定')
+        self.assertNotEqual(source_text, sources[0]['text'])
+        sources = deepcopy(sources); sources[0]['text'] = source_text
+        for key in ('sha256', 'source_sha256'): sources[0].pop(key, None)
+        spaced = build_graph_audit_request(graph, sources,
+            processing_units=[dict(unit_id='ALL', source_ids=[s['source_id'] for s in sources])])
+        response.update(spaced['response_binding'], target=dict(
+            graph_sha256=spaced['response_binding']['graph_sha256']))
+        response['findings'][0]['evidence'][0]['exact_quote'] = '当前决定'
+        chain = run_graph_audit_chain(spaced, lambda *args: response)
+        self.assertEqual(chain['failure']['reason_code'], 'GRAPH_AUDIT_EVIDENCE_QUOTE_NOT_UNIQUE')
+        detail = chain['failure']['program_diagnostics'][0]
+        self.assertEqual(detail['instance_path'], ['findings', 0, 'evidence', 0, 'exact_quote'])
+        self.assertEqual(detail['exact_match_count'], 0)
+        self.assertEqual(detail['normalized_match_count'], 1)
+        self.assertTrue(detail['whitespace_only_candidate_match'])
+        self.assertFalse(detail['auto_repair_permitted'])
+        self.assertTrue(validate_graph_audit_chain(chain)['status'] == 'PASS')
+        response['findings'][0]['evidence'][0]['exact_quote'] = '当前 决定'
+        passing = run_graph_audit_chain(spaced, lambda *args: response)
+        self.assertTrue(validate_graph_audit_chain(passing)['completed_rounds'], 1)
         forged = deepcopy(chain)
         forged.update(state='AUTO_GRAPH_AUDIT_PASS', stop_reason='AUTO_PASS')
         with self.assertRaises(ValueError):

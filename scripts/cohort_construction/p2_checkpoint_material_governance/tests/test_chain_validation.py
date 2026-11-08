@@ -247,8 +247,8 @@ def test_CEREM_ADV034_full_and_compact_provider_transport_have_distinct_hash_dom
         with tempfile_module.TemporaryDirectory() as directory:
             bodies = []
             class Session:
-                def prepare_request(self, prepared):
-                    return prepared
+                def prepare_request(self, request):
+                    return request.prepare()
                 def send(self, prepared, **kwargs):
                     bodies.append(prepared.body)
                     request = json.loads(json.loads(prepared.body)['messages'][1]['content'])['input']
@@ -315,7 +315,7 @@ def test_CEREM_ADV034_cached_success_reuses_original_attempt_without_new_invocat
     documents, _, _ = synthetic_inputs()
     class Session:
         calls = 0
-        def prepare_request(self, prepared): return prepared
+        def prepare_request(self, request): return request.prepare()
         def send(self, prepared, **kwargs):
             type(self).calls += 1
             request = json.loads(json.loads(prepared.body)['messages'][1]['content'])['input']
@@ -377,7 +377,7 @@ def test_CEREM_ADV034_retry_failure_then_success_preserves_distinct_terminal_att
     documents, _, _ = synthetic_inputs()
     class Session:
         calls = 0
-        def prepare_request(self, prepared): return prepared
+        def prepare_request(self, request): return request.prepare()
         def send(self, prepared, **kwargs):
             type(self).calls += 1
             if type(self).calls == 1:
@@ -501,6 +501,7 @@ def test_CEREM_ADV018_episode_rejects_noncandidate_and_contradictory_event_refer
 
 
 
+def test_episode_requires_whole_replay_and_graph_membership():
     _, _, chain, snapshot = fictional_chain(graph=True)
     result = build_episode_material_set(episode_reference(snapshot), [material_item(chain)])
     assert validate_episode_material_set(result)

@@ -419,7 +419,6 @@ def _model_accounting(run, stages, stage_records, tasks=()):
     if expected_usage != run['model_usage']:
         raise ValueError('READY_PIPELINE_STAGE_MODEL_ACCOUNTING_MISMATCH')
 
-
 def _usage(usage, contract):
     if not isinstance(usage, dict):
         raise ValueError('READY_PIPELINE_MODEL_USAGE_REQUIRED')

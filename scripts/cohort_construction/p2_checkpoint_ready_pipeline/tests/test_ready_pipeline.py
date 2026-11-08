@@ -35,7 +35,9 @@ CONFIG = dict(protocol_version='checkpoint-automated-material-review-0.3.0',
 def private_tmp(tmp_path):
     from scripts.cohort_construction.p2_checkpoint_material_review_app import build
     from scripts.cohort_construction.p2_checkpoint_material_review_app.build import private_mkdir
-    root = build.PRIVATE_ROOT.resolve() / 'p2_checkpoint_ready_pipeline_tests_20261101'
+    # Use a new child of the physical private root, not the historical dated
+    # symlink to migrated storage. This fixture never reads patient inputs.
+    root = build.PRIVATE_ROOT / 'p2_checkpoint_ready_pipeline_tests_20261108'
     private_mkdir(root, parents=True, exist_ok=True)
     destination = root / (tmp_path.name + '-' + str(len(list(root.glob(tmp_path.name + '*')))))
     destination.mkdir(mode=0o700, parents=True, exist_ok=False)

@@ -1,5 +1,6 @@
 """Provider transport regressions with no external requests or clinical data."""
 import tempfile
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -16,6 +17,66 @@ from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics imp
 class TransportTests(unittest.TestCase):
     def tearDown(self):
         if hasattr(client._thread,'session'):del client._thread.session
+
+    def test_CE_REAL020_prepared_session_transport_does_not_resend_prepared_request(self):
+        """Real requests 2.32 preparation works; no prepared body is coerced to bytes."""
+        envelope = dict(choices=[dict(finish_reason='stop',
+            message=dict(content='{"ok":true}'))])
+        sent = Mock(status_code=200, text=json.dumps(envelope))
+        sent.json.return_value = envelope
+        schema = {'type':'object','required':['ok'],
+            'properties':{'ok':{'type':'boolean'}}}
+        settings = ModelAPISettings('credential-sentinel',
+            'https://example.invalid/v1', 'test')
+        cfg = dict(model_temperature=0, max_output_tokens=32,
+            max_http_attempts_per_request=1)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(client.requests.Session, 'send',
+                    return_value=sent) as send:
+                provider = client.Client(Path(directory), cfg, settings)
+                result, receipt = provider.ask('synthetic',
+                    {'no_patient_data':True}, schema)
+            request = send.call_args.args[0]
+            self.assertEqual(result, {'ok':True})
+            self.assertIsInstance(request.body, bytes)
+            self.assertEqual(hashlib.sha256(request.body).hexdigest(),
+                receipt['actual_provider_http_body_sha256'])
+            self.assertEqual(receipt['status'], 'SUCCESS')
+            self.assertEqual(send.call_count, 1)
+
+    def test_CE_REAL021_cross_worker_total_budget_is_shared_and_cache_conserving(self):
+        """An original invocation can be replayed once, not spend a second request."""
+        schema = {'type':'object','required':['ok'],
+            'properties':{'ok':{'type':'boolean'}}}
+        settings = ModelAPISettings('credential-sentinel',
+            'https://example.invalid/v1', 'test')
+        cfg = dict(model_temperature=0, max_output_tokens=32,
+            max_http_attempts_per_request=1, max_total_model_requests=1,
+            max_total_http_attempts=1, execution_batch_id='FICTIONAL-CE-REAL021')
+        envelope = dict(choices=[dict(finish_reason='stop',
+            message=dict(content='{"ok":true}'))])
+        sent = Mock(status_code=200, text=json.dumps(envelope))
+        sent.json.return_value = envelope
+        key = (settings.chat_completions_url, settings.model, cfg['execution_batch_id'])
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(client.requests.Session, 'send', return_value=sent) as send:
+            try:
+                provider = client.Client(Path(directory), cfg, settings)
+                _, first = provider.ask('synthetic', {'no_patient_data':True}, schema)
+                with self.assertRaisesRegex(ValueError,
+                        'MODEL_TOTAL_BATCH_REQUEST_BUDGET_EXHAUSTED'):
+                    provider.ask('different', {'no_patient_data':True}, schema)
+                _, cached = provider.ask('synthetic', {'no_patient_data':True}, schema)
+                self.assertTrue(cached['cached'])
+                self.assertFalse(cached['provider_invocation_occurred'])
+                self.assertEqual(cached['invocation_id'], first['invocation_id'])
+                self.assertEqual(send.call_count, 1)
+                budget = client._batch_budgets[key]
+                self.assertEqual(budget['requests'], 1)
+                self.assertEqual(budget['http_attempts'], 1)
+                self.assertEqual(budget['invocations'][0]['cached_replays'], 1)
+            finally:
+                client._batch_budgets.pop(key, None)
 
     def test_NET001_tls_failure_recreates_session_and_keeps_same_request(self):
         first,second=Mock(),Mock()
@@ -348,6 +409,4 @@ class TransportTests(unittest.TestCase):
                     provider.ask('synthetic',{'no_patient_data':True},schema)
             self.assertEqual(str(caught.exception),'PROVIDER_CACHE_TASK_MISMATCH')
             self.assertNotIn('credential-sentinel',str(caught.exception))
-
-
 if __name__=='__main__':unittest.main()

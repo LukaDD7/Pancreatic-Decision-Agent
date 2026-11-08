@@ -18,7 +18,11 @@ const [input,output,expectedState='AUTO_REVIEW_HOLD']=process.argv.slice(2);
   }
   await page.locator('#automated-material-opinion').waitFor({state:'visible'});
   assert((await page.locator('#auto-opinion-state').textContent()).includes(expectedState));
-  assert((await page.locator('#automated-material-opinion').textContent()).includes('新旧版本对照'));
+  const opinion=JSON.parse(await page.locator('#auto-opinion-data').textContent());
+  if(opinion.chain.failure&&opinion.chain.failure.stage==='LOCAL_BUDGET_CONTROL'){
+   assert.equal(await page.locator('#auto-opinion-rounds li').count(),0);
+   assert((await page.locator('#automated-material-opinion').textContent()).includes('EXECUTION_FAILED'));
+  }else assert((await page.locator('#automated-material-opinion').textContent()).includes('新旧版本对照'));
   const badPath=path.join(output,'bad-opinions.json');
   if(fs.existsSync(badPath)){
    const counterexamples=JSON.parse(fs.readFileSync(badPath,'utf8'));
@@ -26,6 +30,20 @@ const [input,output,expectedState='AUTO_REVIEW_HOLD']=process.argv.slice(2);
     const result=await page.evaluate(async fixture=>{const a=globalThis.MaterialResearcherReview,g=globalThis.MaterialGovernanceReview;const ctx=await a.decodeAssignment(a.parseJsonUnique(document.getElementById('assigned-data').textContent));try{await g.validateOpinion(ctx.assignment,ctx.docs,fixture.opinion);return {accepted:true};}catch(e){return {accepted:false,code:e.message};}},fixture);
     assert.equal(result.accepted,false,'forged history accepted: '+fixture.name);
     assert(result.code.startsWith('CHAIN_')||result.code.startsWith('AUTO_'),result.code);
+   }
+  }
+  const atomicPath=path.join(output,'atomic-counterexamples.json');
+  if(fs.existsSync(atomicPath)){
+   const fixtures=JSON.parse(fs.readFileSync(atomicPath,'utf8'));
+   for(const fixture of fixtures){
+    const result=await page.evaluate(async fixture=>{
+     const a=globalThis.MaterialResearcherReview,g=globalThis.MaterialGovernanceReview;
+     const ctx=await a.decodeAssignment(a.parseJsonUnique(document.getElementById('assigned-data').textContent));
+     try{await g.validateOpinion(ctx.assignment,ctx.docs,fixture.opinion);return {accepted:true};}
+     catch(e){return {accepted:false,code:e.message};}
+    },fixture);
+    assert.equal(result.accepted,fixture.accepted,fixture.name+': '+JSON.stringify(result));
+    if(!fixture.accepted)assert(result.code.startsWith('CHAIN_')||result.code.startsWith('AUTO_'),result.code);
    }
   }
   assert.equal(await page.locator('#reviewer-id').inputValue(),'');

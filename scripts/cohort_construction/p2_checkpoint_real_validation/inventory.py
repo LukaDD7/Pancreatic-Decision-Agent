@@ -122,10 +122,26 @@ def validate_inventory(output, progress, ledger):
     if not artifacts.issubset(authorized):
         raise ValueError('REAL_BATCH_ARTIFACT_CASE_OUTSIDE_AUTHORIZATION')
     rows = {row['case_id']: row for row in progress['cases']}
+    # CE-REAL022: a settled provider call can be followed by an orchestration
+    # failure before run.json exists. Keep that exact saved state replayable,
+    # without manufacturing a run identity. Any run claim, including on a HOLD,
+    # still requires the independently replayable episode/run evidence below.
     for sid in called:
-        if not rows[sid].get('run_sha256') or not rows[sid].get('episode_id'):
+        row = rows[sid]
+        episode_id = row.get('episode_id')
+        run_path = output / 'episodes' / sid / episode_id / 'run.json' if episode_id else None
+        run_claimed = bool(row.get('run_sha256')) or (run_path is not None and run_path.is_file())
+        if run_claimed:
+            # A hash claim needs the persisted run; an unexpected run also needs
+            # a progress-bound hash. replay_batch then validates and binds both.
+            if not episode_id or not row.get('run_sha256') or not run_path.is_file():
+                raise ValueError('REAL_BATCH_CALLED_CASE_RUN_EVIDENCE_REQUIRED')
+        elif row.get('state') == 'ORCHESTRATION_HOLD':
+            if not episode_id or not row.get('reason_code'):
+                raise ValueError('REAL_BATCH_CALLED_CASE_HOLD_EVIDENCE_REQUIRED')
+        else:
             raise ValueError('REAL_BATCH_CALLED_CASE_RUN_EVIDENCE_REQUIRED')
-        if rows[sid]['state'].startswith(('NOT_ATTEMPTED', 'PREFLIGHT_HOLD')):
+        if row['state'].startswith(('NOT_ATTEMPTED', 'PREFLIGHT_HOLD')):
             raise ValueError('REAL_BATCH_CALLED_CASE_MARKED_UNATTEMPTED')
     for sid in set(expected) - set(authorized):
         if rows[sid].get('state') != 'NOT_ATTEMPTED_OUTSIDE_AUTHORIZED_SUBSET':

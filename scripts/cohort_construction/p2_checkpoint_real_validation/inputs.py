@@ -292,13 +292,30 @@ def load_episode_case(directory, *, decision_task_id=None, visibility_policy_ver
     current_sources, normalized, dependency_receipt = resolve_episode_source_dependencies(
         case, events, units)
     discoveries = [deepcopy(case['discoveries'][uid]) for uid in sorted(unit_ids)]
+    # The graph audit needs the actual discovery-unit receipt, not a synthetic
+    # identity row whose empty ``events`` would mislabel a discovered unit as
+    # zero-discovery. Keep the original discovery proposals and rejected
+    # mentions; the separate ``units`` list is only routing/source metadata.
+    discovery_units = []
+    for unit in units:
+        discovered = case['discoveries'][unit['unit_id']]
+        receipt = deepcopy(discovered)
+        # ``input_context_summary`` is discovery provenance even when a caller's
+        # routing rows also carry a summary for compatibility with an older
+        # fixture. The original discovery proposal is the authoritative copy.
+        if 'input_context_summary' not in receipt and 'input_context_summary' in unit:
+            receipt['input_context_summary'] = deepcopy(unit['input_context_summary'])
+        receipt['source_ids'] = deepcopy(unit['source_ids'])
+        receipt['original_texts'] = deepcopy(unit.get('original_texts', []))
+        discovery_units.append(receipt)
     episode_only = deepcopy(episode)
     episode_only['event_ids'] = sorted(ids)
+    episode_only.pop('candidate_ids', None)
     graph = freeze_candidate_graph(events,
         [deepcopy(relation) for relation in case['relations']
          if relation['source_event_id'] in ids and relation['target_event_id'] in ids],
         [episode_only], graph_version=GRAPH_VERSION + ':' + case['case_id'] + ':' + episode['episode_id'],
-        discovery_units=units,
+        discovery_units=discovery_units,
         unit_inventory=dict(units=units, routing_provenance=deepcopy(case['routing_provenance']),
             declared_scope='episode_processing_units_and_recovered_discovery_budget_omissions'),
         final_graph_audit=case['final_graph_audit'])

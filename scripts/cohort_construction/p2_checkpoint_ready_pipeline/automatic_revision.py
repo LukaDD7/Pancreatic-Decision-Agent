@@ -129,7 +129,8 @@ def _read_revision_summary(path):
     return _validate_revision_summary(read(path))
 
 
-def run_bounded_graph_revision_pipeline(*, parent_run, output, max_graph_revisions=1, **kwargs):
+def run_bounded_graph_revision_pipeline(*, parent_run, output, max_graph_revisions=1,
+                                         implementation_fingerprint=None, **kwargs):
     """Consume a graph REVISE handoff through a separate reconstruction interface.
 
     Each generation is a complete fresh pipeline run with its own graph/material/
@@ -218,7 +219,8 @@ def run_bounded_graph_revision_pipeline(*, parent_run, output, max_graph_revisio
         kwargs['initial_model_usage'] = budget.snapshot()
         fresh_adapters = dict(kwargs['adapters'])
         fresh_adapters.pop('reconstruction', None)
-        current_kwargs = dict(kwargs, adapters=fresh_adapters)
+        current_kwargs = dict(kwargs, adapters=fresh_adapters,
+            implementation_fingerprint=implementation_fingerprint)
         try:
             current = run_episode_pipeline(**current_kwargs)
         except Exception as exc:

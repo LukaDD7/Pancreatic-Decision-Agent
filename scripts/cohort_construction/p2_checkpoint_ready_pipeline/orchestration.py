@@ -64,7 +64,8 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
                          config, adapters=None, execute=False, max_rounds=3, max_model_calls=20,
                          inherited=None, initial_model_usage=None, continuation=None,
                          persist=True, semantic_audit_factory=None, revision_cycle=None,
-                         graph_revision=None, delivery_gate=None, private_root=None):
+                         graph_revision=None, delivery_gate=None, private_root=None,
+                         implementation_fingerprint=None):
     """Execute only requested stages; an absent adapter means offline preparation.
 
     All provider adapters are explicit library inputs. Registration of this
@@ -117,7 +118,12 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
         run['continuation'] = deepcopy(continuation)
     if persist:
         write(output / 'input-contract.json', contract)
-        write(output / 'implementation-snapshot.json', implementation_snapshot())
+        # CE-REAL024: one outer batch freezes one implementation identity for
+        # all Episodes/generations. Standalone callers retain the current-
+        # source default; a batch never races a live working-tree re-hash.
+        write(output / 'implementation-snapshot.json',
+            implementation_fingerprint if implementation_fingerprint is not None
+            else implementation_snapshot())
     if graph_revision is not None:
         from .revision import consume_graph_revision, request_graph_revision
         if inherited is not None or revision_cycle is not None:
@@ -226,7 +232,11 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
                 chain = run_review_chain(task['manifest'], task['compiled'],
                     lambda *args: budget.ask_for('material', *args),
                     candidate_sources=task['candidate_sources'], excluded_sources=task['excluded_sources'],
-                    task_context=task['task_context'], max_rounds=max_rounds, journal=journal)
+                    task_context=task['task_context'], max_rounds=max_rounds, journal=journal,
+                    transport_projection_format=(
+                        'checkpoint-material-review-task-projection-0.1.0'
+                        if config.get('material_review_task_projection') is True
+                        else 'FULL_REQUEST'))
             except Exception as exc:
                 stage = _stage(stages, 'MATERIAL:' + checkpoint_id,
                     'ORCHESTRATION_HOLD', type(exc).__name__,
