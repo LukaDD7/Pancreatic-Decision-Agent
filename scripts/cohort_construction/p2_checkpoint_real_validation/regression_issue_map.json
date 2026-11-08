@@ -550,6 +550,46 @@
       "historical_interruption_audit": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/fixed-ten-downstream-r6/analysis-20261108/interruption-evidence-audit.json",
       "unsettled_invocation_reclassified_as_terminal_failure": false,
       "clinical_release_permitted": false
+    },
+    {
+      "issue_id": "CE-REAL-025",
+      "description": "技术报告没有任何已保存Episode链时，不能以空集合all()把replay核验报告为true，也不能把无run的ORCHESTRATION_HOLD计为已具备图审核链",
+      "implementation_status": "implemented_with_synthetic_regression",
+      "counterexamples": [
+        "pre-run HOLD没有run.json，却报告all_saved_episode_chains_replay_verified=true",
+        "无图审核运行链的病例被计入graph_audit_eligible_case_count",
+        "已保存链replay_verified=false仍报告全部通过"
+      ],
+      "controls": [
+        "无已保存链使用null/NOT_APPLICABLE语义，并明确saved_episode_chain_count=0",
+        "只统计实际含replay核验结果的链，任一false使聚合结果为false",
+        "pre-run HOLD仍保留真实状态和已结算provider证据，不伪造run"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL022_provider_called_first_stage_hold_without_run_replays",
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_batch_inventory.test_CE_REAL022_report_requires_independently_verified_replay"
+      ],
+      "clinical_release_permitted": false
+    },
+    {
+      "issue_id": "CE-REAL-026",
+      "description": "完整重跑进行中或部分完成时，下游离线preflight必须保留固定十例分母，并明确缺失派生输入是环境/执行覆盖未就绪，不得崩溃、虚构FHIR来源或称为患者排除",
+      "implementation_status": "implemented_with_synthetic_and_real_completed_case_projection",
+      "counterexamples": [
+        "部分完成projection缺SCALE-02 source bundle时直接FileNotFoundError",
+        "为凑齐十例虚构空Bundle或复制其他病例输入",
+        "将未执行病例写成EMPTY_CANDIDATE_EPISODES或临床排除"
+      ],
+      "controls": [
+        "只对实际存在source_fhir_r4_bundle的完成病例运行episode inventory和图装配",
+        "未提供派生输入的病例保留PREFLIGHT_HOLD及CASE_INPUT_NOT_AVAILABLE_IN_THIS_DERIVED_RELEASE",
+        "available_case_input_count/missing_case_input_count与graph_eligible_case_count分开",
+        "真实SCALE-01完成projection为1个graph eligible、9个input unavailable HOLD，0 provider calls"
+      ],
+      "required_tests": [
+        "scripts.cohort_construction.p2_checkpoint_real_validation.tests.test_real_validation.test_CE_REAL026_partial_release_preserves_missing_cases_without_cohort_substitution"
+      ],
+      "clinical_release_permitted": false
     }
   ]
 }

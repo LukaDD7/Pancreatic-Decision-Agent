@@ -29,6 +29,52 @@ def _synthetic_material_failure():
     return error
 
 
+def test_CE_REAL026_partial_release_preserves_missing_cases_without_cohort_substitution(
+        private_tmp, monkeypatch):
+    """Only an actually completed case may become an offline downstream graph."""
+    from scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_run import FixedTenRunnerTests
+    from scripts.cohort_construction.p2_checkpoint_real_validation.batch import preflight_batch
+    fixture = FixedTenRunnerTests(methodName='test_CE_REAL023_dry_run_defaults_full_ten_without_provider_or_cache')
+    fixture.setUp()
+    try:
+        from unittest.mock import patch
+        with patch.object(FixedTenRunnerTests, 'fake_process', wraps=fixture.fake_process):
+            contract, output, cache = fixture.dry_run()
+        complete = private_tmp / 'complete-output'
+        complete.mkdir()
+        case_dir = complete / 'SCALE-01'
+        case_dir.mkdir()
+        from scripts.cohort_construction.p2_checkpoint_ready_pipeline.persistence import write
+        write(case_dir / 'source_fhir_r4_bundle.json', {'resourceType': 'Bundle', 'entry': []})
+        calls = []
+        def fake_inventory(directory):
+            calls.append(directory.name)
+            return [dict(episode_id='EPISODE-01', checkpoint_ids=[])]
+        monkeypatch.setattr(
+            'scripts.cohort_construction.p2_checkpoint_real_validation.batch.episode_inventory', fake_inventory)
+        monkeypatch.setattr('scripts.cohort_construction.p2_checkpoint_real_validation.batch.load_episode_case',
+            lambda directory: dict(graph=None, episode=None))
+        result = preflight_batch(manifest=fixture.manifest, derived_release=complete,
+            output=private_tmp / 'partial-preflight', private_root=private_tmp)
+        assert result['fixed_case_count'] == 10
+        assert result['available_case_input_count'] == 1
+        assert result['missing_case_input_count'] == 9
+        assert result['hold_case_count'] == 10
+        assert result['graph_eligible_case_count'] == 0
+        assert sum(row['reason_codes'] == ['EMPTY_CANDIDATE_EPISODES']
+            for row in result['cases']) == 1
+        assert calls == ['SCALE-01']
+        unavailable = [row for row in result['cases'] if row['case_id'] != 'SCALE-01']
+        assert all(row['reason_codes'] == ['CASE_INPUT_NOT_AVAILABLE_IN_THIS_DERIVED_RELEASE']
+            for row in unavailable)
+        assert all(row['source_bundle_sha256'] is None for row in unavailable)
+        assert all(row['input_availability'] ==
+            'SOURCE_BUNDLE_NOT_PRESENT_NOT_PATIENT_EXCLUSION' for row in unavailable)
+        assert not result['model_call_performed']
+    finally:
+        fixture.tearDown()
+
+
 @pytest.fixture
 def private_tmp(tmp_path):
     from scripts.cohort_construction.p2_checkpoint_material_review_app import build
@@ -80,7 +126,7 @@ def test_CE_REAL022_provider_called_first_stage_hold_without_run_replays(private
     """A settled first-stage call and a pre-run failure remain an explicit HOLD."""
     from unittest.mock import patch
     from scripts.cohort_construction.p2_checkpoint_real_validation.batch import (
-        execute_batch, replay_batch,
+        execute_batch, execution_report, replay_batch,
     )
     from scripts.cohort_construction.p2_checkpoint_real_validation.inventory import (
         validate_inventory,
@@ -122,6 +168,10 @@ def test_CE_REAL022_provider_called_first_stage_hold_without_run_replays(private
     inventory = validate_inventory(execution, progress, ledger)
     assert inventory['recorded_calls_settled'] and inventory['attempted_case_count'] == 1
     result = replay_batch(execution)
+    report = execution_report(execution, replay=result)
+    assert report['all_saved_episode_chains_replay_verified'] is None
+    assert report['saved_episode_chain_count'] == 0
+    assert report['graph_audit_eligible_case_count'] == 0
     replayed = result['cases'][0]
     assert replayed['state'] == 'ORCHESTRATION_HOLD'
     assert replayed['episode_id'] == 'EPISODE-01'

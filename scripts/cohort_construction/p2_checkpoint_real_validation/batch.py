@@ -70,7 +70,7 @@ def _summary_state(run):
 
 
 def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FIXED-TEN-20261030',
-                    private_root=None):
+                    private_root=None, graph_version=None):
     """Fully inspect all ten before any provider Client is constructed."""
     output = new_output(output, private_root=private_root)
     manifest = Path(manifest).resolve()
@@ -87,6 +87,8 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
         doctor_assignment_created=False, clinical_release_permitted=False)
     write(output / 'batch-contract.json', contract)
     manifest_value = read(manifest)
+    graph_version = graph_version or 'fixed-ten-v0.6.0-episode-audit-v1'
+    contract['graph_version'] = graph_version
     if manifest_value.get('seed') != 20261023 or len(manifest_value.get('selected', [])) != 10:
         raise ValueError('REAL_BATCH_FIXED_TEN_MANIFEST_REQUIRED')
     ids = [item['case_id'] for item in manifest_value['selected']]
@@ -98,8 +100,21 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
         directory = derived_release / case_id
         case_output = output / 'preflight' / case_id
         private_mkdir(case_output, parents=True)
-        record = dict(case_id=case_id, source_directory=str(directory),
-            source_bundle_sha256=file_sha256(directory / 'source_fhir_r4_bundle.json'))
+        record = dict(case_id=case_id, source_directory=str(directory))
+        source_bundle = directory / 'source_fhir_r4_bundle.json'
+        if not directory.is_dir() or not source_bundle.is_file():
+            # A partial completed-case projection is not a replacement cohort.
+            # Preserve the frozen case denominator and record input availability
+            # without inventing a source Bundle, Episode, or provider outcome.
+            record.update(status='PREFLIGHT_HOLD',
+                reason_codes=['CASE_INPUT_NOT_AVAILABLE_IN_THIS_DERIVED_RELEASE'],
+                source_bundle_sha256=None,
+                input_availability='SOURCE_BUNDLE_NOT_PRESENT_NOT_PATIENT_EXCLUSION',
+                remote_model_call_performed=False)
+            write(case_output / 'case-preflight.json', record)
+            records.append(record)
+            continue
+        record['source_bundle_sha256'] = file_sha256(source_bundle)
         try:
             inventory = episode_inventory(directory)
             write(case_output / 'episode-inventory.json', inventory)
@@ -147,6 +162,11 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
         records.append(record)
     receipt = dict(format=BATCH_FORMAT + '-preflight', batch_id=batch_id,
         fixed_case_count=len(records),
+        available_case_input_count=sum(
+            row.get('source_bundle_sha256') is not None for row in records),
+        missing_case_input_count=sum(
+            'CASE_INPUT_NOT_AVAILABLE_IN_THIS_DERIVED_RELEASE' in row.get('reason_codes', [])
+            for row in records),
         graph_eligible_case_count=sum(row['status'] in _GRAPH_ELIGIBLE for row in records),
         ready_case_count=sum(row['status'] == 'READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION' for row in records),
         material_preparation_hold_case_count=sum(row['status'] == 'READY_GRAPH_AUDIT_WITH_MATERIAL_PREPARATION_HOLD' for row in records),
@@ -649,11 +669,16 @@ def execution_report(output, replay=None):
                     actual_delivery_count=len(run.get('actual_deliveries', [])),
                     ready_resource_created=run.get('ready_resource') is not None)
         cases.append(case)
+    replay_states = [row.get('replay_verified') for row in cases
+        if 'replay_verified' in row]
+    chain_replay_verified = all(state is True for state in replay_states) \
+        if replay_states else None
     return dict(format=BATCH_FORMAT + '-technical-closure-report', batch_id=progress['batch_id'],
         fixed_case_count=len(cases), terminal_state_counts=dict(sorted(Counter(row['state'] for row in cases).items())),
-        graph_audit_eligible_case_count=len(cases),
-        model_usage=replay['model_usage'], all_saved_episode_chains_replay_verified=all(
-            row.get('replay_verified') is not False for row in cases),
+        graph_audit_eligible_case_count=sum('replay_verified' in row for row in cases),
+        saved_episode_chain_count=len(replay_states),
+        model_usage=replay['model_usage'],
+        all_saved_episode_chains_replay_verified=chain_replay_verified,
         cases=cases, limitations=[
             'FIXED_TEN_DEVELOPMENT_SET_NOT_CLINICAL_PERFORMANCE_STUDY',
             'EPISODE_PROCESSING_UNIT_SOURCE_SCOPE_NOT_WHOLE_PATIENT_CHART',

@@ -42,6 +42,8 @@ def test_CE_REAL022_report_requires_independently_verified_replay(tmp_path):
     report = execution_report(output, replay=dict(baseline,
         implementation_snapshot_verified=False))
     assert report['model_usage'] == baseline['model_usage']
+    assert report['all_saved_episode_chains_replay_verified'] is True
+    assert report['saved_episode_chain_count'] == 1
     assert not report['clinical_release_permitted']
     for changed in (dict(baseline, batch_id='OTHER'), dict(baseline, cases=[]),
             dict(baseline, fixed_case_count=99),
