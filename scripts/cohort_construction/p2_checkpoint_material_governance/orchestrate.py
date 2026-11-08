@@ -92,17 +92,36 @@ class SharedModelBudget:
         if self.uncached >= self.limit:
             self.denied += 1
             raise LocalModelBudgetHold()
+        def validate_receipt(receipt):
+            if not isinstance(receipt, dict):
+                raise ValueError('MODEL_RECEIPT_MUST_BE_MAPPING')
+            cached = receipt.get('cached')
+            invoked = receipt.get('provider_invocation_occurred')
+            if cached not in (True, False, None) or invoked not in (True, False, None) \
+                    or (cached is True and invoked is True) \
+                    or (cached is False and invoked is False \
+                        and receipt.get('status') not in (
+                            'LOCAL_BUDGET_DENIED', 'LOCAL_BATCH_BUDGET_DENIED')):
+                raise ValueError('MODEL_RECEIPT_INVOCATION_OUTCOME_CONTRADICTORY')
         # ``adapter`` is bound only for the duration of this case execution.
         try:
             answer = self.adapter(task, request, schema)
         except Exception as exc:
             receipt = getattr(exc, 'receipt', {})
-            if receipt.get('cached') is not True:
+            if not isinstance(receipt, dict):
+                receipt = {}
+            validate_receipt(receipt)
+            if receipt.get('provider_invocation_occurred') is False \
+                    and receipt.get('status') in (
+                        'LOCAL_BUDGET_DENIED', 'LOCAL_BATCH_BUDGET_DENIED'):
+                self.denied += 1
+            elif receipt.get('cached') is not True:
                 self.uncached_failed += 1
             else:
                 self.cache_hits += 1
             raise
         receipt = answer[1] if isinstance(answer, tuple) and len(answer) == 2 and isinstance(answer[1], dict) else {}
+        validate_receipt(receipt)
         if receipt.get('cached') is True:
             self.cache_hits += 1
         else:

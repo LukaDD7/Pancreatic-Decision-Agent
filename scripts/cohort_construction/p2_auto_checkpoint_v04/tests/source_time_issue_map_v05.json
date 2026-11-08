@@ -1,8 +1,18 @@
 {
-  "version": "v0.5-development",
+  "version": "v0.5-development-20261107",
   "issue_id": "V04-TIMEINDEX001",
   "description": "Endoscopy request physician signature record day was ignored when structured record clock was null; scheduled test date must not replace it or become actual choice time.",
   "scope": "P2 source clock adapter only; no raw source, P1 extraction, or cohort gate changes",
   "required_test_file": "test_source_signature_time.py",
-  "tests": ["SIG001", "SIG002", "SIG003", "SIG004", "SIG005", "SIG006", "SIG007", "SIG008", "SIG009", "SIG010", "SIG011", "SIG012", "SIG013", "SIG014", "SIG015"]
+  "tests": ["SIG001", "SIG002", "SIG003", "SIG004", "SIG005", "SIG006", "SIG007", "SIG008", "SIG009", "SIG010", "SIG011", "SIG012", "SIG013", "SIG014", "SIG015"],
+  "additional_issues": [
+    {
+      "issue_id": "V04-TIMEINDEX002",
+      "description": "Unsigned, pending-signature and placeholder text was accepted as a physician name, allowing the next date to become a signature-day and evidence-context cutoff.",
+      "fixture_origin": "synthetic_counterexamples",
+      "clinical_gold": false,
+      "required_tests": ["SIG016", "SIG017", "SIG018"],
+      "controls": "A valid signed request retains its day-only proxy and cutoff behavior; no actual choice time is established."
+    }
+  ]
 }

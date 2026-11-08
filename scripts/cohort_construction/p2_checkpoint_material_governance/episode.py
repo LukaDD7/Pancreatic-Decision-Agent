@@ -7,6 +7,80 @@ from scripts.cohort_construction.p2_checkpoint_material_governance.chain_validat
 from scripts.cohort_construction.p2_checkpoint_material_governance.schema import validate_schema
 
 
+def validate_candidate_snapshot_identity(snapshot):
+    """Validate identity without expanding a retained legacy coverage ledger.
+
+    New graph construction rejects malformed/source-less units. Receipt-only
+    review of a preserved historical graph must still expose those units as
+    unresolved, not fabricate a replacement graph or erase its coverage.
+    """
+    if not isinstance(snapshot, dict) or 'graph_sha256' not in snapshot:
+        raise ContractError('EPISODE_GRAPH_IDENTITY_INVALID')
+    if snapshot['graph_sha256'] != canonical_sha256({key: value
+            for key, value in snapshot.items() if key != 'graph_sha256'}):
+        raise ContractError('EPISODE_GRAPH_IDENTITY_INVALID')
+
+
+def _validate_candidate_snapshot(snapshot, candidate_version=None, *, require_reviewable_discovery=True):
+    """Replay graph invariants, including legacy read-only graph snapshots."""
+    from .assembly import freeze_candidate_graph
+    if (not isinstance(snapshot.get('events'), list)
+            or not isinstance(snapshot.get('episodes'), list)
+            or ('graph_version' in snapshot and not isinstance(snapshot['graph_version'], str))):
+        raise ContractError('EPISODE_GRAPH_IDENTITY_INVALID')
+    if snapshot.get('graph_sha256') is not None \
+            and snapshot['graph_sha256'] != canonical_sha256({key: value
+                for key, value in snapshot.items() if key != 'graph_sha256'}):
+        raise ContractError('EPISODE_GRAPH_IDENTITY_INVALID')
+    # Some historical public references authenticated only the graph subset;
+    # their content must still pass every retained structural invariant below.
+    self_describing = snapshot.get('format') == 'candidate-reconstruction-graph-snapshot-0.1.0'
+    if self_describing and 'graph_sha256' not in snapshot:
+        raise ContractError('EPISODE_GRAPH_IDENTITY_INVALID')
+    events = deepcopy(snapshot['events'])
+    episodes = deepcopy(snapshot['episodes'])
+    for episode in episodes:
+        alias = episode['event_ids'] if 'event_ids' in episode else episode.get('candidate_ids')
+        if 'event_ids' in episode and 'candidate_ids' in episode \
+                and episode['event_ids'] != episode['candidate_ids']:
+            raise ContractError('CANDIDATE_EPISODE_MEMBERSHIP_ALIAS_MISMATCH')
+        episode['event_ids'] = deepcopy(alias)
+        episode.pop('candidate_ids', None)
+        # Compare legacy membership under the current normalized representation;
+        # the saved snapshot itself is never modified.
+    relations = snapshot.get('relations', [])
+    # Older public Episode boundaries retained only the graph subset. Replay
+    # those fields without fabricating a new version or identity in history.
+    rebuilt = freeze_candidate_graph(events, relations, episodes,
+        graph_version=snapshot.get('graph_version', candidate_version),
+        discovery_units=snapshot.get('discovery_units', []) if require_reviewable_discovery else [],
+        unit_inventory=snapshot.get('unit_inventory'),
+        final_graph_audit=snapshot.get('final_graph_audit'),
+        require_reviewable_discovery=require_reviewable_discovery)
+    # Replay every retained structural field. A historical subset has no fields
+    # for the newer coverage/default projection, so none may be fabricated into
+    # its authenticated identity merely for comparison.
+    for key, value in rebuilt.items():
+        if key == 'discovery_units' and not require_reviewable_discovery:
+            continue  # review_coverage retains malformed rows as unresolved
+        if key == 'graph_sha256':
+            continue  # exact whole-object identity was validated above
+        if key == 'episodes':
+            original = deepcopy(snapshot[key])
+            for episode in original:
+                episode['event_ids'] = episode['event_ids'] if 'event_ids' in episode else episode.get('candidate_ids')
+                episode.pop('candidate_ids', None)
+            if original != value:
+                raise ContractError('EPISODE_GRAPH_INVARIANTS_CHANGED')
+            continue
+        if key in snapshot and snapshot[key] != value:
+            raise ContractError('EPISODE_GRAPH_INVARIANTS_CHANGED')
+
+
+def validate_candidate_snapshot_structure(snapshot, *, require_reviewable_discovery=True):
+    """Validate graph invariants without changing a legacy coverage ledger."""
+    _validate_candidate_snapshot(snapshot, require_reviewable_discovery=require_reviewable_discovery)
+
 def build_episode_material_set(episode_reference, checkpoint_materials):
     """Bind already-governed Checkpoint versions; order is candidate, not fact."""
     if not isinstance(episode_reference, dict):
@@ -17,14 +91,21 @@ def build_episode_material_set(episode_reference, checkpoint_materials):
     snapshot = episode_reference.get('graph_snapshot')
     if (not isinstance(snapshot, dict) or canonical_sha256(snapshot) != episode_reference['input_sha256']):
         raise ContractError('EPISODE_VERIFIABLE_GRAPH_SNAPSHOT_REQUIRED')
+    _validate_candidate_snapshot(snapshot, episode_reference['candidate_version'])
     episodes = snapshot.get('episodes')
     if not isinstance(episodes, list):
         raise ContractError('EPISODE_GRAPH_MEMBERSHIP_REQUIRED')
     matching = [item for item in episodes if isinstance(item, dict)
                 and item.get('episode_id') == episode_reference['episode_id']]
-    if len(matching) != 1 or not isinstance(matching[0].get('event_ids'), list):
+    episode_members = matching[0].get('event_ids', matching[0].get('candidate_ids')) if len(matching) == 1 else None
+    if not isinstance(episode_members, list):
         raise ContractError('EPISODE_GRAPH_MEMBERSHIP_REQUIRED')
-    episode_members = matching[0]['event_ids']
+    checkpoint_ids = matching[0].get('checkpoint_ids')
+    if not isinstance(checkpoint_ids, list) or not checkpoint_ids \
+            or not set(checkpoint_ids).issubset(episode_members):
+        raise ContractError('EPISODE_CHECKPOINT_DECLARATION_REQUIRED')
+    if len(checkpoint_ids) != len(set(checkpoint_ids)):
+        raise ContractError('EPISODE_DUPLICATE_CHECKPOINT_DECLARATION')
     if len(episode_members) != len(set(episode_members)):
         raise ContractError('EPISODE_DUPLICATE_EVENT_MEMBERSHIP')
     materials, targets = [], set()
@@ -38,16 +119,39 @@ def build_episode_material_set(episode_reference, checkpoint_materials):
         if item['doctor_view'] != doctor_view(item['compiled']):
             raise ContractError('EPISODE_DOCTOR_VIEW_PROJECTION_MISMATCH')
         chain = item['auto_review_chain']
+        # Distinguish graph replacement, a rebound material target, and a
+        # declaration that substitutes a non-Checkpoint member.
+        graph = chain.get('task_context', {}).get('candidate_graph_binding')
+        event_reference = item.get('event_reference')
+        event_id = event_reference.get('event_id') if isinstance(event_reference, dict) else event_reference
+        task_episode_id = chain.get('task_context', {}).get('candidate_episode_id')
+        if task_episode_id != episode_reference['episode_id']:
+            raise ContractError('EPISODE_TASK_CONTEXT_BINDING_MISMATCH')
+        if isinstance(event_reference, dict) and (
+                set(event_reference) - {'event_id', 'checkpoint_id'}
+                or event_reference.get('checkpoint_id') != target['checkpoint_id']):
+            raise ContractError('EPISODE_EVENT_REFERENCE_BINDING_MISMATCH')
+        if not isinstance(graph, dict) \
+                or graph.get('graph_sha256') != episode_reference['input_sha256'] \
+                or graph.get('checkpoint_id') != target['checkpoint_id']:
+            if event_id == (graph or {}).get('target_event_id') \
+                    and event_id not in checkpoint_ids:
+                raise ContractError('EPISODE_CHECKPOINT_MEMBERSHIP_MISMATCH')
+            raise ContractError('EPISODE_GRAPH_CHANGED_RESTART_MATERIAL_REVIEW')
+        if event_id != graph.get('target_event_id'):
+            raise ContractError('EPISODE_EVENT_MEMBERSHIP_MISMATCH')
+        if event_id not in checkpoint_ids:
+            raise ContractError('EPISODE_CHECKPOINT_MEMBERSHIP_MISMATCH')
         validate_review_chain(chain)
         graph = validate_candidate_graph_context(chain['task_context'], target, required=True)
         if (graph['graph_version'] != episode_reference['candidate_version']
                 or graph['graph_sha256'] != episode_reference['input_sha256']
                 or chain['task_context']['candidate_graph_snapshot'] != snapshot):
             raise ContractError('EPISODE_GRAPH_CHANGED_RESTART_MATERIAL_REVIEW')
-        event_reference = item.get('event_reference')
-        event_id = event_reference.get('event_id') if isinstance(event_reference, dict) else event_reference
-        if event_id != graph['target_event_id'] or event_id not in episode_members:
-            raise ContractError('EPISODE_TARGET_EVENT_MEMBERSHIP_MISMATCH')
+        if event_id != graph['target_event_id']:
+            raise ContractError('EPISODE_EVENT_MEMBERSHIP_MISMATCH')
+        if event_id not in checkpoint_ids:
+            raise ContractError('EPISODE_CHECKPOINT_MEMBERSHIP_MISMATCH')
         if item['manifest'] != chain['manifest'] or item['compiled'] != chain['compiled']:
             raise ContractError('EPISODE_CHAIN_MATERIAL_VERSION_MISMATCH')
         if (not isinstance(chain, dict) or chain.get('compiled', {}).get('compiled_sha256') != item['compiled']['compiled_sha256']
@@ -73,6 +177,9 @@ def build_episode_material_set(episode_reference, checkpoint_materials):
             human_sample_status=item.get('human_sample_status', 'NOT_ASSESSED'),
             expert_status=item.get('expert_status', 'NOT_ASSESSED'),
         ))
+    if {item['event_reference'].get('event_id') if isinstance(item['event_reference'], dict)
+            else item['event_reference'] for item in materials} != set(checkpoint_ids):
+        raise ContractError('EPISODE_CHECKPOINT_COVERAGE_MISMATCH')
     result = dict(
         format='candidate-episode-material-set-0.2.0',
         episode_reference=deepcopy(episode_reference), checkpoint_materials=materials,
@@ -161,8 +268,8 @@ def restart_material_review_after_graph_revision(previous_set, checkpoint_id,
         raise ContractError('GRAPH_RESTART_REQUIRES_NEW_CANDIDATE_VERSION')
     matching = [entry for entry in graph.get('episodes', [])
                 if entry.get('episode_id') == new_episode_reference.get('episode_id')]
-    if len(matching) != 1 or target_event_id not in matching[0].get('event_ids', []):
-        raise ContractError('EPISODE_TARGET_EVENT_MEMBERSHIP_MISMATCH')
+    if len(matching) != 1 or target_event_id not in matching[0].get('checkpoint_ids', []):
+        raise ContractError('EPISODE_CHECKPOINT_MEMBERSHIP_MISMATCH')
     context = bind_candidate_graph(graph, graph_version=new_episode_reference['candidate_version'],
         target_event_id=target_event_id, checkpoint_id=compiled['target']['checkpoint_id'], task_context=task_context)
     return run_review_chain(manifest, compiled, ask, candidate_sources=candidate_sources,

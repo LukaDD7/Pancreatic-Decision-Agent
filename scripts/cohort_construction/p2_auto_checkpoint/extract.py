@@ -5,7 +5,10 @@ import json
 import re
 from pathlib import Path
 
-from scripts.cohort_construction.p2_pathway_replay.core import project_sources, clock
+from scripts.cohort_construction.p2_pathway_replay.core import (
+    project_sources, clock, available_source_clock, relation_to_cutoff,
+    body_record_clock,
+)
 
 
 def digest(value):
@@ -23,15 +26,7 @@ def write(path, data):
 
 
 def body_clock(text):
-    # Labeled record time anywhere, or a dated narrative heading. Never the
-    # first arbitrary date in a history, consent compilation or operation.
-    labeled = re.findall(r'记录时间[：:]\s*(20\d\d-\d\d-\d\d \d\d:\d\d(?::\d\d)?)', text)
-    if len(set(labeled)) == 1:
-        return clock(labeled[0])
-    if len(set(labeled)) > 1:
-        return clock(None)
-    leading = re.match(r'\s*(20\d\d-\d\d-\d\d \d\d:\d\d(?::\d\d)?)', text)
-    return clock(leading[1] if leading else None)
+    return body_record_clock(text)
 
 
 def load_sources(bundle_path, uid):
@@ -40,11 +35,8 @@ def load_sources(bundle_path, uid):
     for s in sources:
         if s['kind'] == 'document':
             s['clocks']['body_record_time'] = body_clock(s['text'])
-        s['clock'] = (s['clocks'].get('body_record_time') if s['kind'] == 'document' else
-                      s['clocks'].get('exam_time') if s['kind'] == 'imaging' else
-                      s['clocks'].get('report_time')) or clock(None)
-        s['clock_basis'] = ('body_record_time' if s['kind'] == 'document' else
-                            'exam_time_proxy_release_unknown' if s['kind'] == 'imaging' else 'report_time_proxy')
+        _, selected_clock, selected_basis, _ = available_source_clock(s)
+        s['clock'], s['clock_basis'] = selected_clock, selected_basis
     return sources, inventory
 
 
@@ -224,15 +216,8 @@ def extract(sources, config):
 
 
 def time_order(c, cutoff):
-    if not c['value'] or not cutoff['value']:
-        return 'UNKNOWN'
-    if c['value'][:10] != cutoff['value'][:10]:
-        return 'BEFORE' if c['value'][:10] < cutoff['value'][:10] else 'AFTER'
-    if c['precision'] == 'date' or cutoff['precision'] == 'date':
-        return 'SAME_DAY_UNORDERED'
-    if (c['precision']=='minute' or cutoff['precision']=='minute') and c['value'][:16]==cutoff['value'][:16]:
-        return 'SAME_MINUTE_UNORDERED'
-    return 'BEFORE' if c['value'] < cutoff['value'] else 'AFTER' if c['value'] > cutoff['value'] else 'SAME_TIME_UNORDERED'
+    relation = relation_to_cutoff(c, cutoff)
+    return 'UNKNOWN' if relation == 'UNKNOWN_TIME' else relation
 
 
 def window(sources, candidate, previous=None):
@@ -240,11 +225,18 @@ def window(sources, candidate, previous=None):
     blocks, ledger = [], []
     upper = comparison_clock(candidate)
     lower = comparison_clock(previous) if previous else None
+    selected_clocks = {}
+    for source in sources:
+        # Never prefer a stale source.clock over an invalid or later structured
+        # release. Legacy window semantics retain their explicit status names.
+        _, value, basis, errors = available_source_clock(source)
+        selected_clocks[source['source_id']] = (value, basis, errors)
     if previous and previous.get('comparison_basis')=='same_source_narrative_order_only_not_exact_timed_interval':
         lower = clock(None)
     for s in sources:
         source_id = s['source_id']
-        state = time_order(s['clock'], upper)
+        source_clock, source_basis, release_errors = selected_clocks[source_id]
+        state = 'RELEASE_UNRESOLVED' if release_errors else time_order(source_clock, upper)
         if s['kind'] == 'quarantine':
             state = 'QUARANTINE_REVIEW'
         if source_id in candidate.get('same_test_source_ids', []):
@@ -258,23 +250,25 @@ def window(sources, candidate, previous=None):
                 prefix_start = candidate['retrospective_prefix_start']
             if end > prefix_start:
                 blocks.append(dict(alias=source_id, kind=s['kind'], title=s['title'],
-                                   clock=s['clock'], clock_basis='same_note_prior_narrative_stage',
+                                   clock=source_clock, clock_basis='same_note_prior_narrative_stage',
                                    interval='retrospective_pretest_narrative_unverified' if retrospective else 'current_prechoice_prefix',
                                    anchor=quote(s, prefix_start, end)))
             ledger.append(dict(source_id=source_id, disposition='PARTIAL_CURRENT_PREFIX', end=end))
         elif state == 'BEFORE':
-            interval = 'baseline_before_previous' if lower and time_order(s['clock'], lower) == 'BEFORE' else 'between_previous_and_current'
+            interval = 'baseline_before_previous' if lower and time_order(source_clock,lower) == 'BEFORE' else 'between_previous_and_current'
             # Retain exact original lab cells without repeating export labels
             # and report provenance in the model context. Audit retains source.
             a = quote(s, 0, len(s['text']))
-            blocks.append(dict(alias=source_id, kind=s['kind'], title=s['title'], clock=s['clock'],
-                               clock_basis=s['clock_basis'], interval=interval, anchor=a))
+            blocks.append(dict(alias=source_id, kind=s['kind'], title=s['title'], clock=source_clock,
+                               clock_basis=source_basis, interval=interval, anchor=a))
             ledger.append(dict(source_id=source_id, disposition='INCLUDE_PROXY_PRIOR', interval=interval))
         else:
             within_op = (candidate.get('operation_end') and state == 'AFTER' and
-                         time_order(s['clock'], candidate['operation_end']) in ['BEFORE', 'SAME_TIME_UNORDERED'])
+                         time_order(source_clock,candidate['operation_end']) in ['BEFORE', 'SAME_TIME_UNORDERED'])
             ledger.append(dict(source_id=source_id, disposition='REVIEW' if within_op else 'EXCLUDE_FUTURE' if state == 'AFTER' else 'REVIEW',
-                               reason='WITHIN_OPERATION_STAGE_UNRESOLVED' if within_op else state))
+                               reason='WITHIN_OPERATION_STAGE_UNRESOLVED' if within_op else
+                                   'RELEASE_TIME_UNRESOLVED_EXAM_PROXY_FORBIDDEN' if release_errors else state,
+                               release_time_provenance_errors=release_errors))
     return dict(cutoff=upper, lower=lower, blocks=blocks, source_ledger=ledger,
                 current_decision_clock=candidate['decision_clock'],
                 cutoff_is_choice_time_upper_bound=not bool(candidate['decision_clock']['value']),

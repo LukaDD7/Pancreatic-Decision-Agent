@@ -45,6 +45,10 @@ RATE_CONTROL_KEYS = ('min_request_interval_seconds', 'retry_backoff_base_seconds
     'http_400_rate_cause_unproven')
 COMPACT_TRANSPORT_KEYS = ('graph_audit_compact_transport',
     'lossless_request_projection_is_explicit')
+MATERIAL_TRANSPORT_KEYS = ('material_review_task_projection',
+    'material_review_projection_scope_is_explicit')
+RESEARCH_FEEDBACK_KEYS = ('research_feedback_enabled',
+    'research_feedback_not_formal_blind_packet')
 _GRAPH_ELIGIBLE = frozenset({'READY_FOR_AUTHORIZED_DEVELOPMENT_EXECUTION',
     'READY_GRAPH_AUDIT_WITH_MATERIAL_PREPARATION_HOLD'})
 
@@ -108,6 +112,7 @@ def preflight_batch(*, manifest, derived_release, output, batch_id='REAL-V063-FI
                 write(case_output / 'graph.json', graph)
                 write(case_output / 'sources.json', loaded['sources'])
                 write(case_output / 'current-unit-sources.json', loaded['current_sources'])
+                write(case_output / 'graph-audit-sources.json', loaded['graph_audit_sources'])
                 write(case_output / 'source-dependency-reconciliation.json',
                     loaded['source_dependency_receipt'])
                 write(case_output / 'graph-audit-request.json', loaded['graph_request'])
@@ -186,6 +191,21 @@ def _authorized_config(base_config, contract):
             if contract.get(key) is not True:
                 raise ValueError('REAL_BATCH_AUTHORIZATION_MISMATCH:' + key)
         config['graph_audit_compact_transport'] = True
+    if any(key in contract for key in MATERIAL_TRANSPORT_KEYS):
+        for key in MATERIAL_TRANSPORT_KEYS:
+            if contract.get(key) is not True:
+                raise ValueError('REAL_BATCH_AUTHORIZATION_MISMATCH:' + key)
+        config['material_review_task_projection'] = True
+    if any(key in contract for key in RESEARCH_FEEDBACK_KEYS):
+        for key in RESEARCH_FEEDBACK_KEYS:
+            if contract.get(key) is not True:
+                raise ValueError('REAL_BATCH_AUTHORIZATION_MISMATCH:' + key)
+        config.update(research_feedback_enabled=True,
+            research_feedback_limitations=[
+                '本次为研究性快速反馈迭代，不是正式盲评、SemanticAudit或临床Reference。',
+                '历史依赖来源用于研究者追溯；其完整覆盖和临床时点可见性尚未认证。',
+                '自动材料HOLD/执行失败的具体原因保留在研究链；试阅文件只含已投影文本。',
+            ])
     if any(key in contract for key in EXECUTION_BUDGET_KEYS):
         expected_execution = dict(max_rounds=MATERIAL_REVIEW_ROUNDS,
             automatic_graph_reconstruction_authorized=True,
@@ -230,6 +250,15 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
     prompts = dict(graph=graph_audit_client(client),
         reconstruction=graph_reconstruction_client(client),
         material=material_review_client(client), delivery=delivery_audit_client(client))
+    if config.get('material_review_task_projection') is True:
+        from scripts.cohort_construction.p2_checkpoint_material_governance.projection import (
+            compact_material_review_request,
+        )
+        original_material = prompts['material']
+        def material(task, payload, schema, **kwargs):
+            return original_material(task, payload, schema,
+                transport_projection=compact_material_review_request, **kwargs)
+        prompts['material'] = material
     preflight = read(preflight_output / 'batch-preflight.json')
     subset = contract.get('execution_subset')
     if subset is not None:
@@ -271,13 +300,15 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
         graph = read(preflight_output / 'preflight' / case_id / 'graph.json')
         sources = read(preflight_output / 'preflight' / case_id / 'sources.json')
         current_sources = read(preflight_output / 'preflight' / case_id / 'current-unit-sources.json')
+        graph_audit_sources_path = preflight_output / 'preflight' / case_id / 'graph-audit-sources.json'
+        graph_audit_sources = read(graph_audit_sources_path) if graph_audit_sources_path.is_file() else current_sources
         context = dict(batch_id=contract['batch_id'], case_id=case_id,
             episode_id=request['episode_id'], graph_sha256=graph['graph_sha256'])
         adapters = {stage: ledger.adapter(stage, prompts[stage], context) for stage in prompts}
         pipeline_adapters = {stage: adapters[stage] for stage in ('graph', 'material', 'delivery')}
         try:
             run = run_episode_pipeline(output=output / 'episodes' / case_id / request['episode_id'],
-                graph=graph, sources=sources, graph_audit_sources=current_sources,
+                graph=graph, sources=sources, graph_audit_sources=graph_audit_sources,
                 episode_id=request['episode_id'],
                 semantic_audits={}, questionnaire=None,
                 graph_audit_context=request['graph_audit_context'],
@@ -292,11 +323,13 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
                 episode_id=request['episode_id'], graph_sha256=graph['graph_sha256'])
             if config.get('automatic_graph_reconstruction'):
                 from scripts.cohort_construction.p2_checkpoint_ready_pipeline.automatic_revision import (
-                    run_bounded_graph_revision_pipeline,
+                    _read_revision_summary, run_bounded_graph_revision_pipeline,
                 )
+                initial_output = output / 'episodes' / case_id / request['episode_id']
+                revision_output = output / 'automatic-revisions' / case_id
                 revision = run_bounded_graph_revision_pipeline(parent_run=run,
-                    output=output / 'automatic-revisions' / case_id,
-                    graph=graph, sources=sources, graph_audit_sources=current_sources,
+                    output=revision_output,
+                    graph=graph, sources=sources, graph_audit_sources=graph_audit_sources,
                     episode_id=request['episode_id'],
                     semantic_audits={}, questionnaire=None,
                     graph_audit_context=request['graph_audit_context'],
@@ -309,10 +342,28 @@ def execute_batch(*, preflight_output, authorization, base_config, model_client_
                     delivery_gate=dict(reason_codes=['PENDING_INDEPENDENT_SEMANTIC_AUDIT',
                         'QUESTIONNAIRE_NOT_FROZEN']), private_root=private_root)
                 run = revision['final_run']
-                write(output / 'automatic-revisions' / case_id / 'automatic-revision-summary.json', dict(
-                    state=revision['state'], stop_reason=revision['stop_reason'],
-                    generations=[item['generation'] for item in revision['generations']],
-                    clinical_release_permitted=False))
+                if 'run_sha256' not in run and not revision.get('generations') \
+                        and (initial_output / 'run.json').is_file():
+                    # The settled initial pipeline remains the replayable case
+                    # evidence even when revision post-processing failed.
+                    run = read(initial_output / 'run.json')
+                revision_summary = _read_revision_summary(
+                    revision_output / 'automatic-revision-summary.json')
+                if (revision_summary['state'], revision_summary['stop_reason']) != (
+                        revision['state'], revision['stop_reason']) \
+                        or revision_summary['generations'] != [
+                            item['generation'] for item in revision.get('generations', [])] \
+                        or revision_summary.get('reconstruction_accounting_hold') != revision.get(
+                            'reconstruction_accounting_hold'):
+                    raise ValueError('REAL_BATCH_REVISION_RETURNED_SUMMARY_CHANGED')
+                records.append(dict(case_id=case_id, episode_id=request['episode_id'],
+                    state=revision_summary['state'], reason_code=revision_summary['stop_reason'],
+                    run_sha256=run['run_sha256'], model_usage=run['model_usage'],
+                    automatic_revision_stop_reason=revision_summary['stop_reason'],
+                    replay_verified=validate_pipeline_run(run)['replay_verified']))
+                ledger.persist()
+                save_progress()
+                continue
             state, reason = _summary_state(run)
             records.append(dict(case_id=case_id, episode_id=request['episode_id'], state=state,
                 reason_code=reason, run_sha256=run['run_sha256'],
@@ -379,28 +430,64 @@ def replay_batch(output, *, verify_implementation=True, persist=True):
         if reconstruction_calls and not revision_path.is_file():
             raise ValueError('REAL_BATCH_RECONSTRUCTION_LEDGER_REVISION_DELIVERY_MISSING')
         if revision_path.is_file():
-            revision = read(revision_path)
+            from scripts.cohort_construction.p2_checkpoint_ready_pipeline.automatic_revision import (
+                _read_revision_summary,
+            )
+            revision = _read_revision_summary(revision_path)
             generations = revision.get('generations', [])
+            hold = revision.get('reconstruction_accounting_hold')
+            hold_chain = hold.get('reconstruction_chain') if isinstance(hold, dict) else None
+            hold_generation = len(generations) + 1 if hold_chain is not None else None
             initial_directory = directory
-            if generations:
+            if generations and revision['stop_reason'] != 'FRESH_RECONSTRUCTED_PIPELINE_PERSISTENCE_FAILED':
                 directory = output / 'automatic-revisions' / case['case_id'] / (
                     'generation-%04d' % generations[-1])
             reconstruction_replays = []
             chain_paths = sorted(revision_path.parent.glob('reconstruction-*.json'))
             expected_chain_count = len(reconstruction_calls) // 2
-            if len(reconstruction_calls) % 2 or len(chain_paths) != expected_chain_count:
+            summary_only_hold = hold_chain is not None and not any(
+                path.name == 'reconstruction-%04d.json' % hold_generation
+                for path in chain_paths)
+            # Failed exclusive writes are replayed from the validated hold; no
+            # provider invocation is recreated to fill a missing chain file.
+            if len(reconstruction_calls) % 2 \
+                    or len(chain_paths) != expected_chain_count - int(summary_only_hold) \
+                    or summary_only_hold and revision['stop_reason'] not in (
+                        'RECONSTRUCTION_PERSISTENCE_FAILED',
+                        'FRESH_RECONSTRUCTED_PIPELINE_PERSISTENCE_FAILED'):
                 raise ValueError('REAL_BATCH_RECONSTRUCTION_LEDGER_CHAIN_INVENTORY_MISMATCH')
+            # Either the ledger's explicit terminal-chain inventory or the
+            # completed generation sequence can identify a missing chain.
+            # Both preserve the same failed-closed replay requirement.
+            missing_chain_ids = revision.get('reconstruction_chain_ids', [])
+            if missing_chain_ids and any(not (revision_path.parent / (
+                    'reconstruction-%04d.json' % item['generation'])).is_file()
+                    for item in missing_chain_ids):
+                raise ValueError('REAL_BATCH_RECONSTRUCTION_REQUIRED_CHAIN_MISSING')
             missing_generation_chains = [generation for generation in generations
                 if not (revision_path.parent / (
                     'reconstruction-%04d.json' % generation)).is_file()]
             if missing_generation_chains:
-                raise ValueError('REAL_BATCH_RECONSTRUCTION_REQUIRED_CHAIN_MISSING')
-            if [path.name for path in chain_paths] != [
-                    'reconstruction-%04d.json' % number
-                    for number in range(1, len(chain_paths) + 1)]:
+                raise ValueError('REAL_BATCH_RECONSTRUCTION_LEDGER_CHAIN_INVENTORY_MISMATCH')
+            expected_paths = ['reconstruction-%04d.json' % number
+                for number in range(1, expected_chain_count + 1)]
+            if summary_only_hold:
+                expected_paths.pop()
+            if [path.name for path in chain_paths] != expected_paths:
                 raise ValueError('REAL_BATCH_RECONSTRUCTION_GENERATION_SEQUENCE_INVALID')
-            for chain_path in chain_paths:
-                generation = int(chain_path.stem.split('-')[-1])
+            chain_records = [(int(path.stem.split('-')[-1]), path.name, read(path), True)
+                for path in chain_paths]
+            if summary_only_hold:
+                chain_records.append((hold_generation,
+                    'automatic-revision-summary.json#reconstruction_accounting_hold',
+                    hold_chain, False))
+            for generation, source_name, chain_value, independently_archived in chain_records:
+                if revision.get('format') == 'bounded-graph-revision-summary-0.2.0' \
+                        and independently_archived and generation <= len(
+                            revision.get('reconstruction_chain_ids', [])) \
+                        and revision['reconstruction_chain_ids'][generation - 1] != dict(
+                            generation=generation, chain_sha256=chain_value.get('chain_sha256')):
+                    raise ValueError('REAL_BATCH_REVISION_SUMMARY_CHAIN_BINDING_MISMATCH')
                 parent, parent_directory = _reconstruction_parent(
                     output, case['case_id'], initial_directory, generation)
                 parent_replay = validate_pipeline_run(parent, output=parent_directory,
@@ -411,28 +498,36 @@ def replay_batch(output, *, verify_implementation=True, persist=True):
                 parent_audit = parent['graph_audit_chain']
                 expected_provider = _reconstruction_ledger(ledger, case['case_id'],
                     parent_audit['graph_sha256'])
-                chain_replay = validate_graph_reconstruction_chain(read(chain_path),
+                chain_replay = validate_graph_reconstruction_chain(chain_value,
                     expected_request=(parent_audit['initial_request'],
                         parent_audit['rounds'][-1]['response']),
                     expected_provider=expected_provider)
                 if chain_replay['state'] == 'RECONSTRUCTED_PENDING_INDEPENDENT_AUDIT':
-                    if not generations:
+                    ungenerated_hold = hold_generation == generation \
+                        and revision['stop_reason'] in (
+                            'RECONSTRUCTION_PERSISTENCE_FAILED',
+                            'FRESH_RECONSTRUCTED_PIPELINE_PERSISTENCE_FAILED')
+                    if generation not in generations and not ungenerated_hold:
                         raise ValueError('REAL_BATCH_RECONSTRUCTION_SUCCESS_WITHOUT_GENERATION')
-                    generated = read(revision_path.parent / (
-                        'generation-%04d' % int(chain_path.stem.split('-')[-1])) /
-                        'graph-reconstruction-chain.json')
-                    if generated['chain_sha256'] != chain_replay['chain_sha256']:
-                        raise ValueError('REAL_BATCH_RECONSTRUCTION_GENERATION_BINDING_MISMATCH')
+                    if generation in generations:
+                        generated = read(revision_path.parent / (
+                            'generation-%04d' % generation) / 'graph-reconstruction-chain.json')
+                        if generated['chain_sha256'] != chain_replay['chain_sha256']:
+                            raise ValueError('REAL_BATCH_RECONSTRUCTION_GENERATION_BINDING_MISMATCH')
                 elif chain_replay['state'] != 'RECONSTRUCTION_HOLD':
                     raise ValueError('REAL_BATCH_RECONSTRUCTION_REPLAY_STATE_INVALID')
-                reconstruction_replays.append(dict(path=chain_path.name,
+                reconstruction_replays.append(dict(path=source_name,
+                    generation=generation, independently_archived=independently_archived,
                     chain_sha256=chain_replay['chain_sha256'], state=chain_replay['state'],
                     replay_verified=chain_replay['replay_verified']))
+            if hold_chain is not None:
+                item['reconstruction_accounting_hold_state'] = hold['state']
+                item['reconstruction_chain_independently_archived'] = not summary_only_hold
             item['automatic_revision_state'] = revision['state']
             item['automatic_revision_stop_reason'] = revision['stop_reason']
             item['reconstruction_chain_replays'] = reconstruction_replays
         elif case.get('state') not in ('NOT_ATTEMPTED_OUTSIDE_AUTHORIZED_SUBSET',
-                'NOT_ATTEMPTED_BATCH_BUDGET_EXHAUSTED'):
+                'NOT_ATTEMPTED_BATCH_BUDGET_EXHAUSTED', 'ORCHESTRATION_HOLD'):
             if (output / 'automatic-revisions' / case['case_id']).exists():
                 raise ValueError('REAL_BATCH_ORCHESTRATION_FAILURE_NOT_REPLAYABLE')
         run_path = directory / 'run.json' if directory is not None else None
@@ -465,6 +560,27 @@ def replay_batch(output, *, verify_implementation=True, persist=True):
     return aggregate
 
 
+def _graph_failure_class(graph):
+    """Return safe persisted failure coordinates, never raw provider content."""
+    failure = graph.get('failure') or {}
+    if not failure:
+        return None
+    stage, reason = failure.get('stage'), failure.get('reason_code')
+    if stage == 'PROVIDER_REQUEST':
+        return reason or 'PROVIDER_REQUEST_FAILED'
+    if stage in ('PROVIDER_HTTP_RESPONSE', 'PROVIDER_ENVELOPE_PARSE',
+            'PROVIDER_CONTENT_PARSE', 'RESPONSE_SCHEMA_VALIDATION'):
+        return stage + ':' + (reason or 'UNSPECIFIED_PROVIDER_FAILURE')
+    if stage == 'RESPONSE_VALIDATION':
+        from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.audit import validate_graph_audit
+        try:
+            validate_graph_audit(graph['initial_request'], failure.get('response'))
+        except Exception as exc:
+            return 'RESPONSE_VALIDATION:' + str(exc)
+        return 'RESPONSE_VALIDATION:' + failure.get('error_type', 'UNSPECIFIED')
+    return 'UNCLASSIFIED:' + failure.get('error_type', 'UNSPECIFIED')
+
+
 def execution_report(output):
     """Aggregate persisted facts without reconstructing provider responses."""
     output = Path(output)
@@ -491,18 +607,7 @@ def execution_report(output):
                     graph_reconstruction_generations=len(generations))
             graph = run.get('graph_audit_chain', {})
             failure = graph.get('failure', {})
-            failure_class = None
-            if failure:
-                if failure.get('stage') == 'PROVIDER_REQUEST':
-                    failure_class = 'PROVIDER_REQUEST_FAILED'
-                elif failure.get('stage') == 'RESPONSE_VALIDATION':
-                    from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.audit import validate_graph_audit
-                    try:
-                        validate_graph_audit(graph['initial_request'], failure.get('response'))
-                    except Exception as exc:
-                        failure_class = 'RESPONSE_VALIDATION:' + str(exc)
-                    else:
-                        failure_class = 'RESPONSE_VALIDATION:' + failure.get('error_type', 'UNSPECIFIED')
+            failure_class = _graph_failure_class(graph)
             case.update(graph_state=graph.get('state'), graph_stop_reason=graph.get('stop_reason'),
                 graph_failure_stage=failure.get('stage'), graph_failure_type=failure.get('error_type'),
                 graph_failure_class=failure_class,

@@ -12,7 +12,8 @@ from scripts.cohort_construction.p2_pathway_replay.core import clock
 def source(sid, text, when='2022-01-01 09:00', title='查房记录', kind='document', exam=None):
     return dict(source_id=sid, text=text, source_sha256=hashlib.sha256(text.encode()).hexdigest(),
                 title=title, kind=kind, clock=clock(when), clock_basis='body_record_time' if kind == 'document' else 'exam_time_proxy_release_unknown',
-                clocks={'exam_time': clock(when) if kind == 'imaging' else clock(None), 'report_time': clock(None)},
+                clocks={'exam_time': clock(when) if kind == 'imaging' else clock(None),
+                        'report_time': clock(when) if kind in ('lab', 'pathology') else clock(None)},
                 provenance={'exam_no_raw': exam})
 
 

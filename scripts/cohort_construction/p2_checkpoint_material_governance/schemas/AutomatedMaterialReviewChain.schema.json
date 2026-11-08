@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:checkpoint-material-governance:0.3.0:AutomatedMaterialReviewChain",
+  "$id": "urn:checkpoint-material-governance:0.4.0:AutomatedMaterialReviewChain",
   "type": "object",
   "properties": {
     "initial_manifest": {
@@ -25,7 +25,7 @@
       "type": "object"
     },
     "format": {
-      "const": "automated-material-review-chain-0.3.0"
+      "const": "automated-material-review-chain-0.4.0"
     },
     "protocol_version": {
       "const": "checkpoint-automated-material-review-0.3.0"
@@ -71,6 +71,17 @@
             "type": "object"
           },
           "receipt": {
+            "type": "object"
+          },
+          "transport_projection_format": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_provider_payload_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "provider_attempt_evidence": {
             "type": "object"
           },
           "input_manifest": {
@@ -131,6 +142,9 @@
           "input_manifest",
           "input_compiled",
           "request",
+          "receipt",
+          "transport_projection_format",
+          "declared_provider_payload_sha256",
           "application_receipt",
           "input_compiled_sha256",
           "input_manifest_sha256",
@@ -211,12 +225,20 @@
         "round_index",
         "receipt",
         "request",
-        "request_sha256"
+        "request_sha256",
+        "request_binding_sha256",
+        "transport_projection_format",
+        "declared_provider_payload_sha256"
       ],
       "properties": {
         "stage": {
           "enum": [
+            "LOCAL_BUDGET_CONTROL",
             "PROVIDER_REQUEST",
+            "PROVIDER_ENVELOPE_PARSE",
+            "PROVIDER_CONTENT_PARSE",
+            "PROVIDER_HTTP_RESPONSE",
+            "RESPONSE_SCHEMA_VALIDATION",
             "RESPONSE_VALIDATION"
           ]
         },
@@ -242,7 +264,28 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         },
-        "response": {}
+        "request_binding_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "transport_projection_format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "declared_provider_payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "response": {},
+        "provider_attempt_evidence": {
+          "type": "object"
+        },
+        "program_diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       },
       "additionalProperties": false
     }

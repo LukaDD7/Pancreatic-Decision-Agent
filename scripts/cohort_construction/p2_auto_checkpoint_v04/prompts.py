@@ -10,7 +10,7 @@ from copy import deepcopy
 
 
 SYSTEM_INSTRUCTIONS = """你在重建病历中可回溯的管理判断，不是在评价治疗是否正确，也不生成临床Reference。
-研究范围是PDAC的可切除性与根治路径管理：包括为判断能否推进而收集信息、减黄、优化患者条件、围手术期管理、暂缓和不推进；不要求已经决定手术或最终接受切除。
+研究范围是PDAC的可切除性与根治路径管理：包括为明确诊断、取得病理、判断解剖关系/远处转移、评估治疗反应和耐受条件而收集信息，以及据此补充检查、减黄、优化患者条件、转向其他治疗、围手术期管理、暂缓和不推进；不要求已经决定手术或最终接受切除。
 遵守两条原则：先判断管理是否关联研究路径，再核对与前轮相比是否有决策相关证据演化；首个可见安排可作为起始锚点，不能声称它已满足两轮之间的演化。
 原始文字、文书类型和时间共同决定判断。程序候选、关键词、标题先验、预选前轮都只是提示，你可以有依据地删除、补充、合并或改判，并写明理由。不能为凑图而强制拆分、合并或连接。
 原文未提及、来源未找到、时间不明、语义不能判断分别保留；不要把未知当阴性。后写资料可以帮助识别回述，但不能变成早先选择前已经可见的证据。
@@ -83,6 +83,21 @@ C. evidence_connection单独判断患者信息是否支持本次判断（support
 D. observation_availability逐条对应observation_quotes：availability=explicitly_known_before（原文明确该选择前已知/引用/探查取得）、record_proxy_only（只按记录或报告时间排在前面，未知是否被获得/读取）、uncertain或after_choice；basis_quotes给出时序/已知依据，不得仅因报告日期较早就宣称已读。当前全文是身份重建材料，不是允许观察池。只靠record_proxy_only/uncertain观察时不能将checkpoint判为new_evidence；可以保留待核，不能偷换成阴性或删掉来源。该条只限制确定性，不替你判断治疗。
 E. uncertainty_dimensions按7维输出，每维给status、reason_category、explanation、source_quotes。已知何种记录时间不等于知道实际选择时间。没有明示实际选择时刻可保留时间uncertain；局部不确定不必否定其余已证实维度。process_connection未用前轮时可not_applicable。范围相关但只是执行/重复时scope仍yes，以record_function/checkpoint表达是不是新一轮。
 F. previous_event_id与same_process_previous_id必须来自该event自己的evidence_context.eligible_previous_event_ids。共享ledger只提供身份重建上下文，不能证明其他行发生在当前实际选择之前；同篇连续选择也仅在两者有明确实际时间且先后可核实时互为前轮。同日无法排序、回述时间不明时保留uncertain，不以较晚记录时间绕过限制。
+
+CE-REM-002/003补充约束（不得据此自动升Checkpoint）：
+G. checkpoint_kind必须与checkpoint同时给出。new_management_choice=当前文书中新的患者特异管理安排/再评估，例如安排EUS-FNA取得病理、追加影像、暂缓或改变路径；当前安排自身不需要在选择它之前已经存在。evidence_informed_choice=新的患者事实在目标选择前可见并支持当前管理判断。first_anchor/repeat/not_related/uncertain填not_applicable。只有evidence_informed_choice适用A-F的比较、前轮与选择前新患者事实证明；new_management_choice仍需action原文、研究范围和事件身份，但不能把当前安排填入current_information_quotes或observation_quotes。两类均不保证临床正确或专家认可。
+H. 当前完整choice_boundary_quotes是管理动作，不是选择前患者事实。若将其误填入current_information_quotes，程序会保留原提案并给出字段级修复，不会删除事件或静默删除该引文后声称比较完整。已有合格事实不能替错误的另一条引文消除缺陷。
+I. 每个报告证据块有独立evidence_object_id。报告只保留历史检查执行锚点，不可解释为什么选择该检查自身；其结果/所见可作为后续管理选择的证据对象。evidence_relations逐对象给出：evidence_use=direct（直接逐字引用报告，需direct_quote）、paraphrased（病程复述，需narrative_quote，仍需另引报告direct_quote）、unresolved或none；publication_before_choice、reading_before_choice、novelty及causal_role分别判断。只有报告/签发时间不等于医生已读，直接引用或关键词相似不等于真正采用。未建立关系时写unresolved，不猜。
+J. 事件存在、报告证据保留、发布/阅读时间、证据使用、Checkpoint证明、Episode组织和开发试阅范围是不同字段。证据不确定只降低相应证明强度，不得删除保存的事件或报告。
+
+V04-TIME-008双通道补充约束（不得据此自动升Checkpoint）：
+K. proof_event_role必须分别标为first_visible_management_choice（首个可见管理安排）、new_management_choice（新的检查/暂缓/改变等管理安排）、evidence_informed_management_choice（证据驱动的后续管理选择）、test_execution_anchor（检查执行锚点）、evidence_object_only（报告证据对象）、repeat_or_execution（重复/执行）、postchoice_record（选择后记录）或uncertain。该角色是LLM的文书表述功能/证明义务分类，不是已确认临床阶段或专家Reference。first_visible_management_choice和new_management_choice不强制前置临床决策事件；evidence_informed_management_choice仍须previous_event_id、相关证据演化和连接。不得借首锚点绕过已有相关前轮，也不得把背景常规检查虚构成前置决策。
+L. 报告时间链与语义证据链分别判断。temporal_channel_status可取temporally_possibly_visible（已有核验材料支持报告发布时间在选择前，但只是时间上可能可见）、unresolved（时间未知或不可排序）、conflict（报告/记录时间与语义声明冲突）、not_applicable。semantic_channel_status可取explicit_before_choice（当前文书原文明确该结果在选择前引用/复述/探查取得）、after_choice（只属选择后记录，不得反证）、unresolved或not_applicable。任一通道缺失不删除事件；两个通道都没有支持时证明不足。不得由语义生成issued、报告时间、精确阅读时间、所有医生已读或临床因果采用。
+M. observation_availability每条新增proof_channels、semantic_order、action_quote、connection_quote和proof_explanation。observation仍是患者事实的最短原文，不能包含当前动作子句；action_quote必须逐字对应本事件的choice_boundary_quotes之一，只用于定位目标动作，不能冒充患者事实。connection_quote可以是同一句中“证据＋因此/阅片后/遂决定＋动作”的完整最短片段，允许包含动作，但只证明叙述连接，不单独证明阅读或因果。semantic_order取before/after/same_time_unresolved/unknown。proof_channels只能使用report_time、semantic_prechoice；明确选择前叙述可使semantic_prechoice成立，即使报告发布时间未知。after_choice、空引文、错误来源或对象冲突不能成立阳性通道。proof_event_role=evidence_informed_management_choice时，每条本轮用于比较的新事实须有一条相符availability记录。
+N. evidence_relations每条新增proof_event_role、temporal_channel_status、semantic_channel_status、semantic_order、current_action_quote、connection_quote和proof_explanation。direct/paraphrased仍分别需要报告原文和当前文书复述；direct_quote/narrative_quote、current_action_quote、connection_quote分别承担不同作用，不能用一段引文静默替代另一段。narrative_quote尽量只含报告复述，connection_quote另含与动作的连接。报告发布时间未知只令报告时间通道unresolved，不自动否决另一条有明确原文的semantic_prechoice通道；明确记录时间早于报告发布时间是conflict，不能被语义标签覆盖。
+O. 比较事实的覆盖是逐条的：一条有效关系不能自动证明本事件全部current_information_quotes为选择前已知，也不能证明全部报告均已使用。current_information_quotes应与observation_quotes及observation_availability.observation逐字对应；若把多个独立事实放在一条引文中，可用多条有重叠但各自语义独立的availability记录覆盖，不能借词面相似覆盖另一对象。缺失、错source_id、重复含糊引文和不同对象保持局部未决并进入程序反馈。
+P. key_management_predecessor_rationale说明previous_event_id/same_process_previous_id为何是真正相关临床管理比较对象；没有则为空字符串。可以只连接关键管理前轮，但不能为了精简而删除其他报告、病程、申请单、手术记录或EvidenceObject。选择后复述/执行保持repeat_or_execution或postchoice_record；风险解除、报告日期冲突、来源对象错误仍需独立证据，不能靠语义宽松消除。
+Q. 示例边界：『检查甲异常，拟完善检查乙』中，『检查甲异常』可为observation，『拟完善检查乙』为action，跨两子句的原文可作connection；不得把包含动作的整句作为observation。『阅片会诊后，建议手术』可支持semantic_prechoice，但不是issued。『手术完成后复查……』只能after_choice。原文只写『根据辅助检查』而未明确对象时，不能推定每份报告都在选择前采用。
 """
 
 UNCERTAINTY_KEYS = ['scope', 'event_identity_or_granularity', 'choice_time', 'source_availability',
@@ -110,12 +125,28 @@ _COMPARISON = {
         'explanation':{'type':'string','minLength':1},
     },
 }
+_PROOF_EVENT_ROLE = {'type':'string','enum':[
+    'first_visible_management_choice','new_management_choice',
+    'evidence_informed_management_choice','test_execution_anchor',
+    'evidence_object_only','repeat_or_execution','postchoice_record','uncertain']}
+_PROOF_CHANNELS = {'type':'array','items':{'type':'string','enum':['report_time','semantic_prechoice']},
+                   'uniqueItems':True}
+_TEMPORAL_CHANNEL = {'type':'string','enum':[
+    'temporally_possibly_visible','unresolved','conflict','not_applicable']}
+_SEMANTIC_CHANNEL = {'type':'string','enum':[
+    'explicit_before_choice','after_choice','unresolved','not_applicable']}
+_SEMANTIC_ORDER = {'type':'string','enum':['before','after','same_time_unresolved','unknown']}
 _AVAILABILITY = {'type':'array','items':{
     'type':'object','additionalProperties':False,
-    'required':['observation','availability','basis_quotes','explanation'],
+    'required':['observation','availability','basis_quotes','explanation',
+                'proof_channels','semantic_order','action_quote','connection_quote','proof_explanation'],
     'properties':{'observation':deepcopy(_QUOTE),
        'availability':{'type':'string','enum':['explicitly_known_before','record_proxy_only','uncertain','after_choice']},
-       'basis_quotes':deepcopy(_QUOTES),'explanation':{'type':'string','minLength':1}},
+       'basis_quotes':deepcopy(_QUOTES),'explanation':{'type':'string','minLength':1},
+       'proof_channels':deepcopy(_PROOF_CHANNELS),'semantic_order':deepcopy(_SEMANTIC_ORDER),
+       'action_quote':{'anyOf':[deepcopy(_QUOTE),{'type':'null'}]},
+       'connection_quote':{'anyOf':[deepcopy(_QUOTE),{'type':'null'}]},
+       'proof_explanation':{'type':'string','minLength':1}},
 }}
 
 DISCOVERY_SCHEMA = {
@@ -156,6 +187,32 @@ DISCOVERY_SCHEMA = {
     },
 }
 
+_EVIDENCE_RELATION = {
+    'type':'object','additionalProperties':False,
+    'required':['evidence_object_ids','evidence_use','direct_quote','narrative_quote',
+                'publication_before_choice','reading_before_choice','novelty','causal_role','explanation',
+                'proof_event_role','temporal_channel_status','semantic_channel_status','semantic_order',
+                'current_action_quote','connection_quote','proof_explanation'],
+    'properties':{
+        'evidence_object_ids':deepcopy(_STRINGS),
+        'evidence_use':{'type':'string','enum':['direct','paraphrased','unresolved','none']},
+        'direct_quote':{'anyOf':[dict(deepcopy(_QUOTE),required=[]),{'type':'null'}]},
+        'narrative_quote':{'anyOf':[dict(deepcopy(_QUOTE),required=[]),{'type':'null'}]},
+        'publication_before_choice':{'type':'string','enum':['yes','no','unknown']},
+        'reading_before_choice':{'type':'string','enum':['yes','no','unknown']},
+        'novelty':{'type':'string','enum':['new','changed','repeated','uncertain']},
+        'causal_role':{'type':'string','enum':['trigger','baseline','context','not_established']},
+        'explanation':{'type':'string','minLength':1},
+        'proof_event_role':deepcopy(_PROOF_EVENT_ROLE),
+        'temporal_channel_status':deepcopy(_TEMPORAL_CHANNEL),
+        'semantic_channel_status':deepcopy(_SEMANTIC_CHANNEL),
+        'semantic_order':deepcopy(_SEMANTIC_ORDER),
+        'current_action_quote':{'anyOf':[deepcopy(_QUOTE),{'type':'null'}]},
+        'connection_quote':{'anyOf':[deepcopy(_QUOTE),{'type':'null'}]},
+        'proof_explanation':{'type':'string','minLength':1},
+    },
+}
+
 REVIEW_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["items"],
@@ -182,6 +239,12 @@ REVIEW_SCHEMA = {
                     "evidence_connection": deepcopy(_CONNECTION),
                     "observation_availability": deepcopy(_AVAILABILITY),
                     "uncertainty_dimensions": deepcopy(_DIMENSIONS),
+                    "checkpoint_kind": {'type':'string','enum':['new_management_choice','evidence_informed_choice','not_applicable']},
+                    "evidence_relations": {'type':'array','items':deepcopy(_EVIDENCE_RELATION)},
+                    "proof_event_role": deepcopy(_PROOF_EVENT_ROLE),
+                    "temporal_channel_status": deepcopy(_TEMPORAL_CHANNEL),
+                    "semantic_channel_status": deepcopy(_SEMANTIC_CHANNEL),
+                    "key_management_predecessor_rationale": {'type':'string'},
                 },
             },
         },
@@ -190,4 +253,6 @@ REVIEW_SCHEMA = {
 
 DISCOVERY_SCHEMA['properties']['events']['items']['required'] += ['choice_boundary_quotes','uncertainty_dimensions']
 REVIEW_SCHEMA['properties']['items']['items']['required'] += [
-    'evidence_comparison','evidence_connection','observation_availability','uncertainty_dimensions']
+    'evidence_comparison','evidence_connection','observation_availability','uncertainty_dimensions',
+    'checkpoint_kind','evidence_relations','proof_event_role','temporal_channel_status',
+    'semantic_channel_status','key_management_predecessor_rationale']

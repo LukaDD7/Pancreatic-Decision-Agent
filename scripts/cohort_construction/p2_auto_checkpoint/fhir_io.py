@@ -9,6 +9,9 @@ from pathlib import Path
 from jsonschema import Draft6Validator
 
 from scripts.cohort_construction.p2_fhir_replay.core import pack_event, source_bundle
+from scripts.cohort_construction.p2_pathway_replay.core import (
+    clock as source_clock, available_source_clock,
+)
 from .extract import digest, body_clock, clock
 
 
@@ -24,9 +27,15 @@ def build(sources, patient_alias, decisions, episodes):
         # whitespace character used in exported Chinese form titles. Only the
         # display label is normalized; the raw title/text remain in provenance.
         display_title=re.sub(r'[^\S \r\n\t]',' ',str(s['title'] or s['kind']))
+        release_role = next((role for role in ('report_time', 'report_date', 'issued')
+                             if s['clocks'].get(role, {}).get('value')), None)
+        # A document date is not a report release timestamp. Keep the generic
+        # FHIR issued field empty rather than relabeling source_create_time.
+        if kind == 'document':
+            release_role = None
         event = pack_event(patient_alias, kind, s['source_id'], display_title, s['text'],
                            event_time=s['clocks'].get('exam_time', {}).get('value'),
-                           release_time=s['clocks'].get('report_time', {}).get('value'),
+                           release_time=s['clocks'].get(release_role, {}).get('value') if release_role else None,
                            recorded_time=s['clocks'].get('source_create_time', {}).get('value'),
                            time_basis=s['clock_basis'], result=original.get('检验结果值'),
                            unit=original.get('检验结果单位'), reference=original.get('检验参考值'))
@@ -39,7 +48,8 @@ def build(sources, patient_alias, decisions, episodes):
             url=EXT+'source-clock-and-provenance', valueString=json.dumps(dict(
                 family=s['family'], clocks=s['clocks'], provenance=s['provenance'],
                 source_id=s['source_id'], source_kind=s['kind'], source_title=s['title'],
-                source_fields=s.get('original_fields', {}), clock=s['clock'], clock_basis=s['clock_basis'],
+                source_fields=s.get('original_fields', {}), clock=s.get('clock'), clock_basis=s.get('clock_basis'),
+                time_provenance=s.get('time_provenance', {}),
                 original_observation_text=s['text'] if s['kind']=='lab' else None,
                 display_title_whitespace_normalized=display_title!=s['title'],
                 flags=s.get('flags', []), source_sha256=s['source_sha256'], availability_certified=False), ensure_ascii=True)))
@@ -69,6 +79,25 @@ def build(sources, patient_alias, decisions, episodes):
     return bundle
 
 
+def _generic_attachment_text(attachments):
+    """Return text only for the one reversible generic attachment layout.
+
+    P2AUTO-023: concatenating inline parts invents a new clinical document;
+    selecting their inline subset silently drops URL content. Generic imports
+    therefore reject every multi-part or inline+URL layout. A resource with no
+    attachments is still preserved as its complete original JSON by the caller.
+    The adapter's own single-inline resources use the separate lossless
+    extension path and are unaffected.
+    """
+    if len(attachments) > 1 or any(
+            'data' in attachment and attachment.get('url') not in (None, '')
+            for attachment in attachments):
+        raise ValueError('FHIR_GENERIC_MULTI_OR_MIXED_ATTACHMENT_UNSUPPORTED')
+    if not attachments or 'data' not in attachments[0]:
+        return None
+    return base64.b64decode(attachments[0]['data'], validate=True).decode()
+
+
 def import_sources(bundle):
     """Read source resources, ignoring any research Basic annotations.
 
@@ -91,8 +120,12 @@ def import_sources(bundle):
             raise ValueError('FHIR_SOURCE_PATIENT_REFERENCE_MISMATCH')
         meta=next((json.loads(e['valueString']) for e in r.get('extension',[]) if e['url']==EXT+'source-clock-and-provenance'),None)
         attachments=([c['attachment'] for c in r.get('content',[])] if rt=='DocumentReference' else r.get('presentedForm',[]))
-        texts=[base64.b64decode(a['data'],validate=True).decode() for a in attachments if 'data' in a]
-        text='\n'.join(texts) if texts else json.dumps(r,ensure_ascii=False,indent=2)
+        if not meta:
+            texts=_generic_attachment_text(attachments)
+            text=texts if texts is not None else json.dumps(r,ensure_ascii=False,indent=2)
+        else:
+            texts=[base64.b64decode(a['data'],validate=True).decode() for a in attachments if 'data' in a]
+            text='\n'.join(texts) if texts else json.dumps(r,ensure_ascii=False,indent=2)
         if meta and rt=='Observation':
             text=meta['original_observation_text']
         source_hash=hashlib.sha256(text.encode()).hexdigest()
@@ -100,7 +133,8 @@ def import_sources(bundle):
             if source_hash!=meta['source_sha256']:raise ValueError('FHIR_ATTACHMENT_SOURCE_HASH_MISMATCH')
             sources.append(dict(source_id=meta['source_id'],patient_uid=patient,kind=meta['source_kind'],
                                 family=meta['family'],title=meta['source_title'],text=text,source_sha256=source_hash,
-                                clocks=meta['clocks'],clock=meta['clock'],clock_basis=meta['clock_basis'],
+                                clocks=meta['clocks'],clock=meta.get('clock'),clock_basis=meta.get('clock_basis'),
+                                time_provenance=meta.get('time_provenance', {}),
                                 provenance=meta['provenance'],original_fields=meta['source_fields'],flags=meta['flags']))
             continue
         # Generic resource import: keep the entire original JSON when no text
@@ -111,11 +145,20 @@ def import_sources(bundle):
         effective=fhir_clock(r.get('effectiveDateTime')); issued=fhir_clock(r.get('issued'))
         if kind=='document':
             clocks={'body_record_time':body_clock(text),'source_create_time':fhir_clock(r.get('date'))}
-            chosen=clocks['body_record_time']; basis='body_record_time'
+            candidate = dict(source_id=digest([patient,rt,r.get('id'),source_hash])[:24],
+                kind=kind,title=title,text=text,source_sha256=source_hash,clocks=clocks,
+                clock=clocks['body_record_time'],clock_basis='body_record_time')
+            # The generic FHIR adapter shares the same narrow request-signature
+            # adapter as native v04. It is still a record-day proxy, not a
+            # publication, choice, or clinician-reading timestamp.
+            from scripts.cohort_construction.p2_auto_checkpoint_v04.source_time import source_record_time
+            _, chosen, basis, _ = available_source_clock(
+                candidate, document_record_time=source_record_time)
         else:
             clocks={'report_time':issued,'exam_time' if kind=='imaging' else 'observation_effective_time':effective}
-            chosen=issued if issued['value'] else effective if kind=='imaging' else clock(None)
-            basis='issued_proxy' if issued['value'] else 'exam_time_proxy_release_unknown' if kind=='imaging' else 'unknown'
+            # Both generic DiagnosticReport and Observation use the shared
+            # release resolver. effective/exam time cannot replace issued time.
+            _, chosen, basis, _ = available_source_clock(dict(kind=kind, clocks=clocks))
         sources.append(dict(source_id=digest([patient,rt,r.get('id'),source_hash])[:24],patient_uid=patient,
                             kind=kind,family='FHIR/'+rt,title=title,text=text,source_sha256=source_hash,
                             clocks=clocks,clock=chosen,clock_basis=basis,
@@ -125,12 +168,8 @@ def import_sources(bundle):
 
 
 def fhir_clock(raw):
-    c=clock(raw)
-    if isinstance(raw,str) and c['value'] and c['precision']!='date':
-        parsed=datetime.fromisoformat(raw.replace('Z','+00:00'))
-        if parsed.tzinfo:
-            c['value']=parsed.astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
-    return c
+    """Use the same offset/subsecond normalization as native source ingress."""
+    return source_clock(raw)
 
 
 def validate(bundle, schema_path):

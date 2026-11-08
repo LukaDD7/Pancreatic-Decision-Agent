@@ -7,6 +7,11 @@ The same adapter is deliberately not treated as an independent approval.
 """
 from copy import deepcopy
 
+from scripts.cohort_construction.p2_auto_checkpoint_v04.provider_diagnostics import (
+    CHAIN_STAGES, DiagnosticValueError, diagnostics_for, private_chain_evidence,
+    reason_for, replay_transport_evidence, schema_diagnostic,
+    validate_private_chain_evidence, validate_provider_attempt_binding,
+)
 from scripts.cohort_construction.p2_auto_checkpoint_v04.validation import resolve_citations
 from scripts.cohort_construction.p2_checkpoint_material_governance.assembly import (
     freeze_candidate_graph, rebuild_reconstruction_context,
@@ -21,7 +26,8 @@ LEGACY_REQUEST_FORMAT = 'candidate-graph-reconstruction-request-0.1.0'
 EVENT_CONTRACT = 'candidate-reconstruction-material-event-0.1.0'
 
 FORMAT = 'candidate-graph-reconstruction-response-0.2.0'
-CHAIN_FORMAT = 'candidate-graph-reconstruction-chain-0.2.0'
+CHAIN_FORMAT = 'candidate-graph-reconstruction-chain-0.3.0'
+LEGACY_CHAIN_FORMATS = ('candidate-graph-reconstruction-chain-0.2.0',)
 TASK = 'checkpoint_candidate_graph_bounded_reconstruction'
 REQUEST_KINDS = ('EVENT_RECONSTRUCTION', 'RELATION_RECONSTRUCTION',
                  'EPISODE_RECONSTRUCTION', 'PROGRAM_REPAIR')
@@ -156,6 +162,11 @@ def build_graph_reconstruction_request(audit_request, audit_response, *, legacy=
         auditor_may_not_approve_own_reconstruction=True,
         original_clinical_text_may_not_be_rewritten=True,
         clinical_release_permitted=False)
+    if audit_request.get('reconstruction_lineage') is not None:
+        # A later generation audits a reconstructed graph. Its complete lineage
+        # participates in the original audit request hash and must therefore be
+        # retained by the separate reconstruction request as well.
+        request['reconstruction_lineage'] = deepcopy(audit_request['reconstruction_lineage'])
     request['response_binding'] = _request_binding(audit_request)
     if not legacy:
         request['event_contract_version'] = EVENT_CONTRACT
@@ -169,7 +180,8 @@ def _validate_response(request, response):
             if request['format'] == LEGACY_REQUEST_FORMAT else GRAPH_RECONSTRUCTION_SCHEMA)
         Draft202012Validator(schema).validate(response)
     except ValidationError as exc:
-        raise ValueError('GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID') from exc
+        raise DiagnosticValueError('GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID',
+            [schema_diagnostic(exc, schema, response)]) from exc
     if any(response.get(key) != request['response_binding'][key]
             for key in ('protocol_version', 'graph_sha256', 'request_sha256')):
         raise ValueError('GRAPH_RECONSTRUCTION_RESPONSE_BINDING_MISMATCH')
@@ -224,6 +236,22 @@ def _validate_request(request):
     return request
 
 
+def _citation_diagnostics(resolved, *, event_id, path):
+    diagnostics = []
+    for category in ('invalid', 'ambiguous'):
+        for item in resolved.get(category, []):
+            citation = item.get('citation', {})
+            diagnostics.append(dict(kind='RECONSTRUCTION_CITATION',
+                code='GRAPH_RECONSTRUCTION_MATERIAL_CITATION_NOT_VERIFIABLE',
+                event_id=event_id, instance_path=[*path, 'valid', item['citation_index'], 'quote'],
+                citation_index=item['citation_index'], resolution_status=item['status'],
+                source_id=item.get('source_id', citation.get('source_id')),
+                source_sha256=item.get('source_sha256'), quote=citation.get('quote'),
+                occurrences=deepcopy(item.get('occurrences', [])),
+                auto_repair_permitted=False))
+    return diagnostics
+
+
 def _validate_material_event(event, sources):
     declared = event['source_ids']
     if event['source_id'] not in declared:
@@ -233,17 +261,19 @@ def _validate_material_event(event, sources):
     originals = [sources[sid] for sid in declared]
     allowed = {sid: [(0, len(sources[sid]['text']))] for sid in declared}
 
-    def verify(collection):
+    def verify(collection, path):
         resolved = resolve_citations(collection['valid'], originals, allowed)
-        if resolved['invalid'] or resolved['ambiguous']:
-            raise ValueError('GRAPH_RECONSTRUCTION_MATERIAL_CITATION_NOT_VERIFIABLE')
+        diagnostics = _citation_diagnostics(resolved,
+            event_id=event['event_id'], path=path)
+        if diagnostics:
+            raise DiagnosticValueError('GRAPH_RECONSTRUCTION_MATERIAL_CITATION_NOT_VERIFIABLE', diagnostics)
         # Invalid and ambiguous proposals remain provenance, never evidence.
         return dict(valid=resolved['valid'], invalid=deepcopy(collection['invalid']),
                     ambiguous=deepcopy(collection['ambiguous']))
 
     for name in ('choice_boundary_citations', 'prechoice_citations',
                  'postchoice_citations', 'validated_observation_citations'):
-        event[name] = verify(event[name])
+        event[name] = verify(event[name], ['graph', 'events', event['event_id'], name])
     for item in event['availability_validation']:
         for name in ('validated_observation', 'validated_basis'):
             if name in item:
@@ -252,7 +282,8 @@ def _validate_material_event(event, sources):
                     Draft202012Validator(_CITATION_GROUPS).validate(item[name])
                 except ValidationError as exc:
                     raise ValueError('GRAPH_RECONSTRUCTION_AVAILABILITY_CITATIONS_INVALID') from exc
-                item[name] = verify(item[name])
+                item[name] = verify(item[name],
+                    ['graph', 'events', event['event_id'], 'availability_validation', name])
 
 
 def validate_graph_reconstruction(request, response):
@@ -376,14 +407,26 @@ def run_graph_reconstruction(audit_request, audit_response, ask):
                 and any(isinstance(item, dict) and 'schema_path' in item
                         for item in receipt.get('attempts', [])):
             provider_binding['transport_response_schema_rejected'] = True
-        failure = dict(stage='PROVIDER_REQUEST' if response is None else 'RESPONSE_VALIDATION',
-            error_type=type(exc).__name__, reason_code=str(exc) if isinstance(exc, ValueError) else type(exc).__name__)
+        stage = 'RESPONSE_VALIDATION' if response is not None else 'PROVIDER_REQUEST'
+        if isinstance(getattr(exc, 'failure_evidence', None), dict):
+            stage = exc.failure_evidence['terminal_stage']
+        failure = dict(stage=stage,
+            error_type=type(exc).__name__, reason_code=reason_for(exc))
         if isinstance(receipt, dict):
             for key in ('invocation_id', 'request_sha256'):
                 if isinstance(receipt.get(key), str) and receipt[key]:
                     failure['provider_' + key if key == 'invocation_id' else key] = receipt[key]
+        if type(exc).__name__ == 'ModelRequestFailed' \
+                and isinstance(getattr(exc, 'failure_evidence', None), dict):
+            failure['reason_code'] = exc.failure_evidence.get('reason_code', failure['reason_code'])
         if provider_binding is not None:
             failure['provider_invocation_id'] = receipt['invocation_id']
+        evidence = getattr(exc, 'failure_evidence', None)
+        if isinstance(evidence, dict):
+            failure['provider_attempt_evidence'] = private_chain_evidence(evidence)
+        diagnostics = diagnostics_for(exc)
+        if diagnostics is not None:
+            failure['program_diagnostics'] = diagnostics
         chain = dict(format=CHAIN_FORMAT,
             state='RECONSTRUCTION_HOLD', request=request, failure=failure,
             response_evidence_preserved=response is not None,
@@ -411,7 +454,8 @@ def validate_graph_reconstruction_chain(chain, *, expected_request=None,
     expected request or ledger binding is supplied, both are independently
     checked; absence of either is an error rather than a fallback to self-hash.
     """
-    if not isinstance(chain, dict) or chain.get('format') != CHAIN_FORMAT \
+    if not isinstance(chain, dict) or (chain.get('format') != CHAIN_FORMAT
+            and chain.get('format') not in LEGACY_CHAIN_FORMATS) \
             or canonical_sha256({key: value for key, value in chain.items() if key != 'chain_sha256'}) != chain.get('chain_sha256'):
         raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_FORMAT_OR_HASH_INVALID')
     if (chain.get('graph_modified_by_auditor') is not False
@@ -425,16 +469,21 @@ def validate_graph_reconstruction_chain(chain, *, expected_request=None,
         failure = chain.get('failure')
         if failure is not None:
             if (not isinstance(failure, dict)
-                    or failure.get('stage') not in ('PROVIDER_REQUEST', 'RESPONSE_VALIDATION')
+                    or failure.get('stage') not in CHAIN_STAGES
                     or not isinstance(failure.get('error_type'), str) or not failure['error_type']
                     or not isinstance(failure.get('reason_code'), str) or not failure['reason_code']):
                 raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_FAILURE_INVALID')
-            if failure['stage'] == 'PROVIDER_REQUEST':
+            if failure['stage'] in ('PROVIDER_REQUEST', 'PROVIDER_HTTP_RESPONSE',
+                    'PROVIDER_ENVELOPE_PARSE', 'PROVIDER_CONTENT_PARSE'):
                 if any(key in chain for key in ('response', 'provider_receipt', 'provider_response_binding')) \
                         or chain.get('response_evidence_preserved') is not False:
                     raise ValueError('GRAPH_RECONSTRUCTION_PROVIDER_FAILURE_EVIDENCE_INVALID')
                 invocation_id = failure.get('provider_invocation_id')
                 if invocation_id is not None and (not isinstance(invocation_id, str) or not invocation_id):
+                    raise ValueError('GRAPH_RECONSTRUCTION_PROVIDER_FAILURE_EVIDENCE_INVALID')
+            elif failure['stage'] == 'RESPONSE_SCHEMA_VALIDATION':
+                if not chain.get('provider_receipt') or not chain.get('provider_response_binding') \
+                        or 'response' not in chain or chain.get('response_evidence_preserved') is not True:
                     raise ValueError('GRAPH_RECONSTRUCTION_PROVIDER_FAILURE_EVIDENCE_INVALID')
             elif chain.get('response_evidence_preserved') is not True:
                 raise ValueError('GRAPH_RECONSTRUCTION_RESPONSE_FAILURE_EVIDENCE_REQUIRED')
@@ -442,14 +491,10 @@ def validate_graph_reconstruction_chain(chain, *, expected_request=None,
             raise ValueError('GRAPH_RECONSTRUCTION_HOLD_EVIDENCE_REQUIRED')
     else:
         raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_STATE_INVALID')
-    if chain.get('failure') is None or chain['failure']['stage'] != 'PROVIDER_REQUEST':
-        expected_binding = _provider_binding(chain.get('response'), chain.get('provider_receipt'))
-        if chain['provider_receipt'].get('status') == 'FAILED' \
-                and any(isinstance(item, dict) and 'schema_path' in item
-                        for item in chain['provider_receipt'].get('attempts', [])):
-            expected_binding['transport_response_schema_rejected'] = True
-        if chain.get('provider_response_binding') != expected_binding:
-            raise ValueError('GRAPH_RECONSTRUCTION_PROVIDER_BINDING_MISMATCH')
+    failure = chain.get('failure')
+    # Validate the parent and independently supplied expected input before any
+    # failure-response diagnostics. Otherwise a changed source can be reported as
+    # a model-diagnostic mismatch instead of a tampered request.
     try:
         _validate_request(chain['request'])
     except (KeyError, TypeError, ValueError) as exc:
@@ -459,6 +504,57 @@ def validate_graph_reconstruction_chain(chain, *, expected_request=None,
             legacy=chain['request']['format'] == LEGACY_REQUEST_FORMAT)
         if chain['request'] != expected:
             raise ValueError('GRAPH_RECONSTRUCTION_PARENT_REQUEST_BINDING_MISMATCH')
+    if expected_provider is not None:
+        if expected_provider.get('payload_sha256') is not None \
+                and canonical_sha256(chain['request']) != expected_provider['payload_sha256']:
+            raise ValueError('GRAPH_RECONSTRUCTION_LEDGER_REQUEST_BINDING_MISMATCH')
+    if failure is not None:
+        evidence = failure.get('provider_attempt_evidence')
+        if failure['stage'] != 'RESPONSE_VALIDATION':
+            current = chain['format'] == CHAIN_FORMAT
+            synthetic = current and evidence is None \
+                and failure.get('error_type') == 'RuntimeError'
+            if chain['format'] in LEGACY_CHAIN_FORMATS and evidence is None:
+                # A frozen old shell remains inspectable, but cannot acquire a
+                # verified local replay merely by adding a transport-stage label.
+                if expected_request is None:
+                    return dict(format='candidate-graph-reconstruction-chain-replay-0.2.0',
+                        chain_sha256=chain['chain_sha256'], state=state,
+                        input_graph_sha256=chain['request']['input_graph']['graph_sha256'],
+                        output_graph_sha256=None, failure_replayed=False, replay_verified=False,
+                        model_call_performed=False, historical_failure_shell_only=True,
+                        fresh_independent_graph_audit_required=False,
+                        clinical_release_permitted=False)
+                if expected_provider is None or failure.get('error_type') != 'RuntimeError' \
+                        or failure.get('provider_invocation_id') != expected_provider.get('invocation_id'):
+                    raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_LEGACY_FAILURE_BINDING_REQUIRED')
+            if not synthetic:
+                validate_private_chain_evidence(evidence, evidence)
+                validate_provider_attempt_binding(evidence, failure)
+                replay_transport_evidence(evidence, LEGACY_GRAPH_RECONSTRUCTION_SCHEMA
+                    if chain['request']['format'] == LEGACY_REQUEST_FORMAT else GRAPH_RECONSTRUCTION_SCHEMA)
+                if failure.get('error_type') != 'ModelRequestFailed':
+                    raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_PROVIDER_REASON_MISMATCH')
+        elif evidence is not None:
+            validate_private_chain_evidence(evidence, evidence)
+            validate_provider_attempt_binding(evidence, failure, receipt={})
+            if failure.get('error_type') != 'ModelRequestFailed':
+                raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_PROVIDER_REASON_MISMATCH')
+        if failure.get('program_diagnostics') is not None:
+            try:
+                validate_graph_reconstruction(chain['request'], chain['response'])
+            except ValueError as exc:
+                if diagnostics_for(exc) != failure['program_diagnostics']:
+                    raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_DIAGNOSTIC_REPLAY_MISMATCH') from exc
+    if chain.get('failure') is None or chain['failure']['stage'] not in ('PROVIDER_REQUEST',
+            'PROVIDER_HTTP_RESPONSE', 'PROVIDER_ENVELOPE_PARSE', 'PROVIDER_CONTENT_PARSE'):
+        expected_binding = _provider_binding(chain.get('response'), chain.get('provider_receipt'))
+        if chain['provider_receipt'].get('status') == 'FAILED' \
+                and any(isinstance(item, dict) and 'schema_path' in item
+                        for item in chain['provider_receipt'].get('attempts', [])):
+            expected_binding['transport_response_schema_rejected'] = True
+        if chain.get('provider_response_binding') != expected_binding:
+            raise ValueError('GRAPH_RECONSTRUCTION_PROVIDER_BINDING_MISMATCH')
     if expected_provider is not None:
         binding = chain.get('provider_response_binding') or chain['failure']
         if binding.get('invocation_id', binding.get('provider_invocation_id')) \
@@ -479,19 +575,46 @@ def validate_graph_reconstruction_chain(chain, *, expected_request=None,
                 and provider_receipt.get('response_sha256') != expected_provider['response_sha256']:
             raise ValueError('GRAPH_RECONSTRUCTION_LEDGER_RESPONSE_BINDING_MISMATCH')
     if chain.get('failure') is not None:
-        if chain['failure']['stage'] == 'PROVIDER_REQUEST':
+        if failure['stage'] in ('PROVIDER_REQUEST', 'PROVIDER_HTTP_RESPONSE',
+                'PROVIDER_ENVELOPE_PARSE', 'PROVIDER_CONTENT_PARSE'):
+            if current and evidence is None and not synthetic:
+                raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_PROVIDER_EVIDENCE_REQUIRED')
+            if not any(key in chain['failure'] for key in ('provider_invocation_id', 'request_sha256')):
+                raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_PROVIDER_RECEIPT_REQUIRED')
             return dict(format='candidate-graph-reconstruction-chain-replay-0.2.0',
                 chain_sha256=chain['chain_sha256'], state=state,
                 input_graph_sha256=chain['request']['input_graph']['graph_sha256'],
-                output_graph_sha256=None, failure_replayed=True, replay_verified=True,
+                output_graph_sha256=None, failure_replayed=True,
+                replay_verified=evidence is not None,
+                failure_category_binding_verified=evidence is None,
+                local_failure_recomputed=False,
+                synthetic_adapter_failure_only=synthetic,
+                historical_failure_shell_only=synthetic,
+                model_call_performed=False, fresh_independent_graph_audit_required=False,
+                clinical_release_permitted=False)
+        # Transport HTTP/JSON/Schema failures are already replayed from the
+        # terminal provider evidence. Do not reclassify their parsed response as
+        # a business RESPONSE_VALIDATION exception (which may use another Schema).
+        if failure['stage'] in ('PROVIDER_HTTP_RESPONSE', 'PROVIDER_ENVELOPE_PARSE',
+                'PROVIDER_CONTENT_PARSE', 'RESPONSE_SCHEMA_VALIDATION'):
+            return dict(format='candidate-graph-reconstruction-chain-replay-0.2.0',
+                chain_sha256=chain['chain_sha256'], state=state,
+                input_graph_sha256=chain['request']['input_graph']['graph_sha256'],
+                output_graph_sha256=None, failure_replayed=True,
+                replay_verified=evidence is not None,
+                failure_category_binding_verified=evidence is None,
                 model_call_performed=False, fresh_independent_graph_audit_required=False,
                 clinical_release_permitted=False)
         try:
             validate_graph_reconstruction(chain['request'], chain['response'])
         except ValueError as exc:
             if (str(exc) != chain['failure']['reason_code'] or chain['failure']['error_type'] != 'ValueError') \
-                    and not (chain['failure']['error_type'] == 'ModelRequestFailed'
-                    and chain['failure']['reason_code'] == 'ModelRequestFailed'
+                    and not (chain['failure']['error_type'] == 'DiagnosticValueError'
+                    and str(exc) == chain['failure']['reason_code']) \
+                    and not (chain['format'] in LEGACY_CHAIN_FORMATS
+                    and chain['failure']['error_type'] == 'ModelRequestFailed'
+                    and chain['failure']['reason_code'] in (
+                        'ModelRequestFailed', 'RESPONSE_SCHEMA_VALIDATION_FAILED')
                     and str(exc) == 'GRAPH_RECONSTRUCTION_RESPONSE_SCHEMA_INVALID'
                     and chain['provider_response_binding'].get('transport_response_schema_rejected') is True):
                 raise ValueError('GRAPH_RECONSTRUCTION_CHAIN_FAILURE_REPLAY_MISMATCH') from exc

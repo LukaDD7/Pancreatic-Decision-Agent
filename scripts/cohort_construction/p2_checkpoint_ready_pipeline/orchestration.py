@@ -35,10 +35,28 @@ def _targets(graph, episode_id):
     return list(episode['checkpoint_ids'])
 
 
-def _stage(stages, stage, state, reason=None):
-    item = dict(stage=stage, state=state, reason_code=reason)
+def _stage(stages, stage, state, reason=None, *, execution_origin='INHERITED',
+           model_accounted=False, run=None):
+    parent = (run.get('continuation') or {}).get('parent_run_sha256') if run is not None else None
+    item = dict(stage=stage, state=state, reason_code=reason,
+        execution_origin=execution_origin, model_accounted=model_accounted,
+        parent_run_sha256=parent)
+    if execution_origin == 'INHERITED' and run is not None:
+        item['model_usage_base'] = deepcopy(run['model_usage_base'])
     stages.append(item)
     return item
+
+
+def _base_usage_record(usage, binding):
+    result = dict(format='checkpoint-ready-pipeline-model-usage-base-0.2.0',
+        usage=deepcopy(usage), binding=deepcopy(binding))
+    result['base_sha256'] = canonical_sha256(result)
+    return result
+
+
+def _stage_model_usage(before, budget):
+    from .model_accounting import usage_delta
+    return usage_delta(before, budget.snapshot(), before['max_model_invocations'])
 
 
 def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, episode_id, semantic_audits, questionnaire,
@@ -70,10 +88,33 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
         raise ValueError('READY_PIPELINE_COMPLETE_ADAPTER_SET_REQUIRED')
     output = new_output(output, private_root=private_root) if persist else None
     budget = PipelineBudget(max_model_calls, adapters, initial_model_usage)
+    if inherited is not None:
+        if not isinstance(inherited.get('parent_run'), dict) \
+                or inherited['parent_run'].get('run_sha256') != (continuation or {}).get('parent_run_sha256') \
+                or initial_model_usage is None:
+            raise ValueError('READY_PIPELINE_INHERITANCE_PARENT_REQUIRED')
+    if initial_model_usage is None:
+        base = budget.snapshot()
+        binding = dict(kind='NONE')
+    elif inherited is not None:
+        base = deepcopy(inherited['parent_run']['model_usage'])
+        if initial_model_usage != base:
+            raise ValueError('READY_PIPELINE_INHERITED_MODEL_USAGE_CHANGED')
+        binding = dict(kind='CONTINUATION', parent_run_sha256=continuation['parent_run_sha256'],
+            parent_model_usage_sha256=canonical_sha256(base))
+    elif graph_revision is not None and graph_revision.get('reconstruction_chain') is not None:
+        base = deepcopy(initial_model_usage)
+        binding = dict(kind='GRAPH_RECONSTRUCTION',
+            reconstruction_chain_sha256=graph_revision['reconstruction_chain']['chain_sha256'])
+    else:
+        raise ValueError('READY_PIPELINE_UNBOUND_INITIAL_MODEL_USAGE')
     run = dict(format=RUN_FORMAT, input_contract=contract, episode_id=episode_id,
         expected_checkpoint_ids=_targets(graph, episode_id), stages=[],
-        model_usage=budget.snapshot(), delivery_gate=deepcopy(contract['delivery_gate']),
+        model_usage=budget.snapshot(), model_usage_base=_base_usage_record(base, binding),
+        delivery_gate=deepcopy(contract['delivery_gate']),
         doctor_assignment_created=False, clinical_release_permitted=False)
+    if continuation is not None:
+        run['continuation'] = deepcopy(continuation)
     if persist:
         write(output / 'input-contract.json', contract)
         write(output / 'implementation-snapshot.json', implementation_snapshot())
@@ -101,6 +142,8 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
             if reconstruction_chain is not None:
                 write(output / 'graph-reconstruction-chain.json', reconstruction_chain)
     if inherited:
+        if not isinstance(inherited.get('parent_run'), dict)                 or inherited['parent_run'].get('run_sha256') != continuation.get('parent_run_sha256')                 or initial_model_usage is None:
+            raise ValueError('READY_PIPELINE_INHERITANCE_PARENT_REQUIRED')
         from .persistence import validate_inheritance
         inherited = validate_inheritance(inherited, contract)
         run['inheritance_receipt'] = inherited.pop('receipt')
@@ -109,6 +152,7 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
     stages = run['stages']
 
     graph_chain = inherited.get('graph_audit_chain')
+    graph_origin = 'INHERITED'
     audit_context = deepcopy(contract['graph_audit_context'])
     if graph_revision is not None and reconstruction_chain is not None:
         from scripts.cohort_construction.p2_checkpoint_reconstruction_audit.lineage import build_graph_revision_lineage
@@ -120,20 +164,26 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
         private_mkdir(output / 'graph', exist_ok=False)
         write(output / 'graph' / 'request.json', request)
     if graph_chain is None and execute:
+        graph_before = budget.snapshot()
         graph_chain = run_graph_audit_chain(request,
             lambda task, payload, schema: budget.ask_for('graph', task, payload, schema),
             max_rounds=max_rounds, journal=_journal(output / 'graph') if persist else None,
             compact_transport=config.get('graph_audit_compact_transport', False))
+        graph_origin = 'EXECUTED'
     if graph_chain is not None:
         validate_graph_audit_chain(graph_chain)
         if graph_chain['initial_request'] != request:
             raise ValueError('READY_PIPELINE_INHERITED_GRAPH_REQUEST_CHANGED')
+        if graph_origin == 'INHERITED':
+            graph_before = run['model_usage_base']['usage']
         run['graph_audit_chain'] = graph_chain
-        _stage(stages, 'GRAPH_AUDIT', graph_chain['state'], graph_chain['stop_reason'])
+        graph_stage = _stage(stages, 'GRAPH_AUDIT', graph_chain['state'], graph_chain['stop_reason'],
+            execution_origin=graph_origin, model_accounted=graph_origin == 'EXECUTED', run=run)
+        graph_stage['model_usage_delta'] = _stage_model_usage(graph_before, budget)
         if persist:
             write(output / 'graph' / 'chain.json', graph_chain)
     else:
-        _stage(stages, 'GRAPH_AUDIT', 'PREPARED_NOT_EXECUTED')
+        _stage(stages, 'GRAPH_AUDIT', 'PREPARED_NOT_EXECUTED', run=run)
         return _finish(run, output, budget, continuation, persist)
     if graph_chain['state'] != 'AUTO_GRAPH_AUDIT_PASS':
         return _finish(run, output, budget, continuation, persist)
@@ -143,9 +193,9 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
     selected = [task for task in tasks if task['episode_id'] == episode_id]
     run['assembly_failures'] = [item for item in failures if item['episode_id'] == episode_id]
     if failures or {task['compiled']['target']['checkpoint_id'] for task in selected} != set(run['expected_checkpoint_ids']):
-        _stage(stages, 'MATERIAL_PREPARATION', 'HOLD', 'INCOMPLETE_OR_FAILED_EPISODE_TARGETS')
+        _stage(stages, 'MATERIAL_PREPARATION', 'HOLD', 'INCOMPLETE_OR_FAILED_EPISODE_TARGETS', run=run)
         return _finish(run, output, budget, continuation, persist)
-    _stage(stages, 'MATERIAL_PREPARATION', 'PASS')
+    _stage(stages, 'MATERIAL_PREPARATION', 'PASS', run=run)
     chains = dict(inherited.get('material_chains', {}))
     for task in selected:
         checkpoint_id = task['compiled']['target']['checkpoint_id']
@@ -160,7 +210,14 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
             if persist:
                 write(directory / 'chain.json', chain)
                 write(directory / 'replay.json', validate_review_chain(chain, expected_graph_context=task['task_context']))
-            _stage(stages, 'MATERIAL:' + checkpoint_id, chain['state'], chain['stop_reason'])
+            material_stage = dict(stage='MATERIAL:' + checkpoint_id,
+                state=chain['state'], reason_code=chain['stop_reason'],
+                execution_origin='INHERITED', model_accounted=False,
+                parent_run_sha256=(run.get('continuation') or {}).get('parent_run_sha256'),
+                model_usage_base=deepcopy(run['model_usage_base']))
+            material_stage['model_usage_delta'] = _stage_model_usage(
+                run['model_usage_base']['usage'], budget)
+            stages.append(material_stage)
             continue
         if chain is None and execute:
             before = budget.snapshot()
@@ -171,7 +228,12 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
                     candidate_sources=task['candidate_sources'], excluded_sources=task['excluded_sources'],
                     task_context=task['task_context'], max_rounds=max_rounds, journal=journal)
             except Exception as exc:
-                _stage(stages, 'MATERIAL:' + checkpoint_id, 'ORCHESTRATION_HOLD', type(exc).__name__)
+                stage = _stage(stages, 'MATERIAL:' + checkpoint_id,
+                    'ORCHESTRATION_HOLD', type(exc).__name__,
+                    execution_origin='EXECUTED', model_accounted=True, run=run)
+                # A request-build or other pre-adapter failure has an exact
+                # before/after budget delta too; do not erase the zero usage.
+                stage['model_usage_delta'] = _stage_model_usage(before, budget)
                 if persist:
                     write(directory / 'orchestration-failure.json', dict(
                         reason_code=type(exc).__name__, detail=str(exc),
@@ -182,12 +244,15 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
                 if persist:
                     write(directory / 'model-budget-receipt.json', dict(before=before, after=budget.snapshot()))
         if chain is None:
-            _stage(stages, 'MATERIAL:' + checkpoint_id, 'PREPARED_NOT_EXECUTED')
+            _stage(stages, 'MATERIAL:' + checkpoint_id, 'PREPARED_NOT_EXECUTED', run=run)
             continue
         validate_review_chain(chain, expected_graph_context=task['task_context'])
         chains[checkpoint_id] = chain
         material_stage = dict(stage='MATERIAL:' + checkpoint_id, state=chain['state'],
             reason_code=chain['stop_reason'], journal_verified=True,
+            execution_origin='EXECUTED', model_accounted=True,
+            parent_run_sha256=(run.get('continuation') or {}).get('parent_run_sha256'),
+            model_usage_delta=_stage_model_usage(before, budget),
             journal_sha256=canonical_sha256(_persisted_journal(directory / 'rounds', chain)))
         if persist:
             write(directory / 'chain.json', chain)
@@ -199,7 +264,8 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
     if any(chain is None for chain in chains.values()):
         return _finish(run, output, budget, continuation, persist)
     if set(chains) != set(run['expected_checkpoint_ids']):
-        _stage(stages, 'EPISODE_MATERIAL_SET', 'HOLD', 'INCOMPLETE_CHECKPOINT_COVERAGE')
+        _stage(stages, 'EPISODE_MATERIAL_SET', 'HOLD',
+            'INCOMPLETE_CHECKPOINT_COVERAGE', run=run)
         return _finish(run, output, budget, continuation, persist)
     items = [material_item(task, chains[task['compiled']['target']['checkpoint_id']]) for task in selected]
     reference = dict(episode_id=episode_id, candidate_version=graph['graph_version'],
@@ -209,9 +275,24 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
     if persist:
         write(output / 'episode-material-set.json', material_set)
     if any(item['state'] != 'AUTO_REVIEW_PASS' for item in items):
-        _stage(stages, 'EPISODE_MATERIAL_SET', 'HOLD', 'CHECKPOINT_MATERIAL_NOT_PASS')
+        _stage(stages, 'EPISODE_MATERIAL_SET', 'HOLD', 'CHECKPOINT_MATERIAL_NOT_PASS', run=run)
+    else:
+        _stage(stages, 'EPISODE_MATERIAL_SET', 'AUTO_REVIEW_PASS', run=run)
+    if config.get('research_feedback_enabled') is True:
+        from scripts.cohort_construction.p2_checkpoint_material_governance.feedback import (
+            build_research_feedback_draft, render_research_feedback_html,
+        )
+        draft = build_research_feedback_draft(material_set,
+            source_limitations=config.get('research_feedback_limitations', []))
+        run['research_feedback_draft'] = draft
+        run['research_feedback_html'] = render_research_feedback_html(draft)
+        _stage(stages, 'RESEARCH_FEEDBACK_DRAFT', 'RESEARCH_FEEDBACK_DRAFT_READY',
+            'UNREVIEWED_RESEARCH_FEEDBACK_NOT_FORMAL_BLIND_PACKET', run=run)
+        if persist:
+            write(output / 'research-feedback-draft.json', draft)
+            write_text(output / 'research-feedback.html', run['research_feedback_html'])
+    if any(item['state'] != 'AUTO_REVIEW_PASS' for item in items):
         return _finish(run, output, budget, continuation, persist)
-    _stage(stages, 'EPISODE_MATERIAL_SET', 'AUTO_REVIEW_PASS')
     from .delivery_gate import delivery_gate_hold
     if delivery_gate_hold(run, output, persist):
         return _finish(run, output, budget, continuation, persist)
@@ -264,6 +345,7 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
         private_mkdir(output / 'delivery-audit', exist_ok=False)
         write(output / 'delivery-audit' / 'request.json', request)
     delivery_chain = inherited.get('delivery_audit_chain')
+    delivery_origin = 'INHERITED'
     if revision_cycle is not None:
         delivery_chain = None
     if delivery_chain is not None:
@@ -271,15 +353,21 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
         if delivery_chain['initial_request'] != request or delivery_chain['state'] != 'AUTO_DELIVERY_AUDIT_PASS':
             raise ValueError('READY_PIPELINE_INHERITED_DELIVERY_REQUEST_CHANGED')
     if delivery_chain is None and execute:
+        delivery_before = budget.snapshot()
         delivery_chain = run_delivery_audit_chain(request,
             lambda task, payload, schema: budget.ask_for('delivery', task, payload, schema),
             journal=_journal(output / 'delivery-audit') if persist else None)
+        delivery_origin = 'EXECUTED'
     if delivery_chain is None:
-        _stage(stages, 'DELIVERY_AUDIT', 'PREPARED_NOT_EXECUTED')
+        _stage(stages, 'DELIVERY_AUDIT', 'PREPARED_NOT_EXECUTED', run=run)
         return _finish(run, output, budget, continuation, persist)
     validate_delivery_audit_chain(delivery_chain)
     run['delivery_audit_chain'] = delivery_chain
-    _stage(stages, 'DELIVERY_AUDIT', delivery_chain['state'], delivery_chain['stop_reason'])
+    if delivery_origin == 'INHERITED':
+        delivery_before = run['model_usage_base']['usage']
+    delivery_stage = _stage(stages, 'DELIVERY_AUDIT', delivery_chain['state'], delivery_chain['stop_reason'],
+        execution_origin=delivery_origin, model_accounted=delivery_origin == 'EXECUTED', run=run)
+    delivery_stage['model_usage_delta'] = _stage_model_usage(delivery_before, budget)
     if persist:
         write(output / 'delivery-audit' / 'chain.json', delivery_chain)
     if delivery_chain['state'] != 'AUTO_DELIVERY_AUDIT_PASS':
@@ -290,7 +378,7 @@ def run_episode_pipeline(*, output, graph, sources, graph_audit_sources=None, ep
     if ready['resource_state'] != 'READY_FOR_HUMAN_SAMPLING':
         raise ValueError('READY_PIPELINE_AUTOMATIC_GATE_MISMATCH')
     run['ready_resource'] = ready
-    _stage(stages, 'READY_RESOURCE', ready['resource_state'])
+    _stage(stages, 'READY_RESOURCE', ready['resource_state'], run=run)
     if persist:
         write(output / 'ready-resource.json', ready)
     return _finish(run, output, budget, continuation, persist)
@@ -321,7 +409,12 @@ def _consume_delivery_revision(revision_cycle, run, material_set, deliveries, qu
 
 
 def _finish(run, output, budget, continuation, persist):
-    run['model_usage'] = budget.snapshot()
+    # ``budget.snapshot()`` is already a detached value; avoid sharing it
+    # between the cumulative usage and the current-execution delta.
+    run['model_usage'] = deepcopy(budget.snapshot())
+    from .model_accounting import usage_delta
+    run['current_execution_model_usage'] = usage_delta(run['model_usage_base']['usage'],
+        budget.snapshot(), run['model_usage_base']['usage']['max_model_invocations'])
     if continuation is not None:
         run['continuation'] = deepcopy(continuation)
     states = [item['state'] for item in run['stages']]
@@ -329,7 +422,9 @@ def _finish(run, output, budget, continuation, persist):
         run['state'] = 'READY_FOR_HUMAN_SAMPLING'
     elif any('REVISE' in state for state in states):
         run['state'] = 'REVISION_REQUIRED'
-    elif any('HOLD' in state or 'REVISE' in state for state in states):
+    elif any(state == 'RESEARCH_FEEDBACK_DRAFT_READY' for state in states):
+        run['state'] = 'RESEARCH_FEEDBACK_DRAFT_READY'
+    elif any('HOLD' in state for state in states):
         run['state'] = 'HOLD'
     else:
         run['state'] = 'PREPARED_NOT_EXECUTED'

@@ -8,7 +8,7 @@
       "id": "CE-AUD-007",
       "problem": "Repairable citation and contract failures in the live review pipeline did not receive bounded model feedback and full revalidation; unsafe recovery could mutate the source context, create positives from invalid responses, repeat indefinitely or use another concurrent invocation's receipt.",
       "change_type": "conditional_review_repair",
-      "implementation": "A maximum of one conditional revision reuses the exact original source pool, per-event allowlists and discovery event catalog. Initial-response MODEL_OMITTED_EVENT_ID and MODEL_DUPLICATED_EVENT_ID fallback markers are mechanical repair triggers only when the original request hash exists; unmarked semantic uncertainty is not expanded. Each returned object is schema-checked and mechanically revalidated. Missing/duplicate targets and failures preserve the original classification. Failed transport receipts are accepted only from the invocation-bound ModelRequestFailed with consistent task, hash and failed status; shared receipt lists are never read.",
+      "implementation": "A maximum of one conditional revision reuses the exact original source pool, per-event allowlists and discovery event catalog. Initial-response MODEL_OMITTED_EVENT_ID and MODEL_DUPLICATED_EVENT_ID fallback markers are mechanical repair triggers only when the original request hash exists; unmarked semantic uncertainty is not expanded. Structured SEMANTIC_PROOF and EVIDENCE_RELATION technical errors are localized by event, EvidenceObject, field, source, citation span and rule, with explicit revision limits; after-choice, unresolved and conflict findings are not positive-repair triggers. Each returned object is schema-checked, immutable-identity checked and mechanically revalidated. Missing/duplicate targets and failures preserve the original classification. Failed transport receipts are accepted only from the invocation-bound ModelRequestFailed with consistent task, hash and failed status; shared receipt lists are never read. Synthetic success receipts bind the canonical repair payload. Production fresh/cache receipts separately bind transport request identity, canonical payload, returned result and terminal evidence; the two hash domains are never equated. Parent/repair request, prompt, schema and cache identities are retained, with absent provider versions marked UNKNOWN_NOT_SUPPLIED.",
       "limitations": "Passing schema, citation and contract checks does not establish clinical semantic correctness or make a physician blind-review packet. Existing original facts remain authoritative.",
       "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_review_feedback.py",
       "required_tests": [
@@ -29,6 +29,11 @@
         "test_CEAUD007_arbitrary_provider_error_text_is_not_copied_into_audit",
         "test_CEAUD007_revalidation_exception_retains_original_without_second_request",
         "test_CEAUD007_invalid_configuration_fails_before_model_call",
+        "test_CEAUD007_structured_field_and_relation_errors_receive_bounded_local_feedback",
+        "test_CEAUD007_after_choice_conflict_and_nonrepairable_proof_do_not_trigger",
+        "test_CEAUD007_revision_cannot_expand_source_object_event_or_time_authority",
+        "test_CEAUD007_parent_and_repair_identities_are_recorded_without_invented_version",
+        "test_CEAUD007_legacy_availability_field_error_is_localized_without_new_matrix",
         "test_CEAUD007_issue_map_references_existing_required_tests"
       ]
     }

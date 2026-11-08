@@ -12,6 +12,105 @@ from .context import build_units, context_for_discovery, build_evidence_context,
 from .source_time import source_record_time
 from .prompts import DISCOVERY_INSTRUCTIONS, DISCOVERY_SCHEMA, REVIEW_INSTRUCTIONS, REVIEW_SCHEMA
 from .validation import resolve_citations
+from .evidence import compile_evidence_relations
+from .semantic_proof import (
+    compile_availability, combine_current_fact_coverage, proof_role_matches,
+)
+
+
+def checkpoint_kind(review):
+    """CE-REM-002: explicit new choices do not assert pre-existing new facts.
+
+    Legacy archived/new_evidence fixtures retain their evidence-informed proof
+    obligations. Only a newly declared management choice uses the new branch.
+    """
+    return review.get('checkpoint_kind') or (
+        'evidence_informed_choice' if review.get('checkpoint') == 'new_evidence' else None)
+
+
+def _span(citation):
+    original = citation.get('citation') or {}
+    start, end = citation.get('start', original.get('start')), citation.get('end', original.get('end'))
+    if isinstance(start, int) and isinstance(end, int) and not isinstance(start, bool) and not isinstance(end, bool):
+        return start, end
+    return None
+
+
+def _overlap(left, right):
+    a, b = _span(left), _span(right)
+    return bool(a and b and max(a[0], b[0]) < min(a[1], b[1]))
+
+
+def _choice_boundary_spans(event):
+    """Return explicitly located choice occurrences, including ambiguous quotes.
+
+    An ambiguous citation never supplies a chosen event boundary. Each of its
+    source-verified occurrences can nevertheless disprove use of that exact
+    action sentence as a prior patient fact.
+    """
+    groups = event.get('choice_boundary_citations') or {}
+    return [(citation, occurrence)
+            for status in ('valid', 'ambiguous')
+            for citation in groups.get(status, [])
+            for occurrence in ([citation] if _span(citation) else citation.get('occurrences', []))
+            if _span(occurrence)]
+
+
+def _citation_overlaps_choice(citation, boundary_spans):
+    spans = ([citation] if _span(citation) else []) \
+        + list(citation.get('occurrences', [])) + list(citation.get('raw_occurrences', []))
+    return any(citation.get('source_id') == boundary.get('source_id')
+               and _overlap(span, occurrence)
+               for boundary, occurrence in boundary_spans for span in spans)
+
+
+def action_used_as_patient_fact(event, validated):
+    """Detect precise current-choice clauses, not broad action/fact overlap.
+
+    A patient observation may be inside a broad action-support quote. It is only
+    the explicit semantic choice clause that cannot precede its own selection.
+    This field-level defect never deletes or repairs the quote silently.
+    """
+    boundaries = _choice_boundary_spans(event)
+    if not boundaries:
+        # A broad action-support quote can contain independent prechoice facts.
+        # Without an exact semantic choice clause, no overlap proves that the
+        # submitted patient fact is itself the current action. Fail proof
+        # coverage elsewhere rather than manufacturing this field error.
+        return []
+    proof = validated.get('current_information', {})
+    rows = [q for status in ('valid', 'invalid', 'ambiguous')
+            for q in proof.get(status, []) if _citation_overlaps_choice(q, boundaries)]
+    return [dict(code='CURRENT_ACTION_USED_AS_NEW_PATIENT_FACT',
+                 field='evidence_comparison.current_information_quotes',
+                 citation_index=q.get('citation_index'), source_id=q.get('source_id'),
+                 quote=q.get('quote'), repairable=True,
+                 correction='Separate a new management choice from a new patient fact; retain the event.')
+            for q in rows]
+
+
+def _current_action_field_errors(event, review, validated, observations=None):
+    """Return source-bound field errors without guessing broad action semantics."""
+    errors = action_used_as_patient_fact(event, validated)
+    if checkpoint_kind(review) != 'new_management_choice':
+        return errors
+    boundaries = _choice_boundary_spans(event)
+    if not boundaries:
+        # Without an exact choice clause there is no source-bound basis for
+        # relabeling an independent observation as the current action. Preserve
+        # the citation and any separate boundary uncertainty; never fabricate a
+        # CURRENT_ACTION_USED_AS_NEW_PATIENT_FACT error for every observation.
+        return errors
+    for proof, field in ((observations or {}, 'observation_quotes'),):
+        for status in ('valid', 'invalid', 'ambiguous'):
+            for citation in proof.get(status, []):
+                if _citation_overlaps_choice(citation, boundaries):
+                    errors.append(dict(code='CURRENT_ACTION_USED_AS_NEW_PATIENT_FACT',
+                        field=field, citation_index=citation.get('citation_index'),
+                        source_id=citation.get('source_id'), quote=citation.get('quote'),
+                        repairable=True,
+                        correction='Use a pre-existing patient observation, not the current choice; retain the event.'))
+    return errors
 
 
 def redact(value, names):
@@ -37,6 +136,26 @@ def resolve_model_quotes(quotes, sources, names, allowed=None):
     for a in result['invalid']:
         source=indexed.get(a.get('source_id'))
         if source is None:continue
+        # Rejections caused solely by an invalid/stale allowlist can still have
+        # exact raw-text occurrences. Preserve their coordinates separately from
+        # eligibility: they are never source support, but can disprove reuse of
+        # the current choice sentence as a prior patient fact. Unknown text,
+        # mismatched hashes and invalid explicit offsets receive no guessed span.
+        if a.get('status') == 'INVALID_ALLOWED_SPANS':
+            submitted = a.get('citation') or {}
+            quote = submitted.get('quote')
+            if isinstance(quote, str) and quote and not ('start' in submitted or 'end' in submitted):
+                occurrences = []
+                cursor = 0
+                while True:
+                    start = source['text'].find(quote, cursor)
+                    if start < 0:
+                        break
+                    occurrences.append(dict(start=start, end=start+len(quote),
+                        quote=quote, allowed=False, raw_quote_verified=True))
+                    cursor = start + 1
+                if occurrences:
+                    a['raw_occurrences'] = occurrences
         a['lookup_display_source_sha256']=a.get('source_sha256')
         a['source_sha256']=source['source_sha256']
         a['submitted_masked_quote']=a.get('quote') or (a.get('citation') or {}).get('quote')
@@ -65,6 +184,10 @@ def supported(citations):
 
 def discover_unit(unit,sources,config,client,names):
     context=context_for_discovery(unit,sources,config['discovery_context_characters'])
+    if context['budget']['current_unit_over_budget']:
+        if not config.get('allow_overbudget_current_unit', False):
+            raise ValueError('CURRENT_UNIT_EXCEEDS_DISCOVERY_BUDGET_EXPLICIT_WAIVER_REQUIRED')
+        context['budget']['explicit_current_unit_budget_waiver'] = True
     payload=redact(dict(instruction=DISCOVERY_INSTRUCTIONS,unit_id=unit['unit_id'],**context),names)
     result,receipt=client.ask('document_event_discovery',payload,DISCOVERY_SCHEMA)
     def compile_response(response, response_receipt):
@@ -153,6 +276,37 @@ def select_status(event, review, observations, connections, earlier_ids, identit
     if review.get('scope')!='yes':
         return ('NOT_RELATED' if review.get('scope')=='no' else 'UNCERTAIN_SCOPE'),reasons
     proposed=review['checkpoint']
+    if any(row.get('source_blocking_reasons') or
+           (row.get('temporal_conflict_present') and proposed not in ('first_anchor', 'repeat'))
+           for row in (event.get('evidence_relation_ledger') or {}).get('relations', [])) \
+            and not (proposed == 'new_evidence' \
+                     and checkpoint_kind(review) == 'new_management_choice'):
+        # Source/object/citation blockers veto evidence-informed proof. A genuine
+        # temporal conflict blocks a new-evidence claim too, but does not erase a
+        # performed-test execution anchor. Publication unknown remains local.
+        reasons.append('EVIDENCE_RELATION_UNRESOLVED')
+    if proposed in ('first_anchor', 'repeat', 'not_related', 'uncertain') \
+            and 'checkpoint_kind' in review \
+            and checkpoint_kind(review) != 'not_applicable':
+        reasons.append('CHECKPOINT_PROOF_KIND_NOT_APPLICABLE_REQUIRED')
+    if proposed in ('repeat', 'not_related', 'uncertain'):
+        return {'repeat': 'REPEATED_OR_EXECUTED_MENTION',
+                'not_related': 'NOT_RELATED',
+                'uncertain': 'UNCERTAIN_SEMANTIC_JUDGMENT'}[proposed], reasons
+    if proposed == 'first_anchor' and event.get('kind') == 'performed_test_report':
+        # An execution anchor is retained even when its selection time or an
+        # auxiliary proof-kind field is unresolved. Those reasons do not turn
+        # the performed test into an evidence-informed management decision.
+        return 'CANDIDATE_TEST_ANCHOR_TIME_UNCERTAIN', reasons
+    if proposed in ('first_anchor', 'repeat', 'not_related', 'uncertain') \
+            and reasons:
+        # Preserve event existence and explicit proof/relation issues on an
+        # already noncandidate mention; do not relabel the mention as a
+        # source-supported new clinical decision merely because it has errors.
+        return {'first_anchor': 'CANDIDATE_FIRST_ANCHOR',
+                'repeat': 'REPEATED_OR_EXECUTED_MENTION',
+                'not_related': 'NOT_RELATED',
+                'uncertain': 'UNCERTAIN_SEMANTIC_JUDGMENT'}[proposed], reasons
     if proposed=='repeat':return 'REPEATED_OR_EXECUTED_MENTION',reasons
     if proposed=='not_related':return 'NOT_RELATED',reasons
     if proposed=='uncertain':return 'UNCERTAIN_SEMANTIC_JUDGMENT',reasons
@@ -160,26 +314,51 @@ def select_status(event, review, observations, connections, earlier_ids, identit
     if review.get('record_function') in ['repeat','execution','generic','uncertain'] and not test_anchor:
         reasons.append('MODEL_EVENT_FUNCTION_CHECKPOINT_CONFLICT')
     if proposed=='new_evidence':
-        if review['evidence_evolution']!='new_relevant':reasons.append('MODEL_NEWNESS_CONFLICT')
-        if not supported(observations):reasons.append('NO_VALID_PRIOR_OBSERVATION')
-        if not review.get('previous_event_id'):reasons.append('PRIOR_ROUND_UNRESOLVED')
-        if review.get('evidence_connection',review['process_link'])!='supported':reasons.append('EVIDENCE_CONNECTION_UNCERTAIN')
-        if not supported(connections):reasons.append('NO_VERIFIED_CONNECTION_QUOTE')
-        if 'evidence_comparison' in review:
-            if review['evidence_comparison']['change_kind'] not in ['new_measurement','changed_state','explicit_reinterpretation']:
-                reasons.append('COMPARISON_DOES_NOT_ESTABLISH_NEW_INFORMATION')
-            reasons.extend(event.get('semantic_contract_validation',[]))
+        if checkpoint_kind(review) == 'new_management_choice':
+            # A new EUS-FNA, deferral or additional-imaging choice is the current
+            # action. It cannot also be required to predate its own selection.
+            if event.get('kind') == 'performed_test_report':
+                reasons.append('REPORT_RESULT_CANNOT_PROVE_SELECTION_OF_ITSELF')
+            if review.get('record_function') not in ['new_decision', 'reassessment']:
+                reasons.append('MANAGEMENT_CHOICE_FUNCTION_NOT_ESTABLISHED')
+            if 'CURRENT_ACTION_USED_AS_NEW_PATIENT_FACT' in event.get('semantic_contract_validation', []) \
+                    or event.get('field_validation_errors'):
+                reasons.append('CURRENT_ACTION_USED_AS_NEW_PATIENT_FACT')
+        elif checkpoint_kind(review) == 'evidence_informed_choice':
+            if review['evidence_evolution']!='new_relevant':reasons.append('MODEL_NEWNESS_CONFLICT')
+            if not supported(observations):reasons.append('NO_VALID_PRIOR_OBSERVATION')
+            if not review.get('previous_event_id'):reasons.append('PRIOR_ROUND_UNRESOLVED')
+            if review.get('evidence_connection',review['process_link'])!='supported':reasons.append('EVIDENCE_CONNECTION_UNCERTAIN')
+            if not supported(connections):reasons.append('NO_VERIFIED_CONNECTION_QUOTE')
+            if 'evidence_comparison' in review:
+                if review['evidence_comparison']['change_kind'] not in ['new_measurement','changed_state','explicit_reinterpretation']:
+                    reasons.append('COMPARISON_DOES_NOT_ESTABLISH_NEW_INFORMATION')
+                reasons.extend(event.get('semantic_contract_validation',[]))
+        else:
+            reasons.append('CHECKPOINT_PROOF_KIND_REQUIRED')
     if proposed=='first_anchor' and review.get('previous_event_id'):
         reasons.append('FIRST_ANCHOR_HAS_PRIOR_ROUND')
-    if reasons:return 'UNCERTAIN_CONTRACT_OR_SOURCE',reasons
+    if reasons:
+        # A legacy performed-test first anchor has no separate evidence-informed
+        # proof kind; unresolved relations stay recorded but do not invent one.
+        if proposed == 'first_anchor' and event.get('kind') == 'performed_test_report' \
+                and reasons == ['EVIDENCE_RELATION_UNRESOLVED'] \
+                and checkpoint_kind(review) in (None, 'not_applicable'):
+            return 'CANDIDATE_TEST_ANCHOR_TIME_UNCERTAIN',reasons
+        return 'UNCERTAIN_CONTRACT_OR_SOURCE',reasons
     if proposed=='first_anchor':
         return ('CANDIDATE_TEST_ANCHOR_TIME_UNCERTAIN' if event['kind']=='performed_test_report' else 'CANDIDATE_FIRST_ANCHOR'),reasons
-    return 'CANDIDATE_NEW_EVIDENCE',reasons
+    return ('CANDIDATE_NEW_MANAGEMENT_CHOICE' if checkpoint_kind(review) == 'new_management_choice'
+            else 'CANDIDATE_NEW_EVIDENCE'),reasons
 
 
 def _allowed_connection_ranges(event, context, sources):
     allowed=copy.deepcopy(context['allowed_spans']);byid={s['source_id']:s for s in sources}
     for sid in event['source_ids']:
+        # Preserve every structurally allowed prechoice region, not just the
+        # prefix of one broad action quote. A connection may cross a fact/action
+        # clause boundary but can never use a separately declared postchoice fact.
+        regions=[(span['start'],span['end']) for span in context.get('allowed_spans',{}).get(sid,[])]
         ends=[q['end'] for q in event['action_citations']['valid'] if q['source_id']==sid]
         if ends:
             end=max(ends);text=byid[sid]['text']
@@ -188,7 +367,7 @@ def _allowed_connection_ranges(event, context, sources):
             # closing/sentence punctuation, never into later clinical words.
             while end<len(text) and (text[end].isspace() or text[end] in '。！？!?；;，,：:、.）)]】》”’\"\''):
                 end+=1
-            regions=[(0,end)]
+            regions.append((0,end))
             # Explicitly separated downstream facts can precede the narrative
             # choice in a retrospective note. Prefix order does not make those
             # declared postoperative results eligible connection evidence.
@@ -238,14 +417,16 @@ def eligible_prior_ids(event, ledger, all_events, sources, context):
     return eligible
 
 
-def validate_semantic_contract(event, review, context, sources, all_events, names):
+def validate_semantic_contract(event, review, context, sources, all_events, names,
+                               relation_ledger=None):
     """Check semantic proof provenance, never infer novelty from word overlap.
 
     Whether facts are new, relevant or explicitly connected remains the model's
     judgment. This rejects unsupported claims of the required proof structure.
     """
     if 'evidence_comparison' not in review:
-        return {}, [], []  # Legacy synthetic fixtures / archived records.
+        return dict(field_errors=[], current_fact_coverage=dict(
+            per_current_fact=[], known_current_information_supported=False, field_errors=[])), [], []  # Legacy synthetic fixtures / archived records.
     byevent={e['event_id']:e for e in all_events}
     previous=byevent.get(review.get('previous_event_id'))
     prior_allowed={}
@@ -262,37 +443,170 @@ def validate_semantic_contract(event, review, context, sources, all_events, name
         'reinterpretation':resolve_model_quotes(comp['reinterpretation_quotes'],sources,names,connection_allowed),
     }
     availability=[];known_current=[]
+    modern_proof=bool(review.get('proof_event_role') or any(
+        'proof_channels' in item for item in review.get('observation_availability',[])))
     def exact_entries(c):
         return c.get('valid',[])
     for item in review.get('observation_availability',[]):
         observation=resolve_model_quotes([item['observation']],sources,names,current_allowed)
         basis=resolve_model_quotes(item['basis_quotes'],sources,names,connection_allowed)
+        action=resolve_model_quotes([item['action_quote']],sources,names) if item.get('action_quote') else None
+        connection=resolve_model_quotes([item['connection_quote']],sources,names,connection_allowed) \
+            if item.get('connection_quote') else None
         declared_observation=item['observation'] in review.get('observation_quotes',[])
+        proof=compile_availability(event,item,observation,basis,action,connection,
+            legacy=not modern_proof)
         explicit=(item['availability']=='explicitly_known_before' and supported(observation) and supported(basis)
-                  and declared_observation)
+                  and declared_observation and proof['channels']['semantic_prechoice']['supported'])
+        # Migrated historical availability records had no explicit channel/action
+        # fields. They keep the old source/basis contract instead of being
+        # retroactively assigned a new semantic judgement.
+        if not modern_proof:
+            explicit=(item['availability']=='explicitly_known_before' and supported(observation)
+                      and supported(basis) and declared_observation)
+        item_proof_errors=list(proof['field_errors']) if modern_proof else []
+        if modern_proof and not declared_observation:
+            citation=(observation.get('valid') or observation.get('invalid')
+                      or observation.get('ambiguous') or [{}])[0]
+            item_proof_errors.append(dict(
+                code='SEMANTIC_PROOF_OBSERVATION_NOT_DECLARED', event_id=event['event_id'],
+                evidence_object_id=None, field_path='observation_availability.observation',
+                source_id=item['observation'].get('source_id'),
+                citation_index=citation.get('citation_index'),
+                span={key:citation[key] for key in ('start','end') if key in citation} or None,
+                rule='V04-TIME-008', repairable=True,
+                correction='Declare this exact observation object in observation_quotes; do not substitute a longer parent quotation.'))
         availability.append(dict(**item,validated_observation=observation,validated_basis=basis,
+            validated_action=action,validated_connection=connection,compiled_proof_channels=proof,
             is_declared_observation=declared_observation,eligible_as_known_prechoice=explicit,
+            field_errors=item_proof_errors,
             semantic_claim_not_independently_validated=True))
         if explicit:known_current.extend(exact_entries(observation))
     # A known old symptom cannot stand in for the alleged new information.
-    def covered(a):
-        end=a['start']
-        for low,high in sorted((b['start'],b['end']) for b in known_current if a['source_id']==b['source_id']):
-            if low>end:break
-            end=max(end,high)
-            if end>=a['end']:return True
-        return False
-    current_entries=exact_entries(validated['current_information'])
-    known_new=bool(current_entries) and all(covered(a) for a in current_entries)
+    coverage=combine_current_fact_coverage(event,validated['current_information'],
+        availability,relation_ledger,legacy=not modern_proof)
+    known_new=coverage['known_current_information_supported']
+    validated['current_fact_coverage']=coverage
     reasons=[]
+    field_errors=action_used_as_patient_fact(event, validated)
+    field_errors.extend(error for row in availability for error in row.get('field_errors',[]))
+    field_errors.extend(coverage['field_errors'])
+    if not proof_role_matches(review):
+        field_errors.append(dict(code='SEMANTIC_PROOF_EVENT_ROLE_CHECKPOINT_MISMATCH',
+            event_id=event['event_id'],evidence_object_id=None,field_path='proof_event_role',
+            source_id=None,citation_index=None,span=None,rule='V04-TIME-008',repairable=True,
+            correction='Align the declared proof obligation with checkpoint_kind; do not bypass an existing prior round.'))
+    validated['field_errors']=field_errors
     if review['checkpoint']=='new_evidence':
-        if not supported(validated['previous_known']):reasons.append('PREVIOUS_KNOWLEDGE_PROOF_MISSING_OR_OUTSIDE_PRIOR_ROUND')
-        if not supported(validated['current_information']):reasons.append('CURRENT_COMPARISON_PROOF_MISSING_OR_OUTSIDE_EVIDENCE')
-        if comp['change_kind']=='explicit_reinterpretation' and not supported(validated['reinterpretation']):
+        if checkpoint_kind(review) != 'new_management_choice' and not supported(validated['previous_known']):reasons.append('PREVIOUS_KNOWLEDGE_PROOF_MISSING_OR_OUTSIDE_PRIOR_ROUND')
+        if checkpoint_kind(review) != 'new_management_choice' and not supported(validated['current_information']):reasons.append('CURRENT_COMPARISON_PROOF_MISSING_OR_OUTSIDE_EVIDENCE')
+        if checkpoint_kind(review) != 'new_management_choice' and comp['change_kind']=='explicit_reinterpretation' and not supported(validated['reinterpretation']):
             reasons.append('EXPLICIT_REINTERPRETATION_HAS_NO_SOURCE_PROOF')
-        if not known_new:reasons.append('NEW_INFORMATION_AVAILABILITY_ONLY_PROXY_OR_UNRESOLVED')
+        if checkpoint_kind(review) != 'new_management_choice' and not known_new:reasons.append('NEW_INFORMATION_AVAILABILITY_ONLY_PROXY_OR_UNRESOLVED')
+        # Never drop a bad entry and then claim the remaining subset was the
+        # model's complete comparison. Keep a distinct, repairable field defect.
+        for field in ('previous_known', 'current_information', 'reinterpretation'):
+            if validated[field].get('invalid') or validated[field].get('ambiguous'):
+                reasons.append('COMPARISON_SUBMITTED_CITATIONS_INCOMPLETE_OR_UNRESOLVED:' + field)
+        if field_errors:
+            reasons.extend(dict.fromkeys(error['code'] for error in field_errors))
     validated['known_current_information_supported']=known_new
     return validated,availability,reasons
+
+
+def validate_evidence_relations(event, review, context, sources, names):
+    """Validate each evidence-use quote against its own role and exact EO.
+
+    A report quote can only come from that report; a narrative quote cannot be
+    satisfied by the original report itself. Unknown EO ids stay unresolved.
+    """
+    rows=[]
+    for relation in review.get('evidence_relations', []):
+        row=copy.deepcopy(relation);objects=[]
+        for oid in row.get('evidence_object_ids', []):
+            matching=[b for b in context['blocks'] if b.get('evidence_object_id')==oid]
+            for block in matching:
+                quote=copy.deepcopy(row.get('direct_quote') or {})
+                quote['source_id']=block['source_id']
+                direct_ranges={block['source_id']:[dict(start=block['start'],end=block['end'])]}
+                validated_quote=resolve_model_quotes([quote],sources,names,direct_ranges) if quote.get('quote') else None
+                narrative=copy.deepcopy(row.get('narrative_quote') or {})
+                narrative_ranges={sid:spans for sid,spans in context['allowed_spans'].items()
+                                  if sid!=block['source_id'] or event.get('kind')=='performed_test_report'}
+                validated_narrative=resolve_model_quotes([narrative],sources,names,narrative_ranges) if narrative.get('quote') else None
+                objects.append(dict(evidence_object_id=oid,source_id=block['source_id'],
+                    start=block['start'],end=block['end'],
+                    direct_quote_valid=bool(validated_quote and supported(validated_quote)),
+                    direct_quote_validation=validated_quote,
+                    paraphrase_quote_valid=bool(validated_narrative and supported(validated_narrative)),
+                    narrative_quote_validation=validated_narrative,
+                    validated_narrative_quote=next(iter(validated_narrative['valid']),None) if validated_narrative else None,
+                    validated_direct_quote=next(iter(validated_quote['valid']),None) if validated_quote else None))
+        action=resolve_model_quotes([row['current_action_quote']],sources,names) \
+            if row.get('current_action_quote') else None
+        connection=resolve_model_quotes([row['connection_quote']],sources,names,
+            _allowed_connection_ranges(event,context,sources)) if row.get('connection_quote') else None
+        row['validated_action_citation']=action
+        row['validated_connection_citation']=connection
+        row['validated_object_citations']=objects
+        rows.append(row)
+    return rows
+
+
+def compile_semantic_proof(event, review, observations, connections, context,
+                           sources, all_events, names, relation_ledger=None):
+    """Shared initial/revision compiler: no branch may bypass proof composition."""
+    comparison, availability, contract_reasons = validate_semantic_contract(
+        event, review, context, sources, all_events, names)
+    comparison['field_errors'] = list(comparison.get('field_errors', []))
+    comparison['field_errors'].extend(
+        _current_action_field_errors(event, review, comparison, observations))
+    relation_rows = validate_evidence_relations(event, review, context, sources, names)
+    ledger = relation_ledger or compile_evidence_relations(
+        event, relation_rows, sources, context=context)
+    comparison, availability, contract_reasons = validate_semantic_contract(
+        event, review, context, sources, all_events, names, relation_ledger=ledger)
+    comparison['field_errors'].extend(
+        _current_action_field_errors(event, review, comparison, observations))
+    # One field error is one receipt, even when both generic and role-specific
+    # guards observe it. Preserve different source/field paths.
+    comparison['field_errors'] = list({
+        (item.get('code'), item.get('field_path') or item.get('field'),
+         item.get('evidence_object_id'), item.get('source_id'),
+         item.get('citation_index'), str(item.get('span'))): item
+        for item in comparison['field_errors']}.values())
+    contract_reasons = list(dict.fromkeys(contract_reasons + [
+        item['code'] for item in comparison['field_errors']]))
+    for item in comparison['field_errors']:
+        # Preserve the legacy external field key as well as the v0.6 JSON path;
+        # this is only receipt compatibility, never a separate validation rule.
+        item.setdefault('field_path', item.get('field'))
+        item.setdefault('field', item.get('field_path'))
+    event['evidence_relation_ledger'] = ledger
+    event['comparison_validation'] = comparison
+    event['availability_validation'] = availability
+    event['semantic_contract_validation'] = contract_reasons
+    event['field_validation_errors'] = copy.deepcopy(comparison['field_errors'])
+    event['evidence_relation_validation_errors'] = copy.deepcopy(
+        ledger.get('field_errors', []))
+    event['semantic_proof_validation'] = dict(
+        format='event-semantic-proof-validation-0.1.0',
+        field_errors=copy.deepcopy(comparison['field_errors']),
+        coverage=copy.deepcopy(comparison['current_fact_coverage']),
+        availability=[dict(
+            evidence_object_id=None,
+            observation=item.get('observation'),
+            eligible_as_known_prechoice=item['eligible_as_known_prechoice'],
+            is_declared_observation=item['is_declared_observation'],
+            supported_channels=item['compiled_proof_channels']['supported_channels'])
+            for item in availability],
+        key_management_predecessor_ids=list(dict.fromkeys(filter(None, [
+            review.get('previous_event_id'), review.get('same_process_previous_id')]))),
+        evidence_source_dependency_ids=sorted({block['source_id']
+            for block in context.get('blocks', [])}),
+        complete_source_retrieval_unaffected_by_key_predecessors=True,
+        clinical_reference=False)
+    return comparison, availability, contract_reasons, ledger
 
 
 def dimension_audit(event, review, sources, names, reasons):
@@ -334,7 +648,13 @@ def review_unit(unit,unit_events,all_events,sources,config,client,names):
                 text=b['quote'],kind=b['kind'],source_title=b['title'],clock=b['clock'],
                 interval=b['interval'],availability_certified=False,priority=b['priority'],
                 availability_status=b.get('availability_status','PRIOR_SOURCE_PROXY_UNCERTIFIED'),
-                admissibility_role=b.get('admissibility_role','source_context_requires_semantic_time_review'))
+                admissibility_role=b.get('admissibility_role','source_context_requires_semantic_time_review'),
+                evidence_object_id=b.get('evidence_object_id'),test_execution_anchor_id=b.get('test_execution_anchor_id'),
+                time_provenance=b.get('time_provenance', {}),reading_before_choice_certified=False,
+                publication_before_choice_certified=False,
+                available_clock_proxy=b.get('available_clock_proxy'),
+                execution_time=b.get('execution_time'),publication_time=b.get('publication_time'),
+                publication_status=b.get('publication_status'))
         event_inputs.append(dict(event={k:e[k] for k in ['event_id','source_id','scope','record_function',
                 'management_question','action','choice_time','time_basis','phase','uncertainty','action_citations']},
             evidence_context=dict(block_ids=keys,cutoff=ctx['cutoff'],cutoff_basis=ctx['cutoff_basis'],
@@ -389,11 +709,14 @@ def review_unit(unit,unit_events,all_events,sources,config,client,names):
                 previous_event_id=None,same_event_with=[],same_process_previous_id=None,process_link='uncertain',
                 evidence_evolution='uncertain',observation_quotes=[],connection_quotes=[],
                 rationale=id_error,uncertainty=[id_error])
+            e['initial_response_id_errors']=[id_error]
         observations=resolve_model_quotes(r['observation_quotes'],sources,names,ctx['allowed_spans'])
         connections=resolve_model_quotes(r['connection_quotes'],sources,names,
             _allowed_connection_ranges(e,ctx,sources))
-        comparison,availability,contract_reasons=validate_semantic_contract(e,r,ctx,sources,all_events,names)
-        e['semantic_contract_validation']=contract_reasons
+        comparison,availability,contract_reasons,relation_ledger=compile_semantic_proof(
+            e,r,observations,connections,ctx,sources,all_events,names)
+        e['evidence_context']=ctx
+        e['actual_model_evidence']=copy.deepcopy(ctx['blocks'])
         status,reasons=select_status(e,r,observations,connections,earlier_ids,earlier_ids|sibling_ids)
         raw_dimensions,dimensions,dimension_citations=dimension_audit(e,r,sources,names,reasons)
         # The final semantic classification is the review's; never silently
@@ -412,6 +735,10 @@ def review_unit(unit,unit_events,all_events,sources,config,client,names):
             semantic_uncertainty_dimensions=raw_dimensions,uncertainty_dimensions=dimensions,
             uncertainty_dimension_citations=dimension_citations,
             comparison_validation=comparison,availability_validation=availability,
+            checkpoint_proof_kind=checkpoint_kind(r),
+            field_validation_errors=comparison.get('field_errors', []),
+            event_preserved_despite_proof_uncertainty=True,
+            preserved_observation_quotes=copy.deepcopy(r.get('observation_quotes', [])),
             blind_replay_ready=False,expert_reference=False)
         # A source-level duplicate citation is preserved but not used as an
         # invented exact cut point. Errors are local, not whole-call failures.

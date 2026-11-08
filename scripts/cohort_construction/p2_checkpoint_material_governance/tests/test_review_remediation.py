@@ -417,7 +417,10 @@ class TestReplayReceiptRemediation:
         out = tmp_path / 'out'
         receipt = json.loads((out / 'chain-validation-receipt.json').read_text())
         chain = json.loads((out / 'review-chain.json').read_text())
-        assert receipt['status'] == ('REPLAY_FAILED' if replay_fails else 'REPLAY_VERIFIED')
+        assert receipt['status'] == ('REPLAY_FAILED' if replay_fails else 'DETERMINISTIC_REPLAY_VERIFIED')
+        if not replay_fails:
+            assert receipt['remote_provider_authenticity_certified'] is False
+            assert receipt['provider_transport_verified'] is False
         assert receipt['chain_sha256'] == result['review_chain_sha256'] == canonical_sha256(chain)
         assert result['chain_validation_sha256'] == canonical_sha256(receipt)
         assert result['status'] == 'AUTO_REVIEW_HOLD' and not result['clinical_release_permitted']

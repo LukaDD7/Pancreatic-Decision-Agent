@@ -26,6 +26,12 @@ from scripts.cohort_construction.p2_checkpoint_material_review_app.build import 
 from scripts.cohort_construction.p2_auto_checkpoint_v04.client import Client
 
 
+def provider_transport_verified(rounds):
+    """No completed fresh round means no transport verification claim."""
+    return bool(rounds) and all(round_.get('receipt', {}).get(
+        'provider_transport_verified') is True for round_ in rounds)
+
+
 def load(path):
     return parse_json_unique(Path(path).read_bytes().decode('utf-8'))
 
@@ -225,7 +231,9 @@ def main(argv=None):
         from scripts.cohort_construction.p2_checkpoint_material_governance.chain_validation import validate_review_chain
         try:
             validation = validate_review_chain(chain)
-            validation['status'] = 'REPLAY_VERIFIED'
+            validation['status'] = 'DETERMINISTIC_REPLAY_VERIFIED'
+            validation['remote_provider_authenticity_certified'] = False
+            validation['provider_transport_verified'] = provider_transport_verified(chain['rounds'])
         except Exception as exc:
             validation = dict(format='material-review-chain-validation-failure-0.2.0',
                 status='REPLAY_FAILED', chain_sha256=canonical_sha256(chain),
