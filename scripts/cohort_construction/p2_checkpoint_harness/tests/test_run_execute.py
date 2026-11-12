@@ -1,0 +1,174 @@
+"""One full executed run against a stub provider: files, counts, and refusals.
+
+Nothing here contacts a provider or reads a credential: the transport class and
+the settings loader are replaced before the entry point reaches them.
+"""
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from scripts.cohort_construction.p2_checkpoint_harness import run_case
+from scripts.cohort_construction.p2_checkpoint_harness.tests.test_run_case import (
+    synthetic_bundle,
+)
+
+
+class StubTransport:
+    """Alternates propose-then-finish. Never leaves the process."""
+
+    def __init__(self, cache, settings, *, config=None):
+        self.receipts = []
+        self._proposing = True
+        self._episode_event_ids = None
+        self._episode_previewed = False
+
+    def complete(self, messages, *, tools=None, task="agent_step", purpose=None):
+        self.receipts.append(dict(task=task, usage=dict(prompt_tokens=7,
+                                                        completion_tokens=3)))
+        if task == "compaction_summary":
+            return dict(summary="压缩"), dict(usage=dict(prompt_tokens=1))
+        if any(isinstance(tool, dict) and tool.get("name") == "preview_episodes"
+               for tool in tools or ()):
+            if self._episode_event_ids is None:
+                self._episode_event_ids = []
+            if self._episode_previewed:
+                self._episode_event_ids = []
+                for message in messages:
+                    if message.get("role") != "tool":
+                        continue
+                    try:
+                        result = json.loads(message.get("content") or "{}")
+                    except ValueError:
+                        continue
+                    for episode in result.get("episodes", []):
+                        self._episode_event_ids.extend(episode.get("event_ids") or [])
+                self._episode_event_ids = sorted(set(self._episode_event_ids))
+            if not self._episode_previewed:
+                self._episode_previewed = True
+                return (dict(tool_calls=[dict(
+                    id="preview", name="preview_episodes", arguments={})]),
+                    dict(usage=dict(prompt_tokens=7, completion_tokens=3)))
+            return (dict(tool_calls=[dict(id="f1", name="finish", arguments=dict(
+                note="stub review", reviewed_event_ids=self._episode_event_ids,
+                evidence_checks=[]))]),
+                dict(usage=dict(prompt_tokens=7, completion_tokens=3)))
+        if self._proposing:
+            self._proposing = False
+            return (dict(tool_calls=[dict(
+                id="p1", name="propose_candidate", arguments=dict(
+                    local_id="e1", scope="yes", record_function="new_decision",
+                    source_id="SYN-1",
+                    quote="临床团队决定完善增强CT后评估手术"))]),
+                dict(usage=dict(prompt_tokens=7, completion_tokens=3)))
+        self._proposing = True
+        return (dict(tool_calls=[dict(id="f1", name="finish", arguments={})]),
+                dict(usage=dict(prompt_tokens=7, completion_tokens=3)))
+
+
+class ExecutedRunTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+        self.sources = self.dir / "source_fhir_r4_bundle.json"
+        self.sources.write_text(json.dumps(synthetic_bundle(), ensure_ascii=False),
+                                encoding="utf-8")
+        self.output = self.dir / "out"
+        self.cache = self.dir / "cache"
+        self.authorization = self.dir / "auth.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _authorize(self):
+        args = type("A", (), dict(sources=self.sources, case_id="SYN-01",
+                                  config=None))()
+        contract = run_case.run_contract(args, run_case.build_plan(self.sources))
+        authorization = dict(run_case.AUTH_REQUIRED,
+                             case_id="SYN-01",
+                             sources_sha256=contract["sources_sha256"],
+                             config_sha256=contract["config_sha256"],
+                             code_sha256=run_case._code_digest(contract["code_hashes"]),
+                             limits=dict(max_requests=40, max_total_tokens=100000))
+        self.authorization.write_text(json.dumps(authorization), encoding="utf-8")
+
+    def _run(self):
+        return run_case.main(["--sources", str(self.sources),
+                              "--output", str(self.output),
+                              "--cache", str(self.cache),
+                              "--case-id", "SYN-01",
+                              "--authorization", str(self.authorization),
+                              "--execute"])
+
+    def test_HRN001_executed_run_writes_new_files_and_keeps_events(self):
+        self._authorize()
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   StubTransport):
+            code = self._run()
+        self.assertEqual(code, 0)
+        written = {path.name for path in self.output.iterdir()}
+        for name in ("run_contract.json", "case_result.json", "discovery.json",
+                     "relations.json", "episodes.json", "audit.json",
+                     "model_receipts.json", "summary.json"):
+            self.assertIn(name, written)
+        result = json.loads((self.output / "case_result.json").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(result["counts"]["events"], 1)
+        summary = json.loads((self.output / "summary.json").read_text(encoding="utf-8"))
+        self.assertFalse(summary["clinical_accuracy_measured"])
+        self.assertFalse(summary["reference_read_by_pipeline"])
+        self.assertIn("plan", summary)
+        self.assertEqual(summary["status"], "COMPLETE")
+        self.assertEqual(summary["unfinished"], [])
+        # The spend ledger is on the record, so a later reader can see what the
+        # case cost without re-reading every receipt.
+        self.assertGreater(summary["budget"]["requests"], 0)
+        self.assertLessEqual(summary["budget"]["requests"],
+                             summary["budget"]["max_requests"])
+
+    def _run_with(self, patch_transport):
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   patch_transport):
+            return self._run()
+
+    def test_HRN003_a_case_that_ran_out_of_budget_is_not_complete(self):
+        # The dangerous direction: three stages ran, so a status of COMPLETE
+        # would look right while units were never judged.
+        class ExpensiveTransport(StubTransport):
+            def complete(self, messages, *, tools=None, task="agent_step",
+                         purpose=None):
+                result, receipt = super().complete(
+                    messages, tools=tools, task=task, purpose=purpose)
+                usage = dict(prompt_tokens=1000, completion_tokens=0)
+                self.receipts[-1]["usage"] = usage
+                return result, dict(receipt, usage=usage)
+
+        self._authorize()
+        auth = json.loads(self.authorization.read_text(encoding="utf-8"))
+        auth["limits"] = dict(max_requests=40, max_total_tokens=1000)
+        self.authorization.write_text(json.dumps(auth), encoding="utf-8")
+        code = self._run_with(ExpensiveTransport)
+        self.assertEqual(code, 1)
+        summary = json.loads((self.output / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["status"], "INCOMPLETE")
+        kinds = [row["kind"] for row in summary["unfinished"]]
+        self.assertIn("stage_stop", kinds)
+        # Every stage stop here is a budget stop: no unit was judged, and the
+        # record says why rather than showing a short but clean result.
+        self.assertEqual({row["stop"] for row in summary["unfinished"]
+                          if row["kind"] == "stage_stop"}, {"token_budget"})
+
+    def test_HRN002_missing_authorization_files_nothing_but_the_contract(self):
+        with self.assertRaises(SystemExit):
+            self._run()
+        # The contract is written before the authorization check only when an
+        # authorization was supplied; without one the run stops before any file.
+        self.assertFalse(self.output.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

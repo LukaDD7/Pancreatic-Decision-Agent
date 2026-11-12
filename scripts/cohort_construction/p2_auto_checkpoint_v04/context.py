@@ -171,7 +171,8 @@ def build_units(sources, config=None, *, routing_audit=None):
             units.append(dict(unit_id=unit_id, source_ids=[source['source_id']],
                               kind='document', document_profile=profile,
                               type_prior=_SUPPORT_DISCOVERY_PRIOR if profile == 'support' else _TYPE_PRIORS[profile],
-                              clock=source_clock(source), original_texts=[_raw(source)], hints=_unit_hints(source)))
+                              clock=source_clock(source), clock_basis=_raw(source)['clock_basis'],
+                              original_texts=[_raw(source)], hints=_unit_hints(source)))
             route.update(disposition='SUPPORT_DOCUMENT_INCLUDED' if profile == 'support' else 'PRIMARY_DOCUMENT_INCLUDED',
                          unit_id=unit_id, reason='EXPLICIT_INCLUDE_SUPPORT_DOCUMENTS' if profile == 'support' else 'WHOLE_CLINICAL_DOCUMENT')
         elif source.get('kind') == 'imaging':
@@ -193,7 +194,8 @@ def build_units(sources, config=None, *, routing_audit=None):
         units.append(dict(unit_id='TU'+_sha(json.dumps(ids))[:20], source_ids=ids,
                           same_test_source_ids=ids, kind='performed_test_report',
                           document_profile='performed_test_report', type_prior=_TYPE_PRIORS['performed_test_report'],
-                          clock=upper, choice_time=None, time_upper_bound=upper,
+                          clock=upper, clock_basis=_raw(source)['clock_basis'],
+                          choice_time=None, time_upper_bound=upper,
                           original_texts=[_raw(s) for s in group],
                           hints=[dict(kind='report_supports_earlier_test_occurrence_not_choice_time',
                                       exam_number=_exam_number(source), selection_time_known=False,
@@ -432,6 +434,7 @@ def _block(source, start, end, interval, basis, priority):
                     if interval.startswith('current_prechoice') else
                     'BEFORE_TEST_UPPER_BOUND_ONLY_UNCERTIFIED'
                     if interval == 'before_test_upper_bound_not_certified_prechoice' else
+                    'VERIFIED_VISIBILITY_CLOCK_UNCERTIFIED' if basis == 'verified_time_proxy' else
                     'REPORT_TIME_PROXY_UNCERTIFIED' if basis == 'report_time_proxy' else
                     'SOURCE_TIME_PROXY_UNCERTIFIED'),
                 admissibility_role='candidate_prechoice_source_not_certified_observation',

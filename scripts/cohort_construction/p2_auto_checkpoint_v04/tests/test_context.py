@@ -245,6 +245,22 @@ class ContextTests(unittest.TestCase):
         self.assertTrue(result['uncertainty']['supplied_operative_proxy_ignored'])
         self.assertTrue(any(x.get('reason')=='WITHIN_OPERATION_EXACT_CHOICE_TIME_UNKNOWN' for x in result['ledger']))
 
+    def test_CTX026_units_preserve_normalized_source_clock_basis(self):
+        # Live r9: source_record_time had already normalized visibility timing,
+        # but the unit lost that basis before discovery and ordering consumed it.
+        # This only tests propagation of the computed basis, not a clinical time
+        # truth or a new interpretation of an imaging report.
+        document = source('D', '病程记录。')
+        imaging = source('I', '影像所见。', kind='imaging', title='CT', exam='1')
+        for original in (document, imaging):
+            original['clock_basis'] = 'source_create_time'
+        units = build_units([document, imaging])
+        self.assertEqual(len(units), 2)
+        for unit in units:
+            raw = unit['original_texts'][0]
+            self.assertEqual(unit['clock_basis'], raw['clock_basis'])
+            self.assertEqual(unit['clock_basis'], 'source_create_time')
+
 
 if __name__ == '__main__':
     unittest.main()

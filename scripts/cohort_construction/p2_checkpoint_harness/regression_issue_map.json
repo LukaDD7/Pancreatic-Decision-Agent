@@ -1,0 +1,281 @@
+{
+  "version": "0.1",
+  "component": "p2_checkpoint_harness",
+  "origin": "synthetic_counterexamples_and_bounded_live_receipts",
+  "clinical_gold": false,
+  "issues": [
+    {
+      "id": "HTR-LIVE-001",
+      "problem": "A fresh cache could lose the first billed response because its parent directory did not exist.",
+      "change_type": "transport_receipt_repair",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_transport.py::TransportCacheTests::test_HTR001_first_answer_is_cached_in_a_brand_new_cache_directory"
+      ]
+    },
+    {
+      "id": "HTR-LIVE-002",
+      "problem": "The internal tool registry schema was sent directly instead of the chat-completions function schema.",
+      "change_type": "transport_wire_schema_repair",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_transport.py::TransportCacheTests::test_HTR003_tool_schemas_leave_the_process_in_provider_shape",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_transport.py::TransportCacheTests::test_HTR004_a_tool_already_in_provider_shape_is_not_reshaped"
+      ]
+    },
+    {
+      "id": "HTR-LIVE-003",
+      "problem": "Transport retried unparseable provider content and bypassed the agent's bounded format repair; truncated content must remain a failure.",
+      "change_type": "transport_and_format_repair_boundary",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_transport.py::TransportCacheTests::test_HTR005_unparseable_content_is_returned_verbatim_not_retried",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_transport.py::TransportCacheTests::test_HTR006_truncated_output_is_still_a_content_failure"
+      ]
+    },
+    {
+      "id": "HAG-LIVE-004",
+      "problem": "Replies outside content.tool_calls were treated as completed answers, making unread units look like genuine zero-event units.",
+      "change_type": "reply_protocol_and_completion_status_repair",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG018_bare_named_tool_call_is_executed_not_mistaken_for_an_answer",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG019_unreadable_shape_is_repaired_once_then_fails_not_answered",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG020_a_declared_final_is_an_answer_but_plain_words_without_finish_are_not",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG021_the_reply_protocol_reaches_the_model",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL010_a_unit_that_never_finishes_is_not_an_empty_finished_unit"
+      ]
+    },
+    {
+      "id": "HPL-LIVE-005",
+      "problem": "A transport timeout in one discovery unit aborted the case, leaving later units unrun and discarding the distinction between a failed unit and an empty unit.",
+      "change_type": "unit_failure_preservation",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r5",
+        "units_total": 37,
+        "units_recorded": 9,
+        "units_not_run": 28,
+        "transport_attempts": 3,
+        "reason_codes": ["TRANSPORT_ERROR"],
+        "private_summary": "private/p2_harness_live_20261109/SCALE-01-r5/summary.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL011_one_transport_failure_preserves_partial_work_and_runs_other_units"
+      ],
+      "limitations": "Continuing other units does not certify the failed unit or make a case complete. Its proposals remain partial and its stop is unfinished. This is not a clinical validation."
+    },
+    {
+      "id": "HAG-LIVE-006",
+      "problem": "An oversized tool batch crossed the registry limit before execution. In r6 ordering it was truncated after 162 complete compare_clocks calls and an unfinished call, then one ordinary format repair also failed. Sending the raw assistant text plus an ordinary user repair is invalid for providers that require a tool result for every advertised tool call.",
+      "change_type": "bounded_batch_and_complete_prefix_repair",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r6",
+        "stage": "ordering",
+        "stop": "format_failed",
+        "content_characters": 20143,
+        "complete_tool_calls_in_prefix": 162,
+        "complete_tool_names": ["compare_clocks"],
+        "registry_max_batch": 16,
+        "relations_recorded": 0,
+        "private_summary": "private/p2_harness_live_20261109/SCALE-01-r6/summary.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG022_truncated_oversized_batch_repairs_only_its_complete_prefix",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG023_a_repaired_prefix_may_not_smuggle_in_another_oversized_batch",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG024_a_format_repair_never_exceeds_the_shared_request_budget"
+      ],
+      "limitations": "Complete prefix calls are not executed and the unfinished call is not guessed. Recovery is one bounded model repair; this does not certify ordering or clinical reconstruction. The repaired code was not part of r6."
+    },
+    {
+      "id": "HEV-LIVE-007",
+      "problem": "The evaluator marked an INCOMPLETE harness run comparable merely because three files existed, so partial counts and token savings could be misread as an effect comparison.",
+      "change_type": "evaluation_completion_gate",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r5",
+        "status": "FAILED",
+        "units_not_run": 28,
+        "historical_comparable": true,
+        "private_evaluation": "private/p2_harness_live_20261109/SCALE-01-r5-vs-frozen-r1.eval.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_eval.py::EvalTests::test_HEV005_incomplete_harness_is_not_comparable_even_with_all_files",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_eval.py::EvalTests::test_HEV006_missing_run_status_does_not_certify_comparability"
+      ],
+      "limitations": "Legacy frozen summaries with explicit failures=0 are labelled LEGACY_NO_FAILURES; this is not clinical validation."
+    },
+    {
+      "id": "HPL-LIVE-008",
+      "problem": "r5/r6 isolated transport failures but did not recover the failed unit. A request_failed unit remained incomplete even when its earlier proposals survived. Ordering also aborted on its first transport failure.",
+      "change_type": "bounded_discovery_and_ordering_transport_recovery",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r6",
+        "discovery_units": 37,
+        "answered_units": 19,
+        "request_failed_units": 18,
+        "ordering_stop": "format_failed",
+        "note": "r6 demonstrates failed-unit preservation, not recovery. Its ordering format failure is covered separately by HAG-LIVE-006.",
+        "private_summary": "private/p2_harness_live_20261109/SCALE-01-r6/summary.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL012_transport_failure_recovers_in_fresh_bounded_attempt",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL013_recovery_is_bounded_and_never_swallows_local_defects",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL014_ordering_transport_failure_recovers_and_keeps_relations"
+      ],
+      "limitations": "A recovery uses a fresh session and the same shared case budget. Discovery retains earlier proposals; identical local_ids are revisions, not duplicate events. recovery.exhausted means no further recovery was possible because the attempt limit or shared budget was reached. This is not in r6's contract and does not establish clinical correctness."
+    },
+    {
+      "id": "HOR-LIVE-009",
+      "problem": "Completed r7 exposed three ordering-layer defects: relation/demotion basis_quotes were stored without the promised source verification; read_event omitted time_verdict; and same_event was treated as a process merge even though its own explanation described duplicate proposals for one admission plan.",
+      "change_type": "verified_relation_basis_and_duplicate_candidate_preservation",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r7",
+        "status": "COMPLETE",
+        "candidate_event_ids": ["EV-5bd1f1336a5143de", "EV-cc8d277012dec213", "EV-ef6d94f730e14564"],
+        "observation": "Two atomic admission-plan proposals and one combined proposal were labelled same_event but flattened into one process without retaining an explicit duplicate-candidate group.",
+        "private_summary": "private/p2_harness_live_20261109/SCALE-01-r7/summary.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL015_supported_relation_and_demotion_quotes_are_verified",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL016_read_unit_exposes_only_that_units_original_text",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL017_cross_process_duplicate_identity_is_retained_globally"
+      ],
+      "limitations": "Program citation verification does not establish that the model's semantic relation is clinically true. event_groups retain duplicate candidates without deleting or rewriting them. duplicate_candidate_groups also preserves an identity link across separate process containers; only same_management_process merges process containers. Repeated ordering calls preserve prior records rather than silently erasing identity links. These repairs are not part of r7's contract."
+    },
+    {
+      "id": "HRC-LIVE-010",
+      "problem": "r9 completed all three stages and recovered the failed discovery unit, but _unfinished counted transient request_failed attempts and incorrectly labelled the final run INCOMPLETE.",
+      "change_type": "final_state_completion_gate_preserving_recovery_history",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "status_in_frozen_summary": "INCOMPLETE",
+        "discovery_units_answered": 37,
+        "transport_recovered_units": 1,
+        "transport_recovery_exhausted": 0,
+        "ordering_stop": "answered",
+        "episodes_assembled": true,
+        "private_summary": "private/p2_harness_live_20261109/SCALE-01-r9/summary.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_case.py::RunCaseTests::test_HRC011_recovery_history_does_not_override_final_unit_state",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_case.py::RunCaseTests::test_HRC012_ordering_recovery_uses_its_latest_attempt_not_history"
+      ],
+      "limitations": "A recovered unit may be complete only when its final record is answered. An exhausted or otherwise failed final recovery remains unfinished, and all attempts remain in stage_stop_history. This correction does not rewrite r9's frozen summary, prove clinical correctness, or make its new candidate graph a clinical Reference."
+    },
+    {
+      "id": "HPL-LIVE-011",
+      "problem": "r9 discovery accepted action/time quotations from an adjacent clinical document under the admission-note unit, while ordering's event summary showed source_ids=[] because that field was never propagated.",
+      "change_type": "source_attributed_candidate_identity_and_reading_task_audit",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "stage": "discovery_and_ordering",
+        "unit_id": "DU5aa9774b58725b58c191",
+        "event_id": "EV-ef6d94f730e14564",
+        "observation": "The assigned unit contained one admission source; the proposed action/time citations belonged to the adjacent first-course source in another unit. Exact whole-case quote lookup accepted the misplaced proposal. All 25 event summaries had empty source_ids.",
+        "private_session": "private/p2_harness_live_20261109/SCALE-01-r9/session/sessions/discovery-DU5aa9774b58725b58c191.jsonl",
+        "private_ordering_session": "private/p2_harness_live_20261109/SCALE-01-r9/session/sessions/ordering.jsonl"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL018_action_origin_comes_from_its_citation_not_reading_assignment",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL018a_missing_origin_never_borrows_the_assigned_source_or_clock",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL019_discovery_does_not_collect_prechoice_or_postchoice_evidence",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL020_event_list_distinguishes_assignment_and_actual_origins"
+      ],
+      "limitations": "The reading unit is retained only as discovery task provenance. Each candidate's one exact source span determines origin, origin unit and retrieval clock; an absent or unknown origin is explicit and never borrows the assigned source or clock. Event ids retain their compatibility name but use sorted origin source ids plus local revision id; they do not certify clinical event identity and are not stable across the r9 schema. Historical r9 ids remain unchanged. This prevents false source attribution, not wrong semantic content, duplication across reading tasks, or an incorrect candidate boundary."
+    },
+    {
+      "id": "HOR-LIVE-012",
+      "problem": "r9 recorded same-process links merely because actions shared a ward round, then a pure transitive assembly produced a nine-event container without any case-level container review. It also treated a combined proposal as same_event with each atomic component.",
+      "change_type": "case_level_episode_review_and_scoped_direct_edge_refutation",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "stage": "ordering_and_episodes",
+        "observation": "The visible ordering explanations explicitly named different goals but used the same ward round as the merge rationale. Sixteen relations were recorded with no preview_episodes call; the old pipeline had no episodes agent session. Three same_event links included combined-versus-atomic proposals.",
+        "private_session": "private/p2_harness_live_20261109/SCALE-01-r9/session/sessions/ordering.jsonl"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL021_preview_episodes_is_registered_before_final_assembly",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL022_later_no_link_refutes_a_direct_process_edge_without_deleting_history"
+      ],
+      "limitations": "preview is now a program prerequisite for normal episode finish, and no_link refutes only a direct process pair while preserving history and other paths. Neither mechanism verifies clinical semantics or prevents an agent from proposing an incorrect link. Combined-versus-atomic identity remains a pending semantic/object-model issue; no automatic contains/subaction relation has been implemented or validated."
+    },
+    {
+      "id": "HEV-LIVE-013",
+      "problem": "r9 inconsistently omitted an imaging report when its selection record was not found, retained other imaging findings as historical management events, and recorded no evidence_comparison_previous relations even when a later decision explicitly cited a CT.",
+      "change_type": "program_evidence_inventory_and_non_merging_evidence_reference",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "stage": "discovery_and_ordering",
+        "unit_ids": ["TU0b82d493873e74b5a41b", "TU0b10b64675c3e7c79af7", "TUffa2de7642f535886ae1"],
+        "observation": "Ordering read some imaging findings but did not read their complete units or the later report explicitly cited by a subsequent decision. It used no evidence_comparison_previous relation; the old proposal schema lacked evidence-specific fields.",
+        "private_sessions": "private/p2_harness_live_20261109/SCALE-01-r9/session/sessions/"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL023_evidence_reference_does_not_merge_management_processes",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL025_program_evidence_inventory_needs_no_fake_management_fields",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL026_evidence_coverage_must_be_declared_per_object"
+      ],
+      "limitations": "The program now indexes every discovered performed-test candidate report group without asking the discovery LLM for a management question, deployment sentence or selection reason. Evidence objects cannot be same_event or same_management_process endpoints and are listed separately rather than as singleton episodes. An evidence_comparison_previous relation does not union processes. The finish coverage list is a declared review receipt, not proof that the source was actually read or clinically matched. Whether the agent will preserve and link the real r9 reports remains untested."
+    },
+    {
+      "id": "HPL-LIVE-014",
+      "problem": "The new episode review initially kept recorded additions outside the builder's final relation view, and transport recovery did not carry additions into the next attempt's recorded-relation store.",
+      "change_type": "episode_review_state_consistency_and_bounded_recovery",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "observation": "The historical defect motivating the new stage was pure assembly without review. The additional final-view/recovery defects were found in synthetic counterexamples while implementing the stage; r9 did not run this new code.",
+        "private_summary": "private/p2_harness_live_20261109/SCALE-01-r9/summary.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL024_episode_transport_recovery_retains_relations_and_is_bounded"
+      ],
+      "limitations": "The test proves retention, recovery bounds and final graph bookkeeping on synthetic events. It does not prove correct clinical containers, source coverage or real-provider recovery behavior."
+    },
+    {
+      "id": "HCT-LIVE-015",
+      "problem": "r9 events had null clock_basis because build_units retained the normalized value only in original_texts while pipeline._event read the absent unit-level field.",
+      "change_type": "source_clock_basis_propagation",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "observation": "All candidate events lacked a top-level clock_basis even though sources carried a computed basis.",
+        "private_result": "private/p2_harness_live_20261109/SCALE-01-r9/case_result.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_context.py::ContextTests::test_CTX026_units_preserve_normalized_source_clock_basis"
+      ],
+      "limitations": "The regression proves propagation of the already-computed basis for document and imaging units. It does not reinterpret a report time, certify visibility, or establish a clinical decision time."
+    },
+    {
+      "id": "HAG-LIVE-016",
+      "problem": "r9 showed inconsistent candidate granularity and scope handling across records, including execution text framed as a new choice, routine management retained in some units but omitted in others, and a scope=no proposal remaining active.",
+      "change_type": "located_candidate_spans_scope_exclusion_and_separate_evidence_inventory",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "r9",
+        "event_ids": ["EV-8a8f22df05f6aa1e", "EV-c6c06e59c4619afb"],
+        "observation": "Comparable ward-round actions were split or grouped inconsistently; execution wording supplied a management question without a documented choice moment; a scope=no proposal was not demoted.",
+        "private_result": "private/p2_harness_live_20261109/SCALE-01-r9/case_result.json"
+      },
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL027_multiple_coexisting_candidates_keep_distinct_verified_spans",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL028_coexisting_decisions_can_be_masked_independently",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL029_measure_name_mask_does_not_claim_to_remove_result_leakage",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL030_repeated_quote_requires_an_explicit_occurrence",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL031_bad_offsets_empty_quotes_and_unknown_sources_are_not_located",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL032_cross_source_and_noncontiguous_quotes_are_rejected",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL033_overlap_requires_review_not_silent_mutation",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL034_scope_no_is_retained_but_not_active_or_deleted",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_spans.py::DiscoverySpanTests::test_HPL035_mask_rechecks_content_hash_offsets_and_selected_ids",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HPL019_discovery_does_not_collect_prechoice_or_postchoice_evidence"
+      ],
+      "status": "program_contract_implemented_semantics_not_live_validated",
+      "limitations": "Discovery no longer assigns event granularity and no longer collects prechoice/postchoice evidence or time claims. Multiple expressions, including combined and component expressions, remain located candidates. scope=no is preserved as an explicit exclusion index and is not active downstream; it is not patient exclusion. Masking is a verified program projection, not a frozen blinding protocol; adjacent explanations/results and future text need separate policy. Execution/repeat semantics, routine-management consistency and contains/subaction/overlap organization remain open and require real-model discovery-only validation. No hard-coded drug/tube rule or automatic patient/episode exclusion was added."
+    }
+  ]
+}
