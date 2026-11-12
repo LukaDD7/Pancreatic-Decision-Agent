@@ -56,6 +56,28 @@ hash 缺失时不声称已验证内容版本。`protocol_status=program_projecti
 决策句不等于防止泄漏；并存决策、解释、结果和后文的范围及未来 Checkpoint 可见界限仍须按
 最终盲评方案确定。本实现没有完成临床盲评适用性或真实防泄漏验证。
 
+## 病例级组织：单次 Agent，而不是两轮全局组织（2026-11-13）
+
+新的 `--stages case` 运行路径为 **discovery → case-level organization**。旧
+`--stages legacy` 保留 `discovery → ordering → episodes`，供同一发现输出及旧反例比较；
+旧入口不是新组织阶段的组成部分。`--stages discovery` 只运行发现，不创建 ordering、
+episodes 或 case-organization 会话。三种 scope 分别绑定到运行契约及授权，不能用 r9 授权
+替代本次代码和输入的授权。
+
+`stages/case_organization.py` 同时把管理候选与程序 evidence artifact 送入一次病例级 Agent：
+- `evidence_used` 明确为既往证据对象→后续管理候选；可比的检索时钟若显示反向则拒绝，
+  未知或同刻保留未知，不把检索时钟写成选择时刻。
+- `contains/overlap` 保存组合/原子候选的组成与部分重叠，不冒充 `same_event`，不自动合并过程。
+- 只有 `confidence=supported` 的 `same_management_process` 合并候选过程；`context_only`
+  进入未解释关系，**不合并**。为保留历史对照，legacy `ordering + episodes` 的旧合并语义不改。
+- 仍使用 `preview_episodes`、带引文的 `none/no_link` 直接边修正、全对象覆盖声明、逐项
+  evidence checks、孤立候选与 unresolved 保留。证据对象不形成伪管理 episode。
+
+`HCO-DEV-017` 修复 scope 授权固定成 legacy 值造成的前置拒绝；`HOR-DEV-018` 登记
+单次组织的关系对象模型及合并约束。这些都是代码契约与合成反例，不是临床质量证明。
+真实发现召回、模型组织语义与病例级容器边界仍须基于原始文字单独审查；Checkpoint 材料组织、
+最终盲评方案和医生资料包不在本轮实现范围。
+
 ## 为什么要有它
 
 0.8.0 批次实测暴露的是机制问题，不是参数问题：
@@ -327,7 +349,7 @@ dry-run 打印 **run contract**：来源 hash、配置 hash、整个包的代码
   "format": "p2-harness-execution-authorization-0.1.0",
   "remote_execution_authorized": true,
   "execution_scope": "SOURCE_DISCOVERY_ORDERING_EPISODE_CANDIDATE_RECONSTRUCTION",
-  "source_fhir_discovery_ordering_episode_authorized": true,
+  "source_fhir_candidate_reconstruction_authorized": true,
   "doctor_packet_release": false,
   "real_doctor_assignment_creation": false,
   "clinical_release_permitted": false,

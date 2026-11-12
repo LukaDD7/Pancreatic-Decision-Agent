@@ -1,0 +1,103 @@
+{
+  "version": "v0.4-development-20261109",
+  "issue_id": "V04-VISIBILITY001",
+  "origin": "user_decision_with_synthetic_regressions",
+  "clinical_gold": false,
+  "scope": "P2 imaging source availability clock and the archive merge that supplies it; no cohort gate, no P1 rule, no Reference",
+  "description": "审核时间（审核日期+审核时间）是可见时间：报告在审核后才是临床可阅的。此前 verified_time 被解析进每个影像来源的 clocks/time_provenance，却被任何时钟解析器读取：可用时间退回报告写作时间，写作时间缺失时更退回检查时间代理。三个证据构建器、FHIR issued 选择、来源选择原因与去重分组现共用同一角色次序。",
+  "issues": [
+    {
+      "id": "V04-VISIBILITY001",
+      "problem": "审核（可见）时钟被解析但不参与可用时间解析；报告可被记录为早于其审核即已可见，且审核时钟不可读时会静默退回更弱的写作/检查时钟。",
+      "implementation": "p2_pathway_replay.core 引入 VISIBILITY_ROLES=('verified_time',) 与 AVAILABILITY_ROLE_ORDER；release_time_provenance 将审核时钟本身的不可读（INVALID_STRUCTURED_VISIBILITY_CLOCK）与审核早于报告（VERIFIED_BEFORE_REPORT）记为 unresolved；available_source_clock / availability_clock_role 按 AVAILABILITY_ROLE_ORDER 取第一个有值角色；evidence.report_objects 与 evidence_objects.report_objects 新增 availability_time / availability_role / availability_clock_basis / availability_status，且 availability_establishes_reading=False；fhir_io 的 issued 取可用角色并记录 release_role；resource_selection 对可用角色为可见时钟者给出 VERIFIED_VISIBILITY_CLOCK_BEFORE_TARGET_NOT_READING_CERTIFICATION；context._block 记录 VERIFIED_VISIBILITY_CLOCK_UNCERTIFIED；exact_duplicate_groups 的键包含可用角色。fail-closed：审核时钟不可读或与报告时间矛盾时不回退，而是 unresolved。",
+      "fixture_origin": "synthetic_counterexamples",
+      "controls": [
+        "阳性：审核 10:30 / 报告 10:00 / 检查 08:00 时可用时钟=10:30，写作时钟仍在 publication_time 与 clocks.report_time 中逐字节保留",
+        "阴性：审核早于报告 → unresolved，不得以较早者作为“已可见”",
+        "阴性：审核时钟无效 → 可用时间 withheld，不得退回报告时间或检查时间",
+        "阴性：审核时间在目标时点之后 → EXCLUDE，尽管检查时间更早",
+        "两个证据构建器对同一来源给出相同的可用角色与状态",
+        "FHIR issued 写入审核时钟，且三钟经 round trip 逐字节保持"
+      ],
+      "required_tests": [
+        "test_VIS001_audit_time_governs_visibility_and_the_writing_clock_is_kept",
+        "test_VIS001_without_an_audit_clock_the_writing_clock_remains_the_proxy",
+        "test_VIS001_an_audit_clock_before_the_report_is_unresolved_not_earlier_visibility",
+        "test_VIS001_an_unreadable_audit_clock_withholds_availability_without_fallback",
+        "test_VIS001_both_evidence_builders_name_the_same_visibility_clock",
+        "test_VIS001_fhir_issued_is_the_audit_clock_and_the_writing_clock_survives_roundtrip",
+        "test_VIS001_duplicate_reports_with_different_audit_clocks_are_not_one_source",
+        "test_VIS001_selection_names_the_visibility_clock_and_still_excludes_late_audit"
+      ]
+    },
+    {
+      "id": "V04-VISIBILITY002",
+      "problem": "冻结影像来源只有 exam_time；102 行 report_time 全为 null，44 行带 原表【…】 标记的行的 original_impression 为空、两段临床文字一起埋在 original_findings 中。导出列名与内容相反（报告结论 存长描述，报告表现 存短结论），按列名取值会把所见写进结论字段。",
+      "implementation": "p2_imaging_report_merge 以内容角色取列（CellConvention 用带标签布局与正文描述性投票双向验证，冲突即停止），按 检查号 + 检查时间 连接，重建 text/source_sha256/source_id/FHIR id，并写入 exam_time/report_time/verified_time 三个具名时钟及逐角色 time_provenance。无法逐字复现冻结原文、归档多行内容不一致、缺少时间字段的行一律保持冻结原样并记入回执；有未合并行则批次退出非零。输出仅写入新的私有目录，冻结输入只读。",
+      "fixture_origin": "synthetic_counterexamples",
+      "real_counterexample": {
+        "batch": "TIME008 fixed-ten r1 (frozen 0.7.0) source bundles",
+        "frozen_imaging_sources": 102,
+        "distinct_exam_numbers": 57,
+        "rows_with_empty_impression": 44,
+        "rows_with_null_report_time": 102,
+        "merged_with_archive": 102,
+        "merged_and_text_unchanged": 58,
+        "merged_and_text_corrected": 44,
+        "identity_reproduced_from_text": 58,
+        "availability_role_verified_time": 102,
+        "note": "58/102 的 text 未变而重建出的 source_id 与冻结值逐字节相同，这既证明连接正确，也证明身份配方正确；44 行因拆分标签修正而必然换 id，回执保存 old->new 映射。"
+      },
+      "controls": [
+        "阳性：带标签布局拆出的两段与归档两列逐字相同才允许合并",
+        "阳性：纯列布局两段与冻结原文逐字相同，且重建 id 等于冻结 id",
+        "阴性：列名对调（表现=长描述）时拒绝该行",
+        "阴性：归档内容与冻结原文不符时保持冻结原样且逐字节不变",
+        "阴性：同一检查号多行内容不一致时拒绝",
+        "阴性：检查时间不同则不是同一份报告",
+        "阴性：审核/报告/检查时间任一部分缺失或格式错误即拒绝整行，不以 00:00 或检查日补足",
+        "列约定在内容不支持时被拒绝，不得仅凭列名"
+      ],
+      "required_tests": [
+        "test_VIS002_labelled_cells_are_separated_and_the_impression_is_restored",
+        "test_VIS002_plain_cells_are_verified_against_the_frozen_text_not_assumed",
+        "test_VIS002_swapped_columns_would_put_findings_in_the_impression_field",
+        "test_VIS002_a_kept_frozen_source_is_byte_identical_and_never_half_merged",
+        "test_VIS002_archive_rows_that_disagree_on_content_are_refused",
+        "test_VIS002_a_row_with_another_exam_clock_is_not_this_report",
+        "test_VIS002_exam_not_in_the_archive_stays_frozen_and_is_reported",
+        "test_VIS002_only_the_three_named_clocks_are_used_and_none_is_defaulted",
+        "test_VIS002_a_missing_or_bad_time_part_refuses_the_row",
+        "test_VIS002_a_row_whose_exam_clock_is_unusable_is_not_matched_at_all",
+        "test_VIS002_merged_bundle_round_trips_with_the_merged_identity",
+        "test_VIS002_column_convention_is_proved_from_content_and_stops_on_disagreement",
+        "test_VIS002_convention_is_rejected_when_content_does_not_support_it",
+        "test_VIS002_labeled_cell_missing_a_section_is_refused_not_partially_read",
+        "test_VIS002_issue_map_registers_these_tests"
+      ]
+    },
+    {
+      "id": "V04-VISIBILITY003",
+      "problem": "build_units 的影像候选报告组用 exam_time 填 clock，却沿用 source 的 verified_time_proxy 标签。时间值与角色不一致；病例级组织据此可能把尚未审核可见的报告当作既往证据。SCALE-01 discovery-r1 的五个证据对象受此影响，冻结结果不重写。",
+      "implementation": "报告组的 clock 使用 source_clock(source)，clock_basis 同步使用 source_record_time 的计算结果；exam_clock 与 exam_clock_basis 单独保留，time_upper_bound 继续指检查发生上界，不能解释为可见或选择时刻。case organization 比较的是报告可见检索时钟，不证明实际阅读或临床选择时刻。",
+      "fixture_origin": "real_counterexample_with_synthetic_regression_controls",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "discovery-r1",
+        "evidence_artifacts": 5,
+        "observation": "冻结 evidence_inventory 的 clock 均等于检查时间而非已保存的 verified_time；clock_basis 却为 verified_time_proxy。",
+        "private_result": "private/p2_harness_live_20261113/SCALE-01-discovery-r1/case_result.json",
+        "disposition": "保留冻结输出，按当前源资料重新生成单位与证据对象投影用于离线程序比较；不重跑或覆盖 discovery-r1。"
+      },
+      "controls": [
+        "阳性：检查 08:00、报告 11:00、审核 12:00 时，单位与证据对象 clock=12:00，exam_clock=08:00。",
+        "阴性：检查时间不能因带 verified_time_proxy 标签而被当成可见时间。",
+        "阴性：单位 clock_basis 必须与实际时钟角色一致，不能仅传播字符串。"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_context.py::ContextTests::test_CTX027_imaging_unit_keeps_visibility_clock_and_separate_exam_clock",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO008_evidence_artifact_uses_visibility_not_exam_clock"
+      ]
+    }
+  ]
+}

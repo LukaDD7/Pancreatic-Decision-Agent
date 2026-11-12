@@ -382,6 +382,93 @@ class CaseRunner:
                     stop=getattr(self, "_episode_stop", "assembled"),
                     added_relations=len(additions))
 
+    # -- one case-level organization -----------------------------------
+    def run_case_organization(self):
+        """Organize management spans and evidence in one agent session.
+
+        The legacy ordering + episodes path is deliberately kept as the comparison
+        baseline; it does not supply evidence artifacts to its ordering session.
+        """
+        from .stages import case_organization as C
+
+        active = self._organization_objects()
+        builder = C.EpisodeBuilder(active, relations=[],
+                                   process_merge_policy="supported_only")
+        recovery = dict(attempts=0, recovered=False, exhausted=False, sessions=[])
+        records = []
+        stop, failure = "assembled" if not active else None, None
+        final = {}
+        limit = self.harness.config.max_transport_recovery_attempts
+        for attempt in range(limit + 1 if active else 1):
+            name = "case_organization" if not attempt else "case_organization-recovery-%d" % attempt
+            recovery["sessions"].append(name)
+            if attempt:
+                recovery["attempts"] = attempt
+            session = self.harness.session_for(name)
+            registry = self.harness.new_registry(session=session)
+            self.index.register(registry)
+            for tool in C.EventIndex(active, source_index=self.index).tools():
+                registry.register(tool)
+            for tool in builder.tools():
+                registry.register(tool)
+            recorded = C.organization_relation_tools(
+                registry, events=active, source_index=self.index)
+            agent = self.harness.agent(registry=registry, session=session,
+                                       system_prompt=C.ORGANIZATION_SYSTEM_PROMPT)
+            try:
+                prompt = C.build_prompt(active, case_id=self.case_id)
+                if attempt:
+                    prompt += ("\n\n上一次网络传输失败，本恢复会话仍保留已记录关系；"
+                               "请继续核对尚未覆盖的对象，不删除旧记录。")
+                outcome = agent.act(prompt, final_tool=C.episode_finish_tool(
+                    events=active, builder=builder))
+                stop, final = outcome.stop, outcome.final
+                records.append(recorded)
+                recovery["recovered"] = bool(attempt)
+                break
+            except Exception as exc:  # noqa: BLE001 - provider failure only
+                from .transport import TransportFailed
+                if not isinstance(exc, TransportFailed):
+                    raise
+                stop, final = "request_failed", {}
+                failure = dict(error=type(exc).__name__, reason_codes=sorted({
+                    item.get("reason_code") for item in exc.receipt.get("attempts", [])
+                    if item.get("reason_code")}))
+                records.append(recorded)
+                from . import session as S
+                session.append(S.TURN_END, dict(stop=stop, steps=len(agent.tools.calls),
+                                                transport_failed=True, recovery_attempt=attempt),
+                               turn=agent.turns)
+                self.stage_stops.append(dict(stage="case_organization", stop=stop,
+                                             recovery_attempt=attempt))
+                if attempt < limit and self.harness.case_budget.exhausted() is None:
+                    continue
+                recovery["exhausted"] = True
+                break
+        self.relations = []
+        self.demotions = []
+        for record in records:
+            self.relations.extend(relation for relation in record["relations"]
+                                  if relation not in self.relations)
+            self.demotions.extend(demotion for demotion in record["demotions"]
+                                  if demotion not in self.demotions)
+        self._annotate_demotions()
+        # Preserve original relations as a declared history; a demoted candidate
+        # remains visible in artifacts but does not merge a downstream container.
+        builder.by_id = {event["event_id"]: event for event in self._organization_objects()}
+        builder.relations = list(self.relations)
+        result = builder.assemble()
+        self.episodes = result
+        self.audit = C.audit(list(builder.by_id.values()), self.relations, result)
+        self._episode_review = dict(stage="case_organization", stop=stop, final=final,
+                                    recovery=recovery, added_relations=len(self.relations))
+        self._case_organization = self._episode_review
+        self.stage_stops.append(dict(stage="case_organization", stop=stop))
+        return dict(episodes=len(result["episodes"]), relations=len(self.relations),
+                    demotions=len(self.demotions), singleton=result["singleton_episodes"],
+                    unresolved=len(result["unresolved_relations"]), stop=stop,
+                    failure=failure, recovery=recovery)
+
     # -- output --------------------------------------------------------
     def case_dir(self):
         return digest([self.case_id, sorted(event["event_id"]

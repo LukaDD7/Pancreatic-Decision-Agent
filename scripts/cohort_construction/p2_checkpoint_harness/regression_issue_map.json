@@ -5,6 +5,42 @@
   "clinical_gold": false,
   "issues": [
     {
+      "id": "HCO-DEV-017",
+      "problem": "The selected execution scope was accidentally placed in the fixed AUTH_REQUIRED dictionary with the legacy value. It made a correctly bound discovery authorization fail the fixed-value governance check before any provider call; a boolean can also compare equal to a string under a generic equality check if the field is not explicitly typed.",
+      "change_type": "execution_scope_governance_repair",
+      "synthetic_counterexample": "A discovery contract with a matching discovery scope and an old legacy AUTH_REQUIRED entry must be rejected by the implementation defect, then accepted after removing that fixed entry and checking the contract-bound scope as a string.",
+      "positive_control": "A discovery authorization with the exact selected scope and current code/source/config hashes validates.",
+      "negative_control": "The legacy scope or boolean true does not validate against a discovery contract.",
+      "real_run_note": "SCALE-01 discovery-r1 preflight failed before provider construction on the first attempts; the log was a preflight failure, not a patient or model result. The authorization was then rebound after this correction.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_case.py::RunCaseTests::test_HRC013_scope_is_bound_to_selected_stages_and_wrong_type_cannot_pass",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_execute.py::ExecutedRunTests::test_HRN004_discovery_only_writes_no_ordering_or_episode_calls",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_case.py::RunCaseTests::test_HRC014_case_organization_recovery_uses_final_state"
+      ]
+    },
+    {
+      "id": "HOR-DEV-018",
+      "problem": "Ordering could not see program evidence artifacts, context_only had the same process-union effect as supported, and contains/overlap lacked an object model. Replacing ordering's name alone would not repair those contracts.",
+      "change_type": "single_case_organization_and_relation_semantics",
+      "synthetic_counterexample": "An earlier evidence artifact must be visible beside a later management candidate; a reversed or temporally later evidence relation must be refused; context_only and contains/overlap must preserve separate process containers.",
+      "positive_control": "A supported evidence_used edge from an earlier artifact to a later management expression is preserved as a directed reference without process union; a supported process relation merges.",
+      "negative_control": "Evidence cannot be a same_event/same_management_process endpoint; an artifact cannot be reversed as the later management endpoint; unsupported process links do not merge.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO001_evidence_is_a_first_class_directed_previous_to_later_object",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO002_only_supported_process_merges_context_only_is_retained",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO003_contains_and_overlap_do_not_impersonate_identity_or_process",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO004_unknown_clock_is_explicit_not_reversed_or_invented",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO005_same_input_legacy_cannot_see_evidence_new_stage_can",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO006_legacy_default_keeps_context_only_process_merge",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO008_evidence_artifact_uses_visibility_not_exam_clock",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HCO007_case_organization_recovers_relations_and_final_state",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_execute.py::ExecutedRunTests::test_HRN005_case_organization_is_one_stage_after_discovery"
+      ],
+      "status": "program_contract_implemented_semantics_not_live_validated",
+      "development_counterexample": "The first shared-builder implementation applied supported_only without an explicit policy. That also changed legacy ordering + episodes to stop merging context_only, contrary to the agreed unchanged baseline. HCO006 now proves the default legacy merge directly; the new case path opts into supported_only explicitly.",
+      "limitations": "The legacy ordering + episodes path remains available for comparison. It retains historical context_only merging so old counterexamples can be replayed as the legacy baseline. The new path only unions supported process edges. Program quote and clock gates do not establish clinical correctness; a single model organization run still requires source-based review. Checkpoint material organization and frozen blinding are not implemented by this change."
+    },
+    {
       "id": "HTR-LIVE-001",
       "problem": "A fresh cache could lose the first billed response because its parent directory did not exist.",
       "change_type": "transport_receipt_repair",

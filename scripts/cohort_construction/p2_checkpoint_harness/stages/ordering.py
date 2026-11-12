@@ -108,9 +108,22 @@ class EventIndex:
             return dict(total=len(hits), returned=min(len(hits), limit),
                         truncated=len(hits) > limit, events=hits[:limit])
 
+        def evidence_types():
+            return dict(
+                relation="evidence_used",
+                direction=dict(source_event_id="previous_evidence_artifact",
+                               target_event_id="later_management_expression"),
+                available=sorted(event_id for event_id, event in self.events.items()
+                                 if event.get("object_kind") == "evidence_artifact"),
+                note="证据使用是方向性关系，不合并管理过程；检索时钟不等于选择时刻。")
+
         return [
+            Tool(name="evidence_types",
+                 description="查看本阶段可用的证据对象与evidence_used方向约束。",
+                 input_schema=dict(type="object", additionalProperties=False),
+                 run=evidence_types),
             Tool(name="list_events",
-                 description="列出候选管理表述（保留 event_id 兼容键，不是已确认临床事件）。",
+                 description="列出候选管理表述和程序证据对象（event_id 是兼容键，不是已确认临床事件）。",
                  input_schema=dict(type="object", additionalProperties=False,
                                    properties=dict(
                                        discovery_unit_id=dict(type="string"),

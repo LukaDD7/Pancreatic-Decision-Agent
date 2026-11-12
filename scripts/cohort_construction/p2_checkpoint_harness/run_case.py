@@ -1,4 +1,4 @@
-"""Run one case end to end in the harness: discovery, ordering, episodes.
+"""Run one case through discovery and the selected organization stages.
 
 The entry point is deliberately narrow. It reads a source bundle, builds a
 per-case harness, runs the stages, and writes only new files into a fresh output
@@ -22,12 +22,16 @@ ROOT = Path(__file__).resolve().parents[3]
 AUTHORIZATION_FORMAT = "p2-harness-execution-authorization-0.1.0"
 CONTRACT_FORMAT = "p2-harness-run-contract-0.1.0"
 RUN_SUMMARY_FORMAT = "p2-harness-run-summary-0.1.0"
-EXECUTION_SCOPE = "SOURCE_DISCOVERY_ORDERING_EPISODE_CANDIDATE_RECONSTRUCTION"
+EXECUTION_SCOPES = {
+    "legacy": "SOURCE_DISCOVERY_ORDERING_EPISODE_CANDIDATE_RECONSTRUCTION",
+    "discovery": "SOURCE_DISCOVERY_ONLY_CANDIDATE_SPANS_AND_PROGRAM_EVIDENCE_INDEX",
+    "case": "SOURCE_DISCOVERY_CASE_ORGANIZATION_CANDIDATE_RECONSTRUCTION",
+}
+EXECUTION_SCOPE = EXECUTION_SCOPES["legacy"]
 AUTH_REQUIRED = {
     "format": AUTHORIZATION_FORMAT,
     "remote_execution_authorized": True,
-    "execution_scope": EXECUTION_SCOPE,
-    "source_fhir_discovery_ordering_episode_authorized": True,
+    "source_fhir_candidate_reconstruction_authorized": True,
     "doctor_packet_release": False,
     "real_doctor_assignment_creation": False,
     "clinical_release_permitted": False,
@@ -101,7 +105,7 @@ def run_contract(args, plan):
         sources_sha256=file_hash(args.sources),
         config_sha256=file_hash(args.config) if args.config else None,
         code_hashes=code_hashes(), plan=plan,
-        execution_scope=EXECUTION_SCOPE,
+        execution_scope=EXECUTION_SCOPES[args.stages],
         clinical_validation=False, clinical_reference_created=False,
         reference_read_by_pipeline=False, doctor_packet_release=False)
 
@@ -112,6 +116,9 @@ def validate_authorization(authorization, contract):
     for field, expected in AUTH_REQUIRED.items():
         if not _matches(authorization.get(field), expected):
             raise SystemExit("EXECUTION_AUTHORIZATION_GOVERNANCE_MISMATCH:" + field)
+    if type(authorization.get("execution_scope")) is not str \
+            or authorization.get("execution_scope") != contract["execution_scope"]:
+        raise SystemExit("EXECUTION_AUTHORIZATION_GOVERNANCE_MISMATCH:execution_scope")
     for field in ("sources_sha256", "config_sha256", "case_id"):
         if authorization.get(field) != contract[field]:
             raise SystemExit("EXECUTION_AUTHORIZATION_BINDING_MISMATCH:" + field)
@@ -172,6 +179,10 @@ def main(argv=None):
     parser.add_argument("--cache", required=True, help="new cache directory")
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--config", default=None)
+    parser.add_argument("--stages", choices=("legacy", "discovery", "case"),
+                        default="legacy", dest="stages",
+                        help=("legacy: discovery+ordering+episodes; discovery: stop before "
+                              "organization; case: discovery+single case-level organization"))
     parser.add_argument("--authorization", default=None,
                         help="read-only exact-run authorization; required to execute")
     parser.add_argument("--execute", action="store_true",
@@ -234,16 +245,21 @@ def _execute(args, contract, limits, plan):
         stages["discovery"] = runner.run_discovery()
     except Exception as exc:  # noqa: BLE001 - a failed stage is recorded, not hidden
         failure = _failure("discovery", exc)
-    if failure is None:
+    if args.stages == "legacy" and failure is None:
         try:
             stages["ordering"] = runner.run_ordering()
         except Exception as exc:  # noqa: BLE001
             failure = _failure("ordering", exc)
-    if failure is None:
+    if args.stages == "legacy" and failure is None:
         try:
             stages["episodes"] = runner.run_episodes()
         except Exception as exc:  # noqa: BLE001
             failure = _failure("episodes", exc)
+    elif args.stages == "case" and failure is None:
+        try:
+            stages["case_organization"] = runner.run_case_organization()
+        except Exception as exc:  # noqa: BLE001
+            failure = _failure("case_organization", exc)
     artifacts = runner.artifacts()
     # Recovery failures are historical attempts, not an unfinished unit once
     # the final unit record has answered. Keep them in a separate audit list.
@@ -307,6 +323,9 @@ def _latest_stage_succeeded(runner, stop):
     if stop.get("stage") == "ordering":
         latest = getattr(runner, "_ordering_records", [])
         return bool(latest and latest[-1]["stop"] in STAGE_DONE)
+    if stop.get("stage") == "case_organization":
+        latest = getattr(runner, "_case_organization", None)
+        return bool(latest and latest.get("stop") in STAGE_DONE)
     if stop.get("stage") == "discovery":
         unit = runner.discovery.get(stop.get("unit_id"))
         return bool(unit and unit.get("stop") in STAGE_DONE)

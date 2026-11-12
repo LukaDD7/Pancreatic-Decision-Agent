@@ -81,11 +81,11 @@ class ExecutedRunTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def _authorize(self):
+    def _authorize(self, stages="legacy"):
         args = type("A", (), dict(sources=self.sources, case_id="SYN-01",
-                                  config=None))()
+                                  config=None, stages=stages))()
         contract = run_case.run_contract(args, run_case.build_plan(self.sources))
-        authorization = dict(run_case.AUTH_REQUIRED,
+        authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
                              case_id="SYN-01",
                              sources_sha256=contract["sources_sha256"],
                              config_sha256=contract["config_sha256"],
@@ -93,11 +93,11 @@ class ExecutedRunTests(unittest.TestCase):
                              limits=dict(max_requests=40, max_total_tokens=100000))
         self.authorization.write_text(json.dumps(authorization), encoding="utf-8")
 
-    def _run(self):
+    def _run(self, stages="legacy"):
         return run_case.main(["--sources", str(self.sources),
                               "--output", str(self.output),
                               "--cache", str(self.cache),
-                              "--case-id", "SYN-01",
+                              "--case-id", "SYN-01", "--stages", stages,
                               "--authorization", str(self.authorization),
                               "--execute"])
 
@@ -128,12 +128,35 @@ class ExecutedRunTests(unittest.TestCase):
         self.assertLessEqual(summary["budget"]["requests"],
                              summary["budget"]["max_requests"])
 
-    def _run_with(self, patch_transport):
+    def _run_with(self, patch_transport, stages="legacy"):
         with patch("scripts.cohort_construction.model_api.load_boyu_settings",
                    lambda *a, **k: object()), \
              patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
                    patch_transport):
-            return self._run()
+            return self._run(stages)
+
+    def test_HRN004_discovery_only_writes_no_ordering_or_episode_calls(self):
+        self._authorize("discovery")
+        self.assertEqual(self._run_with(StubTransport, "discovery"), 0)
+        summary = json.loads((self.output / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(summary["stages"]), ["discovery"])
+        self.assertEqual(summary["status"], "COMPLETE")
+        sessions = {path.name for path in (self.output / "session" / "sessions").iterdir()}
+        self.assertFalse(any("ordering" in name or "episode" in name for name in sessions))
+        self.assertFalse(any("case_organization" in name for name in sessions))
+
+    def test_HRN005_case_organization_is_one_stage_after_discovery(self):
+        self._authorize("case")
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   StubTransport):
+            self.assertEqual(self._run_with(StubTransport, "case"), 0)
+        summary = json.loads((self.output / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(summary["stages"]), ["discovery", "case_organization"])
+        sessions = {path.name for path in (self.output / "session" / "sessions").iterdir()}
+        self.assertEqual(sum(name.startswith("case_organization") for name in sessions), 1)
+        self.assertFalse(any("ordering" in name or name.startswith("episodes") for name in sessions))
 
     def test_HRN003_a_case_that_ran_out_of_budget_is_not_complete(self):
         # The dangerous direction: three stages ran, so a status of COMPLETE

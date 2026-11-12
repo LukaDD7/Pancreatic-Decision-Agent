@@ -782,7 +782,55 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["stop"], "request_failed")
         self.assertTrue(other.artifacts()["episode_review"]["recovery"]["exhausted"])
 
-    def _imaging_runner(self, answers=None):
+    def test_HCO007_case_organization_recovers_relations_and_final_state(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.transport import (
+            TransportFailed,
+        )
+        runner = self._imaging_runner([
+            _proposal("e1", "临床团队决定完善增强CT后评估手术"),
+            _finish("f1"), _finish("f2"), _finish("f3"),
+            _finish("imaging-finish")])
+        runner.run_discovery()
+        failure = TransportFailed(dict(status="FAILED", attempts=[
+            dict(attempt=1, reason_code="TRANSPORT_ERROR")]))
+        runner.harness.transport.answers = [failure, _preview("recovery-preview"),
+                                            failure, failure]
+        result = runner.run_case_organization()
+        self.assertEqual(result["stop"], "request_failed")
+        self.assertTrue(result["recovery"]["exhausted"])
+        self.assertEqual(runner._case_organization["stop"], "request_failed")
+        self.assertEqual(len(runner.episodes["episodes"]), 1)
+
+        # A completed recovery can add a directed evidence edge and the final
+        # state, rather than a transient failed attempt, controls completion.
+        other = self._imaging_runner([
+            _proposal("e1", "临床团队决定完善增强CT后评估手术"),
+            _finish("f1"),
+            _proposal("e2", "讨论后拟行胰十二指肠切除术", source_id="S-B"),
+            _finish("f2"), _finish("f3"),
+            _finish("imaging-finish")], name="case-recovery-success")
+        other.run_discovery()
+        target = next(event["event_id"] for event in other.events
+                      if event["source_ids"] == ["S-B"])
+        evidence = other.evidence_inventory[0]["event_id"]
+        other.harness.transport.answers = [failure, dict(tool_calls=[dict(
+            id="evidence-link", name="record_relation", arguments=dict(
+                source_event_id=evidence, target_event_id=target,
+                relation="evidence_used", confidence="uncertain",
+                explanation="报告可见性时点早于该文书；不推定实际选择时刻"))]),
+            _preview("preview"), _review_finish(
+                "complete", runner=other, evidence_checks=[dict(
+                    event_id=evidence, status="matched", source_ids=["S-I"],
+                    basis="交付中存在报告，只核对索引")])]
+        result = other.run_case_organization()
+        self.assertEqual(result["stop"], "answered")
+        self.assertEqual(other._case_organization["stop"], "answered")
+        self.assertTrue(other._case_organization["recovery"]["recovered"])
+        self.assertEqual(len(other.episodes["evidence_references"]), 1)
+        self.assertEqual(other.episodes["relation_semantics"], "supported_only")
+        self.assertEqual(other.artifacts()["episode_review"]["final"]["note"], "done")
+
+    def _imaging_runner(self, answers=None, name="run"):
         sources = _sources()
         units = _units()
         imaging = dict(source_id="S-I", kind="imaging", title="增强CT",
@@ -797,7 +845,7 @@ class PipelineTests(unittest.TestCase):
                           clock=dict(value="2026-03-03", precision="date"),
                           clock_basis="verified_time",
                           original_texts=[dict(source_id="S-I", text=imaging["text"])]))
-        runner = self._runner(answers or [])
+        runner = self._runner(answers or [], name=name)
         runner.sources = sources
         runner.units = units
         from scripts.cohort_construction.p2_checkpoint_harness.tools.sources import (

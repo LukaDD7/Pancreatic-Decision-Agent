@@ -191,10 +191,16 @@ def build_units(sources, config=None, *, routing_audit=None):
         source = group[0]
         upper = _clock((source.get('clocks') or {}).get('exam_time') or source.get('clock'))
         ids = sorted(s['source_id'] for s in group)
+        # The report group is retrieved by its visibility clock, never by the
+        # earlier exam occurrence. The two clocks answer different questions and
+        # their roles must remain available independently to organization.
+        clock = source_clock(source)
+        clock_basis = _raw(source)['clock_basis']
         units.append(dict(unit_id='TU'+_sha(json.dumps(ids))[:20], source_ids=ids,
                           same_test_source_ids=ids, kind='performed_test_report',
                           document_profile='performed_test_report', type_prior=_TYPE_PRIORS['performed_test_report'],
-                          clock=upper, clock_basis=_raw(source)['clock_basis'],
+                          clock=clock, clock_basis=clock_basis,
+                          exam_clock=upper, exam_clock_basis='exam_time_not_report_visibility',
                           choice_time=None, time_upper_bound=upper,
                           original_texts=[_raw(s) for s in group],
                           hints=[dict(kind='report_supports_earlier_test_occurrence_not_choice_time',

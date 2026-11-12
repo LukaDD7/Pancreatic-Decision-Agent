@@ -28,7 +28,12 @@ from ..tools import Tool, ToolError
 
 
 class EpisodeBuilder:
-    def __init__(self, events, *, relations):
+    def __init__(self, events, *, relations,
+                 process_merge_policy="legacy_supported_and_context_only"):
+        if process_merge_policy not in (
+                "legacy_supported_and_context_only", "supported_only"):
+            raise ValueError("PROCESS_MERGE_POLICY_INVALID")
+        self.process_merge_policy = process_merge_policy
         self.by_id = {event["event_id"]: event for event in events}
         self.relations = list(relations)
         self.memberships = {}
@@ -67,6 +72,7 @@ class EpisodeBuilder:
         latest = {}
         process_latest = {}
         evidence_latest = {}
+        auxiliary = {}
         for relation in self.relations:
             source, target = relation.get("source_event_id"), relation.get("target_event_id")
             kind = relation.get("relation")
@@ -74,12 +80,15 @@ class EpisodeBuilder:
                 continue
             if kind in ("same_management_process", "none"):
                 process_latest[frozenset((source, target))] = relation
-            elif kind == "evidence_comparison_previous":
+            elif kind in ("evidence_comparison_previous", "evidence_used"):
                 evidence_latest[(source, target, kind)] = relation
+            elif kind in ("contains", "overlap"):
+                auxiliary[(source, target, kind)] = relation
         # These are independent relation kinds. A no_link refutes only a direct
         # process edge; it must not erase a separately supported evidence-use
         # reference between the same two objects.
-        return list(process_latest.values()) + list(evidence_latest.values())
+        return list(process_latest.values()) + list(evidence_latest.values()) \
+            + list(auxiliary.values())
 
     def union(self, left, right):
         parent, find = self._parent_map, self._find
@@ -92,6 +101,7 @@ class EpisodeBuilder:
         merged = []
         unresolved = []
         evidence_references = []
+        composition_relations = []
         unresolved_keys = set()
         conflicts = []
         for relation in self._process_edges():
@@ -109,11 +119,25 @@ class EpisodeBuilder:
                 continue
             if kind == "none":
                 continue
-            if kind == "evidence_comparison_previous":
+            if kind in ("evidence_comparison_previous", "evidence_used"):
                 # Evidence use is directional and auditable, not process union.
                 evidence_references.append(relation)
                 if confidence in ("supported", "context_only"):
                     self.reviewed_pairs.add(self._pair_key(relation))
+            elif kind in ("contains", "overlap"):
+                # Composition is inspectable without flattening candidate identity
+                # or making a component a second clinical decision in one process.
+                composition_relations.append(relation)
+                if confidence in ("supported", "context_only"):
+                    self.reviewed_pairs.add(self._pair_key(relation))
+            if (kind == "same_management_process" and confidence != "supported"
+                    and self.process_merge_policy == "supported_only"):
+                item = dict(relation=relation, reason=(
+                    "PROCESS_CONTEXT_ONLY_NOT_MERGED" if confidence == "context_only"
+                    else "RELATION_" + str(confidence).upper()))
+                unresolved.append(item)
+                unresolved_keys.add((frozenset((source, target)), kind, item["reason"]))
+                continue
             if confidence in ("no_link", "uncertain"):
                 # A relation the agent could not support is preserved as a
                 # declared-but-unmerged edge. It is not evidence of absence.
@@ -181,7 +205,7 @@ class EpisodeBuilder:
         self.conflicts = conflicts
         self.unresolved = unresolved
         for relation in self.relations:
-            if (relation.get("relation") == "evidence_comparison_previous"
+            if (relation.get("relation") in ("evidence_comparison_previous", "evidence_used")
                     and self._pair_key(relation) not in self.reviewed_pairs
                     and not any(item["relation"] is relation
                                 for item in unresolved)):
@@ -190,6 +214,8 @@ class EpisodeBuilder:
         return dict(episodes=episodes, merged_edges=merged,
                     evidence_object_ids=sorted(evidence_object_ids),
                     evidence_references=list(evidence_references),
+                    composition_relations=list(composition_relations),
+                    relation_semantics=self.process_merge_policy,
                     duplicate_candidate_groups=self._event_groups(
                         sorted(self.by_id), identity_root),
                     unresolved_relations=self.unresolved,

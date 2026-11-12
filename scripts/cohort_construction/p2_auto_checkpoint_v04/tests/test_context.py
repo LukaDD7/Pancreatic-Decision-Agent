@@ -261,6 +261,21 @@ class ContextTests(unittest.TestCase):
             self.assertEqual(unit['clock_basis'], raw['clock_basis'])
             self.assertEqual(unit['clock_basis'], 'source_create_time')
 
+    def test_CTX027_imaging_unit_keeps_visibility_clock_and_separate_exam_clock(self):
+        imaging = source('I', '检查较早，审核后才可见。', when='2022-01-02 12:00',
+                         kind='imaging', title='CT', exam='1')
+        imaging['clock_basis'] = 'verified_time_proxy'
+        imaging['clocks']['exam_time'] = clock('2022-01-02 08:00')
+        imaging['clocks']['report_time'] = clock('2022-01-02 11:00')
+        imaging['clocks']['verified_time'] = clock('2022-01-02 12:00')
+        unit = build_units([imaging])[0]
+        self.assertEqual(unit['clock']['value'], '2022-01-02 12:00:00')
+        self.assertEqual(unit['clock_basis'], 'verified_time_proxy')
+        self.assertEqual(unit['exam_clock']['value'], '2022-01-02 08:00:00')
+        self.assertEqual(unit['exam_clock_basis'], 'exam_time_not_report_visibility')
+        self.assertEqual(unit['time_upper_bound'], unit['exam_clock'])
+        self.assertNotEqual(unit['clock'], unit['exam_clock'])
+
 
 if __name__ == '__main__':
     unittest.main()
