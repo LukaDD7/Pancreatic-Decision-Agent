@@ -1,3 +1,4 @@
+from copy import deepcopy
 import unittest
 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_checkpoints import project_candidate_checkpoints
@@ -142,6 +143,110 @@ class CandidateMaterialTests(unittest.TestCase):
                 case_id="SYN", sources=self.sources, candidates=self.candidates,
                 projection=self.projection, candidate_relations=[],
                 candidate_episodes=[dict(episode_id="EP-BAD", checkpoint_ids=["CP-NOPE"])])
+
+
+    def test_relation_quotes_do_not_enter_timed_packet_projection(self):
+        base = self.material()["packets"]
+        management = next(packet for packet in base if packet["kind"] == "management_decision")
+        post = next(packet for packet in base if packet["kind"] == "evidence_arrival_reassessment")
+        relation = dict(source_checkpoint_id=post["checkpoint_id"],
+                        target_checkpoint_id=management["checkpoint_id"],
+                        relation="evidence_used", confidence="supported",
+                        explanation="合成关系，不包含动作原文。",
+                        basis_quotes=[dict(checkpoint_id=management["checkpoint_id"],
+                                           source_id="S-M", quote="拟行MR检查。")])
+        material = project_candidate_materials(
+            case_id="SYN", sources=self.sources, candidates=self.candidates,
+            projection=self.projection, candidate_relations=[relation],
+            candidate_episodes=[dict(episode_id="EP-" + packet["checkpoint_id"],
+                                     checkpoint_ids=[packet["checkpoint_id"]])
+                                for packet in base])
+        packet = next(packet for packet in material["packets"]
+                      if packet["kind"] == "evidence_arrival_reassessment")
+        edge = next(item for item in packet["related_checkpoints"]
+                    if item["relation"] == "evidence_used")
+        self.assertNotIn("basis_quotes", edge)
+        self.assertEqual(edge["basis_quote_count"], 1)
+        target = next(source for source in packet["included_sources"]
+                      if source["source_id"] == "S-M")
+        self.assertNotIn("拟行MR检查", target["text"])
+
+    def test_new_same_event_relation_masks_other_checkpoint_answer(self):
+        self.sources[2]["clock"] = clock("2022-12-13 10:00:00")
+        projection = deepcopy(self.projection)
+        original = next(item for item in projection["candidate_checkpoints"]
+                        if item["kind"] == "management_decision")
+        other = deepcopy(original)
+        other.update(checkpoint_id="CP-OTHER", source_ids=["S-L"],
+                     clock=clock("2022-12-13 10:00:00"),
+                     masked_spans=[dict(source_id="S-L", start=0,
+                                        end=len("后续决定手术。"), quote="后续决定手术。")])
+        projection["candidate_checkpoints"].append(other)
+        relation = dict(source_checkpoint_id=original["checkpoint_id"],
+                        target_checkpoint_id="CP-OTHER", relation="same_event",
+                        confidence="supported", explanation="合成严格重复")
+        episodes = [dict(episode_id="EP-" + item["checkpoint_id"],
+                         checkpoint_ids=[item["checkpoint_id"]])
+                    for item in projection["candidate_checkpoints"]]
+        material = project_candidate_materials(
+            case_id="SYN", sources=self.sources, candidates=self.candidates,
+            projection=projection, candidate_relations=[relation],
+            candidate_episodes=episodes)
+        packet = next(packet for packet in material["packets"]
+                      if packet["checkpoint_id"] == original["checkpoint_id"])
+        other_source = next(source for source in packet["included_sources"]
+                            if source["source_id"] == "S-L")
+        self.assertNotIn("后续决定手术", other_source["text"])
+
+    def test_arrival_masks_same_time_management_action_but_not_target_report(self):
+        self.sources.append(dict(
+            source_id="S-SAME", title="同刻病程", kind="document",
+            clock=clock("2022-12-14 14:56:32"), clock_basis="body_record_time",
+            clocks={}, text="阅片后决定立即行根治性胰十二指肠切除术。"))
+        packet = self.packet("evidence_arrival_reassessment")
+        same_time = next(source for source in packet["included_sources"]
+                         if source["source_id"] == "S-SAME")
+        self.assertNotIn("根治性胰十二指肠切除术", same_time["text"])
+        report = next(source for source in packet["included_sources"]
+                      if source["source_id"] == "S-D")
+        self.assertEqual(report["text"], "虚构MR所见及结论")
+
+    def test_future_body_datetime_and_source_clocks_are_redacted(self):
+        self.sources[0]["text"] += "\n签名时间：2022-12-15 10:44:00"
+        self.sources[0]["text"] += "\n既往时间：2022-12-13 09:00:00"
+        packet = self.packet("pre_exam_evaluation")
+        target = next(source for source in packet["included_sources"]
+                      if source["source_id"] == "S-D")
+        self.assertIsNone(target["clocks"]["report_time"]["value"])
+        self.assertIsNone(target["clocks"]["verified_time"]["value"])
+        self.assertEqual(target["clocks"]["exam_time"]["value"], "2022-12-14 12:17:25")
+        management = next(source for source in packet["included_sources"]
+                          if source["source_id"] == "S-M")
+        self.assertNotIn("2022-12-15 10:44:00", management["text"])
+        self.assertIn("2022-12-13 09:00:00", management["text"])
+        original = next(source for source in packet["researcher_target_originals"]
+                        if source["source_id"] == "S-D")
+        self.assertEqual(original["clocks"]["verified_time"]["value"], "2022-12-16 15:33:07")
+
+    def test_organized_material_requires_complete_checkpoint_coverage(self):
+        with self.assertRaisesRegex(ValueError, "INCOMPLETE_CANDIDATE_EPISODE_COVERAGE"):
+            project_candidate_materials(
+                case_id="SYN", sources=self.sources, candidates=self.candidates,
+                projection=self.projection, candidate_relations=[], candidate_episodes=[])
+
+    def test_organization_input_is_bound_to_case_and_projection(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.render_candidate_materials import (
+            _projection_sha256, _validate_organization)
+        projection_hash = _projection_sha256(self.projection)
+        relations = dict(format="p2-candidate-cp-relations-0.1.0", case_id="SYN",
+                         candidate_projection_sha256=projection_hash, relations=[])
+        episodes = dict(format="p2-candidate-cp-episodes-0.1.0", case_id="SYN",
+                        candidate_projection_sha256=projection_hash, episodes=[],
+                        conservation=dict(all_candidate_checkpoints_conserved=True))
+        _validate_organization(relations, episodes, case_id="SYN", projection=self.projection)
+        episodes["candidate_projection_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "PROJECTION_MISMATCH"):
+            _validate_organization(relations, episodes, case_id="SYN", projection=self.projection)
 
 
 if __name__ == "__main__":

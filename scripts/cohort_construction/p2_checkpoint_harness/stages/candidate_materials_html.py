@@ -198,11 +198,12 @@ def _relations(packet):
                                 f"来源：{item.get('relation_source') or '旧event关系迁移'} · "
                                 f"{_relation_text(item)}：{item.get('explanation') or '未提供说明'}"
                             )),
-                            *([_node("details", {},
-                                      _node("summary", {}, "关系原文依据"),
-                                      *[_pre(json.dumps(quote, ensure_ascii=False))
-                                        for quote in item.get("basis_quotes") or []])]
-                              if item.get("basis_quotes") else [])) for item in related]),
+                            _node("p", {"class": "small"}, _h(
+                                (f"共同管理目标：{item.get('shared_management_goal')} · "
+                                 if item.get("shared_management_goal") else "")
+                                + f"关系引文 {item.get('basis_quote_count', 0)} 条；"
+                                "请在独立关系运行文件核对，不纳入当前时点可见资料。"
+                            ))) for item in related]),
               _node("p", {"class": "small"}, "显示顺序不等于已确认的临床决策顺序。")),
     )
 

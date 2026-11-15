@@ -30,7 +30,10 @@ def _apply_spans(text, spans):
     for span in sorted(spans, key=lambda item: (item["start"], item["end"])):
         if span["start"] < cursor:
             raise ValueError("OVERLAPPING_MASK_SPANS_REQUIRE_MERGE")
-        pieces.extend((text[cursor:span["start"]], "[目标管理判断已遮蔽]"))
+        replacement = ("[晚于评价时点的时间已遮蔽]"
+                       if span.get("mask_reason") == "FUTURE_EXPLICIT_DATETIME_REDACTION"
+                       else "[目标管理判断已遮蔽]")
+        pieces.extend((text[cursor:span["start"]], replacement))
         cursor = span["end"]
     pieces.append(text[cursor:])
     return "".join(pieces)
@@ -69,7 +72,8 @@ def _mask_management_action_lines(text):
     import re
     terms = ("拟施", "拟行", "已申请", "已签署", "治疗计划", "检查安排",
              "输血", "冰冻病理", "排除手术禁忌", "限期行手术", "定于",
-             "手术指征", "手术切除", "手术方式", "手术时间", "根治性胰", "Whipple")
+             "手术指征", "手术切除", "手术方式", "手术时间", "根治性胰", "Whipple",
+             "限期行", "择期行", "拟实施", "故拟", "签署知情同意", "积极术前准备")
     spans = []
     for match in re.finditer(r"[^。；\n]+[。；\n]?", text):
         clause = match.group(0)
@@ -77,6 +81,39 @@ def _mask_management_action_lines(text):
             spans.append(dict(start=match.start(), end=match.end(),
                               mask_reason="ADJACENT_MANAGEMENT_ACTION_HEURISTIC"))
     return text, spans
+
+
+def _future_datetime_spans(text, cutoff):
+    import re
+    if not cutoff:
+        return []
+    spans = []
+    pattern = r"20\d{2}[-/年]\d{1,2}[-/月]\d{1,2}日?(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?"
+    for match in re.finditer(pattern, text):
+        normalized = match.group(0).replace("年", "-").replace("月", "-")
+        normalized = normalized.replace("日", "").replace("/", "-").replace("T", " ")
+        parts = normalized.split(" ", 1)
+        date = "-".join(part.zfill(2) for part in parts[0].split("-"))
+        value = date + ((" " + parts[1]) if len(parts) == 2 else "")
+        if value > cutoff:
+            spans.append(dict(start=match.start(), end=match.end(),
+                              mask_reason="FUTURE_EXPLICIT_DATETIME_REDACTION"))
+    return spans
+
+
+def _redact_future_clocks(card, cutoff):
+    if not cutoff:
+        return
+    def projected(clock):
+        if not isinstance(clock, dict) or not _clock_value(clock):
+            return deepcopy(clock)
+        if _clock_value(clock) > cutoff:
+            return dict(value=None, precision="unknown", redacted=True,
+                        reason="AFTER_CANDIDATE_EVALUATION_CUTOFF")
+        return deepcopy(clock)
+    card["clock"] = projected(card.get("clock") or {})
+    card["original_source_clock"] = projected(card.get("original_source_clock") or {})
+    card["clocks"] = {key: projected(value) for key, value in (card.get("clocks") or {}).items()}
 
 
 def _mask_diagnostic_restatements(text, aliases):
@@ -104,6 +141,22 @@ def _same_event_spans(checkpoint, candidates, relations):
     return [deepcopy(candidate["span"]) for candidate in candidates
             if candidate.get("event_id") in related_ids - members
             and candidate.get("status") == "ACCEPTED" and candidate.get("span")]
+
+
+def _same_checkpoint_spans(checkpoint, projection, relations):
+    related_ids = set()
+    for relation in relations:
+        if relation.get("relation") != "same_event" \
+                or relation.get("confidence") != "supported":
+            continue
+        endpoints = {relation.get("source_checkpoint_id"),
+                     relation.get("target_checkpoint_id")}
+        if checkpoint["checkpoint_id"] in endpoints:
+            related_ids.update(endpoints)
+    related_ids.discard(checkpoint["checkpoint_id"])
+    return [deepcopy(span) for candidate in projection["candidate_checkpoints"]
+            if candidate["checkpoint_id"] in related_ids
+            for span in candidate.get("masked_spans") or []]
 
 
 def _navigation(packets):
@@ -157,6 +210,9 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         for field in ("source_checkpoint_id", "target_checkpoint_id"):
             if relation.get(field) not in checkpoint_ids:
                 raise ValueError("UNKNOWN_CANDIDATE_RELATION_ENDPOINT:" + str(relation.get(field)))
+    if organized and set(candidate_membership) != checkpoint_ids:
+        missing = sorted(checkpoint_ids - set(candidate_membership))
+        raise ValueError("INCOMPLETE_CANDIDATE_EPISODE_COVERAGE:" + ",".join(missing))
     source_by_id = {source["source_id"]: source for source in sources}
     diagnostic_by_id = {event["event_id"]: event
                         for event in projection["diagnostic_events"]}
@@ -192,7 +248,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         target_spans_by_source = {}
         for span in checkpoint.get("masked_spans") or []:
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
-        for span in ([] if organized else _same_event_spans(checkpoint, candidates, relations)):
+        for span in (_same_event_spans(checkpoint, candidates, relations)
+                     + _same_checkpoint_spans(checkpoint, projection, candidate_relations)):
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
         if pre_exam:
             for candidate in candidates:
@@ -213,6 +270,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                                      disposition="EXCLUDED_BY_CANDIDATE_TIMELINE"))
                 continue
             card = _source_card(source, visible_clock)
+            _redact_future_clocks(card, cutoff)
             card["presentation_scope"] = "within_candidate_information_cutoff"
             if pre_exam and source_id in target_ids:
                 card.update(title="[目标检查已遮蔽]", text="[目标检查组全部内容已遮蔽]",
@@ -220,7 +278,9 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 whole_masked.append(source_id)
             else:
                 spans = list(target_spans_by_source.get(source_id) or [])
-                if checkpoint["kind"] == "management_decision":
+                if checkpoint["kind"] == "management_decision" or (
+                        checkpoint["kind"] == "evidence_arrival_reassessment"
+                        and source_id not in target_ids):
                     card["text"], action_spans = _mask_management_action_lines(card["text"])
                     for span in action_spans:
                         span.update(source_id=source_id)
@@ -231,6 +291,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                     for span in heuristic_spans:
                         span.update(source_id=source_id)
                     spans.extend(heuristic_spans)
+                spans.extend(_future_datetime_spans(card["text"], cutoff))
                 if spans:
                     merged = _merge_spans(spans)
                     card["text"] = _apply_spans(card["text"], merged)
@@ -296,7 +357,9 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                            else "incoming"),
                 confidence=relation.get("confidence"),
                 explanation=relation.get("explanation"),
-                basis_quotes=deepcopy(relation.get("basis_quotes") or []),
+                shared_management_goal=relation.get("shared_management_goal"),
+                basis_quote_count=len(relation.get("basis_quotes") or []),
+                basis_quote_location="candidate_cp_relations.json_research_audit_not_current_projection",
                 relation_source=relation.get("relation_source") or "candidate_cp_agent_recording",
                 retrieval_clock_comparison=relation.get("retrieval_clock_comparison")))
         for relation in ([] if organized else relations):

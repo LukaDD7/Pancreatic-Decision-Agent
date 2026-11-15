@@ -120,7 +120,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     console.log(JSON.stringify({ status: 'PASS', candidates: count, visited }));
   } finally {
     if (socket) socket.close();
+    const exited = new Promise(resolve => child.once('exit', resolve));
     child.kill('SIGTERM');
-    fs.rmSync(profile, { recursive: true, force: true });
+    await Promise.race([exited, delay(3000)]);
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });

@@ -29,6 +29,28 @@ def _organization_items(raw, key):
     return value
 
 
+def _projection_sha256(projection):
+    payload = json.dumps(projection, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_organization(organization, episodes, *, case_id, projection):
+    expected = _projection_sha256(projection)
+    for label, document, format_name in (
+            ("relations", organization, "p2-candidate-cp-relations-0.1.0"),
+            ("episodes", episodes, "p2-candidate-cp-episodes-0.1.0")):
+        if not isinstance(document, dict) or document.get("format") != format_name:
+            raise ValueError("CANDIDATE_ORGANIZATION_FORMAT_MISMATCH:" + label)
+        if document.get("case_id") != case_id:
+            raise ValueError("CANDIDATE_ORGANIZATION_CASE_MISMATCH:" + label)
+        if document.get("candidate_projection_sha256") != expected:
+            raise ValueError("CANDIDATE_ORGANIZATION_PROJECTION_MISMATCH:" + label)
+    conservation = episodes.get("conservation") or {}
+    if conservation.get("all_candidate_checkpoints_conserved") is not True:
+        raise ValueError("CANDIDATE_ORGANIZATION_CONSERVATION_NOT_CONFIRMED")
+
+
 def render_candidate_materials(*, case_result, source_bundle, output,
                                candidate_relations=None, candidate_episodes=None):
     from ..p2_auto_checkpoint.fhir_io import import_sources
@@ -44,10 +66,12 @@ def render_candidate_materials(*, case_result, source_bundle, output,
     if candidate_relations is not None or candidate_episodes is not None:
         if candidate_relations is None or candidate_episodes is None:
             raise ValueError("CANDIDATE_RELATIONS_AND_EPISODES_REQUIRED_TOGETHER")
-        cp_relations = _organization_items(
-            json.loads(Path(candidate_relations).read_text(encoding="utf-8")), "relations")
-        cp_episodes = _organization_items(
-            json.loads(Path(candidate_episodes).read_text(encoding="utf-8")), "episodes")
+        organization_document = json.loads(Path(candidate_relations).read_text(encoding="utf-8"))
+        episodes_document = json.loads(Path(candidate_episodes).read_text(encoding="utf-8"))
+        _validate_organization(organization_document, episodes_document,
+                               case_id=raw["case_id"], projection=projection)
+        cp_relations = _organization_items(organization_document, "relations")
+        cp_episodes = _organization_items(episodes_document, "episodes")
     material = project_candidate_materials(
         case_id=raw["case_id"], sources=sources, candidates=raw["candidate_spans"],
         projection=projection,
