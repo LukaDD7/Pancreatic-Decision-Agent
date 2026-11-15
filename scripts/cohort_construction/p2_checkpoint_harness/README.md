@@ -65,18 +65,55 @@ episodes 或 case-organization 会话。三种 scope 分别绑定到运行契约
 替代本次代码和输入的授权。
 
 `stages/case_organization.py` 同时把管理候选与程序 evidence artifact 送入一次病例级 Agent：
-- `evidence_used` 明确为既往证据对象→后续管理候选；可比的检索时钟若显示反向则拒绝，
-  未知或同刻保留未知，不把检索时钟写成选择时刻。
-- `contains/overlap` 保存组合/原子候选的组成与部分重叠，不冒充 `same_event`，不自动合并过程。
-- 只有 `confidence=supported` 的 `same_management_process` 合并候选过程；`context_only`
-  进入未解释关系，**不合并**。为保留历史对照，legacy `ordering + episodes` 的旧合并语义不改。
-- 仍使用 `preview_episodes`、带引文的 `none/no_link` 直接边修正、全对象覆盖声明、逐项
-  evidence checks、孤立候选与 unresolved 保留。证据对象不形成伪管理 episode。
+- **Agent 只做关系记录**：为候选/证据节点连边，写关系类型、置信度、理由和必要的原文引文。
+  `evidence_used` 为既往证据对象→后续管理候选；时间可比时拒绝反向，未知或同刻不推定临床选择时刻。
+- `same_event/contains/overlap/same_management_process` 分别保留身份、组成和过程关系；
+  `none/no_link` 只修正直接过程边。证据和组成关系不自动合并过程。
+- 新路径只有 supported `same_management_process` 被程序用于合并；`context_only/uncertain`
+  保留、不合并。legacy 的历史合并语义不变。
+- **容器和孤立节点由程序派生**，不向 Agent 提供 preview、demote、ID 覆盖清单或单独
+  evidence-check 任务。先验证核心连边能力，再考虑额外容器审阅职责。
+
+`--stages organization --discovery-result <冻结case_result.json>` 直接读取已有 discovery，
+只运行关系记录，不重跑发现；contract/authorization 同时绑定该结果 hash。`--stages case`
+仍适用于从发现开始的新运行。容器文件名为 `candidate_containers.json`，不是医生材料。
 
 `HCO-DEV-017` 修复 scope 授权固定成 legacy 值造成的前置拒绝；`HOR-DEV-018` 登记
 单次组织的关系对象模型及合并约束。这些都是代码契约与合成反例，不是临床质量证明。
 真实发现召回、模型组织语义与病例级容器边界仍须基于原始文字单独审查；Checkpoint 材料组织、
 最终盲评方案和医生资料包不在本轮实现范围。
+
+## 候选材料的可读投影（2026-11-14）
+
+`stages/materials.py` 现在输出 `p2-candidate-checkpoint-material-0.2.0`：
+把**发现阶段 LLM 提议、程序核验的候选原文区间**作为研究审核层单列，同时保留
+**程序按时点纳入并遮蔽的来源投影**。两层不能混称：候选定位原文不是已确认临床决策，
+按时点可见的历史来源也不是 Agent 已使用的证据。`target.source_title/source_clocks` 明示
+当前候选所在文书和检索时钟；检索时钟仍不等于临床团队作出选择的时刻。
+
+每个候选保留 `related_candidates`，其中含关系阶段 Agent 的关系类型、置信度、理由、
+两端引文和相关候选定位原文；`episode_navigation` 仅提供 Episode 内上一个/下一个候选的
+显示顺序。未知时钟排在后，绝不把显示顺序或关系方向冒充已确认临床先后。
+
+离线 HTML 一次只显示一个候选，默认“本节点增量”按原文上下文、Agent 候选定位与理由、
+拟遮蔽前后对照、前后相邻候选直接关系四步呈现；未记录直接边不等于临床上无关系。
+“定位 Agent 选定原文”可展开精确字符边界；另有目标文书完整遮蔽投影、时点内完整资料、
+全部 Agent 关系、已记录证据引用四层。顶部下拉框、上一/下一候选按钮及关系卡均可切换候选。
+草稿切换不互相覆盖，导出绑定 checkpoint、packet hash、manifest hash、表单与 renderer 版本。
+
+```sh
+python -m scripts.cohort_construction.p2_checkpoint_harness.render_materials \
+  --case-result <run>/case_result.json \
+  --sources <case>/source_fhir_r4_bundle.json --output <新的私有目录>
+```
+
+只读取既有运行结果，不调用 provider、不请求网络、不改写冻结输入或旧版报告。
+**这份 HTML 含全例候选和研究审核专用原文，是私有研究预览，不是医生盲评包。**
+最终医生包须按冻结方案另行派生并限制每个专家可见的候选和原文，不得用 CSS 隐藏全例内容。
+真实 SCALE-01 v3 由同一离线程序生成 38 个候选、17 个 Episode；v2 保持不改。
+渲染层的改进不验证候选的临床语义、Episode 独立性、证据实际使用或最终盲评完整性。
+对应问题登记为 `HCM-LIVE-025`，合成反例 `HCM004–HCM008` 及真实报告浏览器回执覆盖导航、
+原文/遮蔽分层、来源筛选、草稿绑定及手机无横向溢出；它们不是临床质量认证。
 
 ## 为什么要有它
 
@@ -366,6 +403,30 @@ dry-run 打印 **run contract**：来源 hash、配置 hash、整个包的代码
 
 实跑写入的目录必须是空的；`--case-receipt` 指向一个 `status=COMPLETE` 的
 既有病例回执时，拒绝重跑。
+
+## 候选 CP 与检查双节点重投影（2026-11-15）
+
+`HCP-LIVE-026～028` 已进入离线实现和真实发现验证阶段。新增
+`diagnostic_events.py`、`candidate_checkpoints.py`、`candidate_materials.py` 及
+`candidate_materials_html.py`；旧 `render_materials.py` 和旧运行保持可用，不被覆盖。
+新入口：
+
+```bash
+.venv/bin/python -m scripts.cohort_construction.p2_checkpoint_harness.render_candidate_materials \
+  --case-result RUN/case_result.json --sources CASE/source_fhir_r4_bundle.json \
+  --output NEW_PRIVATE_DIRECTORY
+```
+
+检查报告默认以 `report_time` 为可见性代理，缺失时才降级到 `verified_time`；检查前
+候选以 `exam_time` 引导，报告后候选显示当前报告。程序从明确手术时间字段提取主任务
+边界候选，排除术后诊断节点；这不是完整治疗阶段重建。无时间点或无可见临床上下文的
+候选不生成空 CP。同一管理 source 合并为一个候选 CP，38 个旧 span 逐项保留迁移记录。
+
+SCALE-01 离线 `candidate-cp-v4` 形成 9 个候选 CP：5 个管理决策、MR/增强CT两个检查前
+节点、两个术前报告后节点；另有 9 个支持记录、2 个无时钟待核、术后及空上下文节点
+迁移记录。全部 199 项 Harness 测试和 106 项 P1 guard 通过。独立审计曾发现术后节点、
+空 CP、跨文书泄漏、坐标错切、过度遮蔽和 hash 失配，均已针对真实产物复核修复。
+跨文书遮蔽仍是开发投影，不是冻结盲评方案；HTML包含研究原文和未来节点，不是医生包。
 
 ## 尚未具备
 

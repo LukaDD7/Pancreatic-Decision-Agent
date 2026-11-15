@@ -5,6 +5,120 @@
   "clinical_gold": false,
   "issues": [
     {
+      "id": "HCP-LIVE-026",
+      "problem": "Every accepted candidate span is projected into one Checkpoint without a gate for an evaluable management question, a concrete action space, or the clinician protocol's primary preoperative-path/NAT-reassessment task. Admission intent, generic wording, repeats, execution traces, postoperative routine care and intraoperative records can therefore become apparent standalone evaluation points even when a clinician cannot supply a valid next action.",
+      "planned_change_type": "evaluable_action_gate_and_primary_task_scope",
+      "implementation": "candidate_checkpoints.py adds source-level grouping, support/out-of-scope/review migrations, concrete action-plan schema and management clock gates. candidate_materials.py adds timed projections. SCALE-01 candidate-cp-v4 retains five management CPs; the admission-intent and two clockless candidates are not CPs. Real discovery recall remains under separate validation.",
+      "status": "offline_projection_implemented_live_discovery_validation_pending",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "relations-r6-resumed-01",
+        "event_id": "EV-237777e5e50b4b4a",
+        "quote": "为求手术治疗，门诊以\"胰腺癌\"收入我科。",
+        "observed_classification": "scope=yes, record_function=new_decision",
+        "counts": "38 candidate spans produced 38 candidate materials; record_function counts were new_decision=24, reassessment=2, execution=6, repeat=3, generic=2, uncertain=1. Nine postoperative-course, three discharge-summary and two operative candidates were also in the same pool.",
+        "private_result": "private/p2_harness_live_20261113/SCALE-01-relations-r6-resumed-01/case_result.json"
+      },
+      "synthetic_counterexample": "A located admission-intent sentence and a generic template remain auditable source records but cannot become standalone evaluable Checkpoints. A documented plan with a patient-specific question and ADVANCE/HOLD_FOR_EVIDENCE/REDIRECT action space can.",
+      "positive_control": "An evaluation unit has one explicit task header, patient-specific available facts and a concrete action space; maintaining a strategy after new evidence is allowed and does not require a changed Mode.",
+      "negative_control": "repeat, execution, generic and uncertain spans do not become independent scored Checkpoints merely because their quotes verify. Postoperative treatment, acute complications and intraoperative resection/reconstruction are not silently included in the primary preoperative task.",
+      "planned_test_contracts": [
+        "The admission-intent real quote is retained for audit but is not independently evaluable.",
+        "A missing action plan is a technical failure, not a valid blank Checkpoint.",
+        "Primary-task exclusion is distinct from patient exclusion and from source deletion.",
+        "Every retained unit can emit a concrete action plan under the frozen clinician form."
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_admission_repeat_and_postoperative_profile_do_not_become_checkpoints",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_missing_management_clock_cannot_create_empty_checkpoint",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_every_retained_checkpoint_has_concrete_action_plan_schema"
+      ],
+      "limitations": "Offline eligibility and migration are implemented and audited. This is not an expert-labelled exclusion set or clinical accuracy result; real discovery recall and clinical task semantics remain pending."
+    },
+    {
+      "id": "HCP-LIVE-027",
+      "problem": "Multiple candidates from one source become separate Checkpoints, while masking removes only the current span and strictly later spans. Same-source/same-clock alternatives remain visible in both directions, and earlier decisions remain visible in later packets, causing duplication and cross-Checkpoint target leakage.",
+      "planned_change_type": "one_source_one_evaluation_unit_and_joint_masking",
+      "implementation": "candidate_checkpoints.py merges same-source spans with migration conservation. candidate_materials.py jointly masks member spans, same_event restatements and bounded adjacent action clauses in one original-text coordinate pass. Independent audits caught and verified repair of same-source leakage, over-masking and offset corruption. Cross-document completeness remains explicitly unconfirmed; output is not a doctor packet.",
+      "status": "offline_projection_implemented_live_discovery_validation_pending",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "relations-r6-resumed-01",
+        "observation": "38 Checkpoints came from 17 sources; 13 sources carried 34 Checkpoints. The preoperative-discussion source 4bf1aba342d3908a8d434716 carried five and the preoperative-summary source 52a8cea2c9edd711a4070c3d carried four.",
+        "mechanism": "materials._future_source_spans uses candidate clock strictly greater than target clock; project_materials adds only the current target span. Same-source same-clock candidates are not jointly masked.",
+        "private_result": "private/p2_harness_live_20261113/SCALE-01-relations-r6-resumed-01/case_result.json"
+      },
+      "synthetic_counterexample": "Combined, component and repeated action spans in one source must be one evaluation unit with one jointly masked target region set and a multi-action response, not separately navigable packets that reveal one another.",
+      "positive_control": "At most one evaluation Checkpoint is emitted per source in this iteration; all target decisions, cross-document restatements, post-decision execution and outcomes required by the frozen protocol are jointly masked without editing original sources.",
+      "negative_control": "No retained packet exposes another candidate from its own target source as an answer clue. Combining actions does not fabricate separate decision times or merge genuinely different source documents.",
+      "planned_test_contracts": [
+        "The five-span preoperative-discussion source yields at most one evaluation unit and none of its five target quotes remains visible.",
+        "Combined and atomic spans are deduplicated/clustered with an auditable member-ID mapping rather than silently deleted.",
+        "Cross-document restatement and outcome leakage receive explicit mask coverage tests.",
+        "The old independent-span masking control HPL028 is migrated to distinguish raw discovery span retention from final evaluation-unit masking."
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_five_spans_from_one_source_merge_into_one_review_candidate",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_same_source_support_record_has_checkpoint_destination",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials.py::CandidateMaterialTests::test_management_source_group_masks_target_span"
+      ],
+      "limitations": "One source one management CP is implemented in the offline projection. It is not a confirmed clinical decision time. Heuristic adjacent-action and cross-document masks remain a private development projection, not a frozen clinician blinding protocol."
+    },
+    {
+      "id": "HCP-LIVE-028",
+      "problem": "Performed-test reports are indexed as evidence artifacts but the current pipeline has no evidence-arrival re-evaluation unit and no evidence_used edges were recorded. Consequently MR/contrast CT evidence cannot become a protocol-defined opportunity to maintain or change management. This general mechanism gap must not be misreported as a confirmed preoperative omission in SCALE-01: its selected report-visibility clocks are after the operation date, and no laparoscopy deployment was found in the delivered sources.",
+      "planned_change_type": "evidence_arrival_reassessment_and_visibility_clock_audit",
+      "implementation": "diagnostic_events.py preserves exam/report/verified clocks, prefers report_time with verified fallback and derives an explicit operation-start boundary from an exact source field. candidate_checkpoints.py generates pre-exam and evidence-arrival candidates only with clocks, visible context and primary-task eligibility. SCALE-01 candidate-cp-v4 has MR/CT pre-exam and two preoperative report-arrival CPs; postoperative diagnostic nodes and the empty-context pre-exam node are excluded with migrations.",
+      "status": "offline_projection_implemented_live_discovery_validation_pending",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "evidence_inventory": 5,
+        "evidence_used": 0,
+        "MR": "Three duplicate-content sources form EA-703970e18141230e: exam 2022-12-14 12:17:25, report 2022-12-14 14:56:32, selected verified-time proxy 2022-12-16 15:33:07.",
+        "contrast_CT": "Four duplicate-content sources form EA-674c217d0aad511b: exam 2022-12-14 14:31:11, report 2022-12-15 15:55:12, selected verified-time proxy 2022-12-18 19:05:11.",
+        "laparoscopy": "No 腹腔镜/腔镜探查/分期探查 occurrence was found in the 688-source SCALE-01 bundle; other cases still require a separate recall audit.",
+        "private_result": "private/p2_harness_live_20261113/SCALE-01-relations-r6-resumed-01/case_result.json"
+      },
+      "synthetic_counterexample": "A newly visible preoperative MR report creates an evidence-arrival re-evaluation opportunity linked to the current management question; the clinician may maintain or change the strategy. A report alone does not create a fictional clinician order or claim a documented new decision.",
+      "positive_control": "A patient-specific documented order for MR, contrast CT or staging laparoscopy remains discoverable as a management action; evidence arrival preserves exam/report/verified clocks and uses an explicit visibility policy.",
+      "negative_control": "A generic template suggestion, a report mention, or a postoperatively visible report is not fabricated into a preoperative management decision. Absence in SCALE-01 is not generalized to all cases.",
+      "planned_test_contracts": [
+        "A preoperative visible evidence artifact can create a clearly labelled evidence-arrival re-evaluation candidate with an actionable Mode set.",
+        "SCALE-01 MR/CT artifacts do not enter the preoperative primary task under their selected verified-time visibility clocks.",
+        "Exam, report and verified timestamps remain distinct and the selected visibility basis is displayed.",
+        "A documented staging-laparoscopy order is discovered; a mere template/report mention is not promoted to a deployment.",
+        "Evidence_used and evidence_arrival are different relations; neither is inferred from timestamp or content similarity alone."
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_diagnostic_events.py::DiagnosticEventTests::test_HDE002_report_time_has_priority_over_exam_and_verified_time",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_diagnostic_event_has_two_nodes_without_pre_exam_type_leakage",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_operation_start_separates_preoperative_and_postoperative_diagnostic_nodes",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_pre_exam_without_visible_clinical_context_is_not_a_checkpoint",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_conflicting_report_visibility_is_not_repaired_by_verified_time",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials.py::CandidateMaterialTests::test_pre_exam_has_time_question_and_no_target_modality_or_result",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials.py::CandidateMaterialTests::test_report_uses_report_time_shows_report_and_excludes_future"
+      ],
+      "limitations": "Report_time and verified_time are source metadata, not independently validated clinician availability. Operation-boundary extraction is an explicit candidate requiring review, not complete treatment-stage reconstruction. Cross-case order recall, laparoscopy positive controls and clinician blinding remain open; no recall rate is claimed."
+    },
+    {
+      "id": "HCM-LIVE-025",
+      "problem": "In SCALE-01 relations-r6-materials-v2, the current candidate was identified only by a hash, record_function and retrieval clock. The LLM-proposed located span was not shown, all sources were mixed under one 'complete materials' heading, and selecting an Episode left every candidate vertically stacked. The viewer could not directly inspect adjacent candidates or the Agent's relation evidence. Unknown-clock sources also printed None instead of their available source clocks.",
+      "change_type": "research_material_projection_and_navigation",
+      "real_counterexample": "SCALE-01 EP002 CP-59c0c3c3a267632a: the screenshot shows only the hash and 154 included sources, not the candidate's original span or its two same-Episode neighbors. The two unknown-clock neighbors show 'None'. This is a display/material-organization defect, not a clinical judgment about this candidate.",
+      "synthetic_counterexample": "A current candidate, a later same-process candidate and an unknown-clock candidate must expose separate researcher-only original spans, masked target sources, explicit retrieval-time roles, previous/next links, relation explanations and source creation-time clues. A doctor packet must not inherit these researcher originals or later packets.",
+      "positive_control": "One current candidate is displayed at a time; its source title and candidate quote are explicit; adjacent candidates and related-candidate links navigate; response exports bind checkpoint, packet hash, form version and manifest hash.",
+      "negative_control": "The masked target text must not contain the current candidate quote; unknown clocks must not claim completed masking; candidate display order must not be labelled clinical order; renderer/response must not create a clinical Reference.",
+      "implementation": "Material format 0.2.0 adds researcher_candidate_inspection, target source/time metadata, typed masked-source roles, related_candidates, and explicit candidate navigation. A local text-only HTML CLI renders one candidate at a time with layered source, relation and evidence panels and no network. A new versioned output directory preserves v2.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_materials.py::MaterialInspectionTests::test_HCM004_current_candidate_and_masked_source_are_separate_layers",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_materials.py::MaterialInspectionTests::test_HCM005_neighbors_and_agent_relation_basis_are_clickable_data",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_materials.py::MaterialInspectionTests::test_HCM006_unknown_clock_has_source_clues_not_empty_masked_claim",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_materials.py::MaterialInspectionTests::test_HCM007_renders_one_selected_checkpoint_with_navigation_and_bound_response",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_materials.py::MaterialInspectionTests::test_HCM008_written_manifest_binds_navigation_enriched_packet"
+      ],
+      "limitations": "Improved research inspection does not validate Agent candidate semantics, clinical Episode independence, actual evidence use, or blinding completeness. The HTML is a private research preview, not a doctor release. The frozen clinician protocol and separate per-assignment package remain unimplemented."
+    },
+    {
       "id": "HCO-DEV-017",
       "problem": "The selected execution scope was accidentally placed in the fixed AUTH_REQUIRED dictionary with the legacy value. It made a correctly bound discovery authorization fail the fixed-value governance check before any provider call; a boolean can also compare equal to a string under a generic equality check if the field is not explicitly typed.",
       "change_type": "execution_scope_governance_repair",
@@ -33,12 +147,111 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO005_same_input_legacy_cannot_see_evidence_new_stage_can",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO006_legacy_default_keeps_context_only_process_merge",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO008_evidence_artifact_uses_visibility_not_exam_clock",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO009_agent_surface_is_relation_recording_only",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HCO007_case_organization_recovers_relations_and_final_state",
-        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_execute.py::ExecutedRunTests::test_HRN005_case_organization_is_one_stage_after_discovery"
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_case.py::RunCaseTests::test_HRC015_organization_only_binds_frozen_discovery",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_execute.py::ExecutedRunTests::test_HRN005_case_organization_is_one_stage_after_discovery",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_run_execute.py::ExecutedRunTests::test_HRN006_organization_only_reuses_frozen_discovery_without_provider_discovery"
       ],
       "status": "program_contract_implemented_semantics_not_live_validated",
       "development_counterexample": "The first shared-builder implementation applied supported_only without an explicit policy. That also changed legacy ordering + episodes to stop merging context_only, contrary to the agreed unchanged baseline. HCO006 now proves the default legacy merge directly; the new case path opts into supported_only explicitly.",
+      "core_task_refinement_2026_11_13": "Per the user's development principle, case organization is now edges-only: no agent preview, demotion, episode-coverage checklist, or separate evidence-check list. Program code derives containers after edges are recorded. HCO009 verifies the reduced tool surface; HCO007 verifies recovery still preserves relations. A separate organization entry binds and reads a frozen discovery result without rerunning discovery (HRC015/HRN006).",
+      "required_tests_additional": [],
       "limitations": "The legacy ordering + episodes path remains available for comparison. It retains historical context_only merging so old counterexamples can be replayed as the legacy baseline. The new path only unions supported process edges. Program quote and clock gates do not establish clinical correctness; a single model organization run still requires source-based review. Checkpoint material organization and frozen blinding are not implemented by this change."
+    },
+    {
+      "id": "HAG-LIVE-019",
+      "problem": "In SCALE-01 relations-r1, billed format-repair requests were not preceded by durable session records of their repair prompt. The transcript had request_sent(repair=true) but could not reconstruct the exact provider input.",
+      "change_type": "repair_context_durability",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "relations-r1",
+        "requests": 22,
+        "relations": 0,
+        "private_summary": "private/p2_harness_live_20261113/SCALE-01-relations-r1/summary.json"
+      },
+      "implementation": "Repair context is appended to the session before the repair request and the actual request reads derive_messages(). No synthetic tool result is fabricated; oversized-prefix receipts remain explicit user messages.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG025_repair_context_is_durable_before_the_billed_request"
+      ]
+    },
+    {
+      "id": "HTR-LIVE-020",
+      "problem": "SpillStore instructed the model to call read_spilled, but Harness.new_registry never registered that tool. The first oversized list_events result therefore led to UNKNOWN_TOOL instead of readable evidence.",
+      "change_type": "spill_reader_registration",
+      "real_counterexample": "SCALE-01 relations-r1 seq 16 called read_spilled and seq 17 returned UNKNOWN_TOOL.",
+      "implementation": "Every Harness registry now includes a read_spilled reader restricted to that run's spill directory.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_tools.py::SpillIntegrationTests::test_HTR018_registry_provides_the_reader_promised_by_every_spill_locator"
+      ]
+    },
+    {
+      "id": "HCO-LIVE-021",
+      "problem": "max_steps_per_turn=14 counted the entire case-level list/read/record/finish task, and STOP_MAX_TURNS made step exhaustion look like a turn cap. In SCALE-01 relations-r1 the model read all 43 nodes and multiple original spans, but exhausted the cap before record_relation; zero relations did not mean zero clinical links.",
+      "change_type": "case_task_budget_and_stop_reason",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "relations-r1",
+        "provider_requests": 22,
+        "outer_steps": 14,
+        "record_relation_calls": 0,
+        "estimated_prompt_tokens_at_stop": 30741,
+        "compactions": 0
+      },
+      "implementation": "Default outer step budget is 100 while case-level request/token budgets remain binding. Exhaustion now stops as max_steps, not max_turns. This changes a control bound, not candidate or relation semantics.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG008_step_limit_stops_turn",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG026_bounded_repairs_do_not_consume_the_outer_tool_step"
+      ]
+    },
+    {
+      "id": "HAG-LIVE-022",
+      "problem": "SCALE-01 relations-r2 returned a response whose 16 read_event calls were complete JSON objects but whose top-level list/envelope was unclosed. The parser discarded all 16, repeated the identical repair request, then stopped format_failed with no edges. It also issued a 16-call batch despite a protocol that encouraged smaller work units.",
+      "change_type": "bounded_complete_call_recovery_and_reply_budget",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "run": "relations-r2",
+        "failed_content_characters": 1199,
+        "failed_content_sha256": "b12acc45be5aac33c65d79a6c30899f15a105391f1b2325a82d8f5fac4a537c2",
+        "complete_read_event_calls": 16,
+        "repeated_request_content": true,
+        "private_summary": "private/p2_harness_live_20261113/SCALE-01-relations-r2/summary.json"
+      },
+      "implementation": "Recover only fully decoded registered calls with object arguments from an unclosed envelope. Do not guess or execute a partial tail. Reply protocol now requests one tool per reply to keep production bounded; oversized batch guards remain. Recovered calls are marked in session.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG027_complete_calls_survive_unclosed_envelope_without_guessing_tail",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_agent.py::LoopTests::test_HAG028_partial_call_is_never_executed_or_completed_by_guessing"
+      ]
+    },
+    {
+      "id": "HCO-LIVE-023",
+      "problem": "SCALE-01 relations-r4 finally recorded ten valid edges but recovery sessions repeated the complete candidate-list and spill reads, spending the remaining attempts before useful continuation. Repeated source/unit metadata made the list unnecessarily large.",
+      "change_type": "relation_recovery_continuation_and_list_payload",
+      "real_counterexample": {
+        "case_id": "SCALE-01", "run": "relations-r4", "recorded_relations": 10,
+        "provider_requests": 37, "transport_reasons": ["TRANSPORT_ERROR"],
+        "recovery_relation_writes": 0
+      },
+      "implementation": "Recovery now updates self.relations after each attempt and supplies durable endpoint/relation pairs to the next prompt. Candidate list drops duplicate discovery unit/source metadata while preserving origin identifiers and exact spans. No change to clinical relation semantics.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO010_list_contains_exact_spans_without_repeated_reading_metadata",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_pipeline.py::PipelineTests::test_HCO007_case_organization_recovers_relations_and_final_state"
+      ]
+    },
+    {
+      "id": "HCO-LIVE-024",
+      "problem": "SCALE-01 relations-r5 completed with 39 edges, but source-level citations allowed an evidence relation to cite unrelated findings from the same report instead of the candidate evidence span; unverified candidate spans could also be organized. One supported evidence_used claimed chest CT pneumonia/effusion supported albumin supplementation without an actual endpoint match.",
+      "change_type": "endpoint_span_relation_verification",
+      "real_counterexample": {
+        "case_id": "SCALE-01", "run": "relations-r5", "relations": 39,
+        "counterexample_source": "EA-c078109bc205f04f",
+        "counterexample_target": "EV-22717a2b3ca8184b",
+        "observation": "引文属于同一报告但与白蛋白处置无直接关联，不能作为supported关系。"
+      },
+      "implementation": "Every supported/context_only/no_link relation must include each endpoint's exact full located span, including evidence objects' source spans. Both endpoints must have program-verified ACCEPTED or SOURCE_INDEXED status. Evidence projection for organization derives immutable source spans from original_texts.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_case_organization.py::CaseOrganizationTests::test_HCO001_evidence_is_a_first_class_directed_previous_to_later_object"
+      ]
     },
     {
       "id": "HTR-LIVE-001",

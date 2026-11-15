@@ -1,0 +1,506 @@
+"""Private offline HTML for reprojected candidate Checkpoint research review.
+
+Every packet, including later Checkpoints and researcher-only originals, is
+embedded in this file. It is not a clinician distribution or a blinded doctor
+packet. The renderer performs no provider or network requests.
+"""
+from __future__ import annotations
+
+from collections import Counter
+import hashlib
+import html
+import json
+from pathlib import Path
+
+HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.3.0"
+RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.3.0"
+FORM_VERSION = "candidate-action-plan-development-0.3"
+
+
+def _h(value):
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def _node(tag, attributes=None, *children):
+    attrs = "".join(
+        f' {key}="{_h(value)}"' for key, value in (attributes or {}).items()
+        if value is not None
+    )
+    return f"<{tag}{attrs}>{''.join(children)}</{tag}>"
+
+
+def _pre(value, attributes=None):
+    return _node("pre", attributes, _h(value))
+
+
+def _clock_text(clock):
+    if isinstance(clock, dict):
+        value = clock.get("value") or "未知"
+        precision = clock.get("precision")
+        return f"{value}（{precision}）" if precision else str(value)
+    return str(clock or "未知")
+
+
+def _source_clocks(source):
+    clocks = source.get("clocks") or {}
+    items = []
+    used = set()
+    for keys, label in [
+        (("exam_time", "exam"), "exam"),
+        (("report_time", "report"), "report"),
+        (("verified_time", "verified"), "verified"),
+    ]:
+        key = next((key for key in keys if key in clocks), None)
+        item = clocks.get(key) if key else None
+        if key:
+            used.add(key)
+        value = _clock_text(item) if item is not None else "未知"
+        items.append(_node("li", {}, _h(f"{label}: {value}")))
+    for key, item in clocks.items():
+        if key not in used:
+            items.append(_node("li", {}, _h(f"{key}: {_clock_text(item)}")))
+    return _node("ul", {"class": "source-clocks"}, *items)
+
+
+def _source_card(source, *, researcher=False):
+    classes = "source researcher-source" if researcher else "source"
+    title = source.get("title") or "无标题来源"
+    return _node(
+        "article", {"class": classes},
+        _node("h4", {}, _h(title)),
+        _node("p", {"class": "meta"}, _h(
+            f"来源 {source.get('source_id') or '未标来源'} · "
+            f"类型 {source.get('kind') or '未分类'} · "
+            f"检索时钟 {_clock_text(source.get('clock'))}"
+        )),
+        _node("details", {"class": "clock-details"},
+              _node("summary", {}, "exam / report / verified 来源时钟"),
+              _source_clocks(source)),
+        _node("p", {"class": "small"}, _h(
+            f"呈现范围：{source.get('presentation_scope') or 'researcher_original' if researcher else source.get('presentation_scope') or '未标注'}"
+        )),
+        _pre(source.get("text") or ""),
+    )
+
+
+def _researcher_originals(packet):
+    originals = packet.get("researcher_target_originals") or []
+    if isinstance(originals, dict):
+        if "text" in originals or "source_id" in originals:
+            originals = [originals]
+        else:
+            originals = [dict(source_id=source_id, text=text)
+                         for source_id, text in originals.items()]
+    cards = []
+    for original in originals:
+        if isinstance(original, str):
+            cards.append(_pre(original))
+        else:
+            cards.append(_source_card(original, researcher=True))
+    return _node(
+        "section", {"class": "step workflow-step researcher-only",
+                    "id": "workflow-research", "hidden": ""},
+        _node("div", {"class": "step-number"}, "02"),
+        _node("div", {"class": "step-body"},
+              _node("div", {"class": "research-warning"},
+                    _node("strong", {}, "研究审核，不是医生投影"),
+                    _node("p", {}, "以下原文仅供研究者核对；不得把本页作为医生盲评材料分发。")),
+              *(cards or [_node("p", {"class": "empty"}, "未提供研究审核原文。")])),
+    )
+
+
+def _mask_span(span):
+    safe = {key: span.get(key) for key in (
+        "source_id", "start", "end", "label", "mask_reason", "reason"
+    ) if span.get(key) is not None}
+    return _pre(json.dumps(safe, ensure_ascii=False))
+
+
+def _masked_projection(packet):
+    projection = packet.get("masked_projection") or {}
+    spans = projection.get("masked_spans") or []
+    whole = projection.get("whole_source_ids") or []
+    reviewed = projection.get("cross_document_reviewed")
+    return _node(
+        "section", {"class": "step workflow-step mask-step",
+                    "id": "workflow-mask", "hidden": ""},
+        _node("div", {"class": "step-number"}, "03"),
+        _node("div", {"class": "step-body"},
+              _node("div", {"class": "step-kicker"}, "MASK 范围、理由与遮蔽后全文"),
+              _node("h3", {}, "联合遮蔽投影"),
+              _node("div", {"class": "mask-reason"},
+                    _node("strong", {}, "遮蔽理由"),
+                    _node("p", {}, _h(projection.get("reason") or "未提供"))),
+              _node("p", {}, _h(
+                  f"局部 MASK {len(spans)} 处 · 整份来源遮蔽 {len(whole)} 份 · "
+                  f"跨文书复核：{'已记录' if reviewed else '未确认'}"
+              )),
+              _node("details", {},
+                    _node("summary", {}, "查看 MASK 元数据（不展示被遮原文）"),
+                    *[_mask_span(span) for span in spans],
+                    _pre(json.dumps(whole, ensure_ascii=False))),
+              _node("h4", {}, "遮蔽后全文"),
+              *[_source_card(source) for source in packet.get("included_sources") or []]),
+    )
+
+
+def _relation_text(item):
+    relation = item.get("relation")
+    if isinstance(relation, dict):
+        return relation.get("relation") or relation.get("type") or "未分类"
+    return relation or "未分类"
+
+
+def _neighbor(packet, identifier, direction):
+    if not identifier:
+        return _node("article", {"class": "neighbor empty"},
+                     _node("strong", {}, "前一节点" if direction == "previous" else "后一节点"),
+                     _node("p", {}, "本 Episode 内无相邻节点。"))
+    relation = next((item for item in packet.get("related_checkpoints") or []
+                     if item.get("checkpoint_id") == identifier), None)
+    return _node(
+        "article", {"class": "neighbor"},
+        _node("div", {"class": "step-kicker"},
+              "前一节点" if direction == "previous" else "后一节点"),
+        _node("h4", {}, _h(identifier)),
+        _node("p", {}, _h(
+            f"关系：{_relation_text(relation)} · "
+            f"说明：{(relation or {}).get('explanation') or '未记录直接关系'}"
+        )),
+        _node("button", {"type": "button", "class": "secondary", "data-goto": identifier},
+              "打开该 Checkpoint"),
+    )
+
+
+def _relations(packet):
+    navigation = packet.get("episode_navigation") or {}
+    related = packet.get("related_checkpoints") or []
+    return _node(
+        "section", {"class": "step workflow-step", "id": "workflow-relations", "hidden": ""},
+        _node("div", {"class": "step-number"}, "04"),
+        _node("div", {"class": "step-body"},
+              _node("div", {"class": "step-kicker"}, "Episode 前后节点及关系"),
+              _node("h3", {}, _h(
+                  f"{packet.get('episode_id') or '未分配 Episode'} · "
+                  f"{navigation.get('index', '?')} / {navigation.get('total', '?')}"
+              )),
+              _node("div", {"class": "neighbor-grid"},
+                    _neighbor(packet, navigation.get("previous_checkpoint_id"), "previous"),
+                    _neighbor(packet, navigation.get("next_checkpoint_id"), "next")),
+              _node("details", {},
+                    _node("summary", {}, f"全部已记录关系（{len(related)} 条）"),
+                    *[_node("article", {"class": "relation"},
+                            _node("button", {"type": "button", "class": "secondary",
+                                             "data-goto": item.get("checkpoint_id")},
+                                  _h(item.get("checkpoint_id"))),
+                            _node("p", {}, _h(
+                                f"{_relation_text(item)}：{item.get('explanation') or '未提供说明'}"
+                            ))) for item in related]),
+              _node("p", {"class": "small"}, "显示顺序不等于已确认的临床决策顺序。")),
+    )
+
+
+def _action_row():
+    return _node(
+        "fieldset", {"class": "action-row"},
+        _node("legend", {}, "具体动作"),
+        _node("label", {}, "action_type",
+              _node("input", {"name": "action_type", "type": "text", "required": "required"})),
+        _node("label", {}, "target",
+              _node("input", {"name": "target", "type": "text", "required": "required"})),
+        _node("label", {}, "timing",
+              _node("input", {"name": "timing", "type": "text", "required": "required"})),
+        _node("label", {}, "conditions（每行一项，可选）",
+              _node("textarea", {"name": "conditions"})),
+        _node("button", {"type": "button", "class": "secondary remove-action"}, "移除此动作"),
+    )
+
+
+def _action_form(packet):
+    space = packet.get("action_space") or {}
+    modes = space.get("modes") or []
+    schema = space.get("action_plan_schema") or {}
+    return _node(
+        "section", {"class": "step workflow-step action-step",
+                    "id": "workflow-action", "hidden": ""},
+        _node("div", {"class": "step-number"}, "05"),
+        _node("div", {"class": "step-body"},
+              _node("div", {"class": "step-kicker"}, "动作 schema 与可填写动作计划草稿"),
+              _node("h3", {}, "管理动作计划（草稿，不是临床 Reference）"),
+              _node("p", {}, _h(space.get("note") or "程序不预填答案。")),
+              _node("details", {},
+                    _node("summary", {}, "查看 action_plan_schema"),
+                    _pre(json.dumps(schema, ensure_ascii=False, indent=2))),
+              _node("form", {"class": "action-form", "data-checkpoint": packet["checkpoint_id"]},
+                    _node("label", {}, "Mode",
+                          _node("select", {"name": "mode", "required": "required"},
+                                _node("option", {"value": ""}, "未填写"),
+                                *[_node("option", {"value": mode}, _h(mode)) for mode in modes])),
+                    _node("div", {"class": "actions"}, _action_row()),
+                    _node("button", {"type": "button", "class": "secondary", "id": "add-action"},
+                          "新增具体动作"),
+                    _node("label", {}, "rationale",
+                          _node("textarea", {"name": "rationale", "required": "required"})),
+                    _node("label", {}, "evidence_to_obtain（每行一项，可选）",
+                          _node("textarea", {"name": "evidence_to_obtain"})),
+                    _node("div", {},
+                          _node("button", {"type": "submit"}, "保存本机草稿"),
+                          _node("span", {"class": "saved", "aria-live": "polite"})))),
+    )
+
+
+def _navigation(packet):
+    nav = packet.get("episode_navigation") or {}
+    def button(identifier, direction, label):
+        return _node("button", {"type": "button", "class": "secondary",
+                                "data-goto": identifier,
+                                "disabled": "disabled" if not identifier else None}, label)
+    return _node("nav", {"class": "checkpoint-nav", "aria-label": "Episode 节点切换"},
+                 button(nav.get("previous_checkpoint_id"), "previous", "← 前一节点"),
+                 _node("span", {}, _h(
+                     f"Episode {nav.get('index', '?')} / {nav.get('total', '?')}"
+                 )),
+                 button(nav.get("next_checkpoint_id"), "next", "后一节点 →"))
+
+
+def _packet_html(packet):
+    evaluation = packet.get("evaluation") or {}
+    target = packet.get("target") or {}
+    order = packet.get("display_order") or {}
+    header = _node(
+        "header", {"class": "task-header"},
+        _node("div", {"class": "eyebrow"}, "候选 Checkpoint · 私有研究审核"),
+        _node("h2", {}, _h(target.get("title") or "通用管理任务")),
+        _node("p", {"class": "question"}, _h(packet.get("management_question") or "未提供管理问题")),
+        _node("dl", {"class": "task-grid"},
+              _node("div", {}, _node("dt", {}, "Checkpoint"),
+                    _node("dd", {}, _h(packet["checkpoint_id"]))),
+              _node("div", {}, _node("dt", {}, "任务类型"),
+                    _node("dd", {}, _h(packet.get("kind") or "未分类"))),
+              _node("div", {}, _node("dt", {}, "评价时点"),
+                    _node("dd", {}, _h(_clock_text(evaluation.get("clock"))))),
+              _node("div", {}, _node("dt", {}, "时间依据"),
+                    _node("dd", {}, _h(evaluation.get("time_basis") or "未提供"))),
+              _node("div", {}, _node("dt", {}, "时点角色"),
+                    _node("dd", {}, _h(evaluation.get("role") or "未提供"))),
+              _node("div", {}, _node("dt", {}, "显示顺序"),
+                    _node("dd", {}, _h(f"{order.get('index', '?')} / {order.get('total', '?')}")))),
+        _node("p", {"class": "small"}, _h(
+            "发现阶段 Agent 分类：" + ", ".join(packet.get("record_functions") or ["检查事件由程序组织"])
+            + "；旧 span → 本 CP：" + ", ".join(packet.get("migration_event_ids") or ["无旧管理 span"])
+            + "；支持记录：" + ", ".join(packet.get("supporting_event_ids") or ["无"])
+            + "；旧 Episode 来源：" + ", ".join(packet.get("origin_episode_ids") or ["无"])
+        )),
+        _node("p", {"class": "time-guidance"},
+              "仅依据本节点评价时点可见资料作答；检索时钟及报告可见性代理不等于医生实际阅读或选择时刻。"),
+        _node("p", {"class": "meta"}, _h(
+            "目标来源 ID：" + ", ".join(target.get("source_ids") or [])
+        )),
+    )
+    target_ids = set(target.get("source_ids") or [])
+    target_sources = [source for source in packet.get("included_sources") or []
+                      if source.get("source_id") in target_ids]
+    originals = _node(
+        "section", {"class": "step workflow-step", "id": "workflow-original"},
+        _node("div", {"class": "step-number"}, "01"),
+        _node("div", {"class": "step-body"},
+              _node("div", {"class": "step-kicker"}, "管理问题与时间引导见任务头"),
+              _node("h3", {}, "当前目标文书 / 检查的时间投影"),
+              _node("p", {"class": "small"},
+                    "先显示当前目标来源；全部当时可见来源在 MASK 页核对。研究审核未遮原文在独立页展示。"),
+              *[_source_card(source) for source in target_sources]),
+    )
+    workflow = _node("nav", {"class": "workflow-tabs", "aria-label": "候选CP增量"}, *[
+        _node("button", {"type": "button", "data-workflow": name,
+                         "class": "secondary" + (" active" if name == "original" else "")}, label)
+        for name, label in (("original", "目标文书"), ("research", "研究原文"),
+                            ("mask", "MASK与全部可见资料"), ("relations", "前后关系"),
+                            ("action", "动作计划"))])
+    return (header + workflow + _navigation(packet) + originals + _researcher_originals(packet)
+            + _masked_projection(packet) + _relations(packet) + _action_form(packet)
+            + _navigation(packet))
+
+
+def _migration_summary(material):
+    migrations = material.get("migrations") or []
+    statuses = Counter(str(item.get("migration_status") or "UNSPECIFIED")
+                       for item in migrations)
+    types = Counter(str(item.get("migration_type") or "UNSPECIFIED")
+                    for item in migrations)
+    return _node(
+        "details", {"class": "migration-summary"},
+        _node("summary", {}, _h(
+            f"迁移 summary · 共 {len(migrations)} 项 · "
+            + "；".join(f"{key} {value}" for key, value in sorted(statuses.items()))
+        )),
+        _node("p", {}, _h(
+            "类型计数：" + "；".join(f"{key} {value}" for key, value in sorted(types.items()))
+        )),
+        _node("p", {"class": "small"}, "仅显示计数；迁移原始 quote 不嵌入本页脚本。"),
+        _pre(json.dumps(material.get("summary") or {}, ensure_ascii=False, indent=2)),
+    )
+
+
+_STYLE = r"""
+:root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.notice,.migration-summary{background:#fff7e4;border:1px solid #e1c277;border-radius:8px;padding:7px 12px;margin:8px 0}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.clock-details summary,.migration-summary summary,details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
+"""
+
+
+_SCRIPT = r"""
+const DATA=__DATA__;
+const caseId=__CASE_ID__,manifestSha=__MANIFEST_SHA__;
+const byId=new Map(DATA.map(p=>[p.checkpoint_id,p]));
+const kindSelect=document.querySelector('#kind'),cpSelect=document.querySelector('#checkpoint');
+let current=null;
+function fillKinds(){
+ for(const kind of [...new Set(DATA.map(p=>p.kind||'未分类'))].sort()){
+  const option=document.createElement('option');option.value=kind;option.textContent=kind;kindSelect.append(option);
+ }
+}
+function fillCheckpoints(kind,selected){
+ cpSelect.replaceChildren();
+ for(const p of DATA.filter(p=>!kind||p.kind===kind||(kind==='未分类'&&!p.kind))){
+  const option=document.createElement('option');option.value=p.checkpoint_id;
+  option.textContent=`${p.display_order.index}/${p.display_order.total} · ${p.title} · ${p.checkpoint_id}`;
+  cpSelect.append(option);
+ }
+ if(selected&&byId.has(selected))cpSelect.value=selected;
+}
+function go(id,updateHash=true){
+ const packet=byId.get(id);if(!packet)return;current=packet;
+ kindSelect.value=packet.kind||'未分类';fillCheckpoints(kindSelect.value,id);
+ document.querySelector('#material').innerHTML=packet.html;
+ document.querySelector('#position').textContent=`当前 ${packet.display_order.index} / ${DATA.length}；一次显示一个候选 Checkpoint；未请求网络`;
+ bindPacket();restore(id);
+ if(updateHash)history.replaceState(null,'','#'+encodeURIComponent(id));
+ window.scrollTo({top:0,behavior:'instant'});
+}
+function bindPacket(){
+ for(const button of document.querySelectorAll('[data-workflow]'))button.addEventListener('click',()=>{
+  for(const panel of document.querySelectorAll('.workflow-step'))panel.hidden=panel.id!=='workflow-'+button.dataset.workflow;
+  for(const tab of document.querySelectorAll('[data-workflow]'))tab.classList.toggle('active',tab===button);
+ });
+ for(const button of document.querySelectorAll('[data-goto]'))button.addEventListener('click',()=>go(button.dataset.goto));
+ document.querySelector('#add-action').addEventListener('click',()=>{
+  const rows=document.querySelector('.actions'),first=rows.querySelector('.action-row'),row=first.cloneNode(true);
+  for(const field of row.querySelectorAll('input,textarea'))field.value='';rows.append(row);bindRemove(row);
+ });
+ for(const row of document.querySelectorAll('.action-row'))bindRemove(row);
+ document.querySelector('.action-form').addEventListener('submit',save);
+}
+function bindRemove(row){
+ row.querySelector('.remove-action').addEventListener('click',()=>{
+  const rows=document.querySelector('.actions');if(rows.children.length>1)row.remove();
+  else for(const field of row.querySelectorAll('input,textarea'))field.value='';
+ });
+}
+function lines(value){return value.split('\n').map(x=>x.trim()).filter(Boolean);}
+function response(form){
+ const actions=[...form.querySelectorAll('.action-row')].map(row=>({
+  action_type:row.querySelector('[name="action_type"]').value,
+  target:row.querySelector('[name="target"]').value,
+  timing:row.querySelector('[name="timing"]').value,
+  conditions:lines(row.querySelector('[name="conditions"]').value),
+ }));
+ return {checkpoint_id:current.checkpoint_id,case_id:caseId,material_manifest_sha256:manifestSha,
+  form_version:__FORM_VERSION__,material_format:__HTML_FORMAT__,reviewer_status:'draft_not_clinical_reference',
+  mode:form.querySelector('[name="mode"]').value,actions,
+  rationale:form.querySelector('[name="rationale"]').value,
+  evidence_to_obtain:lines(form.querySelector('[name="evidence_to_obtain"]').value)};
+}
+function key(id){return 'candidate-action-draft-'+caseId+'-'+id;}
+function save(event){
+ event.preventDefault();const data=response(event.currentTarget),status=event.currentTarget.querySelector('.saved');
+ try{localStorage.setItem(key(current.checkpoint_id),JSON.stringify(data));status.textContent='已保存本机草稿；导出后方可交回台账';}
+ catch{status.textContent='本机存储不可用，请直接导出草稿';}
+}
+function restore(id){
+ let old=null;try{old=JSON.parse(localStorage.getItem(key(id)));}catch{}if(!old)return;
+ const form=document.querySelector('.action-form');form.querySelector('[name="mode"]').value=old.mode||'';
+ form.querySelector('[name="rationale"]').value=old.rationale||'';
+ form.querySelector('[name="evidence_to_obtain"]').value=(old.evidence_to_obtain||[]).join('\n');
+ const rows=document.querySelector('.actions');
+ while((old.actions||[]).length>rows.children.length){document.querySelector('#add-action').click();}
+ [...rows.querySelectorAll('.action-row')].forEach((row,index)=>{
+  const action=(old.actions||[])[index]||{};
+  for(const name of ['action_type','target','timing'])row.querySelector(`[name="${name}"]`).value=action[name]||'';
+  row.querySelector('[name="conditions"]').value=(action.conditions||[]).join('\n');
+ });
+}
+kindSelect.addEventListener('change',()=>{fillCheckpoints(kindSelect.value);go(cpSelect.value);});
+cpSelect.addEventListener('change',()=>go(cpSelect.value));
+document.querySelector('#export').addEventListener('click',()=>{
+ const responses=[];for(const packet of DATA){try{const old=JSON.parse(localStorage.getItem(key(packet.checkpoint_id)));if(old)responses.push(old);}catch{}}
+ const form=document.querySelector('.action-form');if(form){
+  if(!form.checkValidity()){form.reportValidity();return;}
+  const fresh=response(form),index=responses.findIndex(x=>x.checkpoint_id===fresh.checkpoint_id);if(index>=0)responses[index]=fresh;else responses.push(fresh);
+ }
+ const output={format:__RESPONSE_FORMAT__,case_id:caseId,material_manifest_sha256:manifestSha,renderer_format:__HTML_FORMAT__,responses};
+ const blob=new Blob([JSON.stringify(output,null,2)],{type:'application/json'}),link=document.querySelector('#download');
+ if(link.href)URL.revokeObjectURL(link.href);link.href=URL.createObjectURL(blob);link.download='candidate-action-drafts.json';link.textContent='草稿已生成，点击下载';link.hidden=false;
+});
+fillKinds();const hash=decodeURIComponent(location.hash.slice(1));go(byId.has(hash)?hash:DATA[0].checkpoint_id,false);
+"""
+
+
+def render_html(material, manifest_sha):
+    """Render all packets as a private, one-Checkpoint-at-a-time offline page."""
+    packets = sorted(material.get("packets") or [],
+                     key=lambda packet: packet["display_order"]["index"])
+    if not packets:
+        raise ValueError("MATERIAL_SET_HAS_NO_CANDIDATES")
+    payload = []
+    for packet in packets:
+        payload.append({
+            "checkpoint_id": packet["checkpoint_id"],
+            "kind": packet.get("kind") or "未分类",
+            "title": (packet.get("target") or {}).get("title") or "通用管理任务",
+            "episode_id": packet.get("episode_id"),
+            "display_order": packet["display_order"],
+            "html": _packet_html(packet),
+        })
+    script = _SCRIPT.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
+    for token, value in [
+        ("__CASE_ID__", material["case_id"]),
+        ("__MANIFEST_SHA__", manifest_sha),
+        ("__FORM_VERSION__", FORM_VERSION),
+        ("__HTML_FORMAT__", HTML_FORMAT),
+        ("__RESPONSE_FORMAT__", RESPONSE_FORMAT),
+    ]:
+        script = script.replace(token, json.dumps(value, ensure_ascii=False))
+    return (
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>候选 Checkpoint 私有研究审核</title><style>" + _STYLE + "</style></head>"
+        "<body data-manifest='" + _h(manifest_sha) + "'><main>"
+        "<h1>候选 Checkpoint 私有研究材料</h1><p class='small'>"
+        + _h(material["case_id"]) + " · " + _h(material.get("format") or "未标格式")
+        + " · 单文件离线 · 一次显示一个 Checkpoint</p>"
+        "<div class='notice'><strong>研究审核，不是医生投影</strong><br>"
+        "本文件包含全部候选、后续节点和研究审核未遮原文，只能在许可环境本机使用，"
+        "不能作为医生盲评文件分发。程序任务头、MASK 与动作 schema 均不构成临床 Reference。</div>"
+        + _migration_summary(material)
+        + "<div class='bar'><label for='kind'>按任务类型筛选</label>"
+        "<select id='kind' aria-label='按 kind 筛选 Checkpoint'></select>"
+        "<label for='checkpoint'>当前 Checkpoint</label><select id='checkpoint'></select>"
+        "<button id='export' type='button'>导出动作计划草稿</button><a id='download' hidden></a></div>"
+        "<div id='position' class='small'></div><div id='material'></div>"
+        "</main><script>" + script + "</script></body></html>"
+    )
+
+
+def write_html(material, manifest, output):
+    output = Path(output)
+    page = render_html(material, manifest["manifest_sha256"])
+    (output / "index.html").write_text(page, encoding="utf-8")
+    receipt = dict(
+        output=str(output / "index.html"), candidates=len(material["packets"]),
+        manifest_sha256=manifest["manifest_sha256"], html_format=HTML_FORMAT,
+        html_sha256=hashlib.sha256(page.encode("utf-8")).hexdigest(),
+        provider_requests=0, doctor_release=False,
+        private_research_preview=True, network_calls=0,
+    )
+    (output / "render-receipt.json").write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return receipt
