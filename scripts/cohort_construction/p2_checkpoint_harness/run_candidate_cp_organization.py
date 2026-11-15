@@ -19,6 +19,42 @@ EXECUTION_SCOPE = "FROZEN_DISCOVERY_CANDIDATE_CHECKPOINT_RELATION_RECORDING_ONLY
 CONTRACT_FORMAT = "p2-candidate-cp-organization-run-contract-0.1.0"
 RUN_SUMMARY_FORMAT = "p2-candidate-cp-organization-run-summary-0.1.0"
 AUTH_BINDING = base.AUTH_BINDING + ("discovery_result_sha256",)
+EXTERNAL_EXECUTION_CODE_PATHS = (
+    "scripts/cohort_construction/model_api.py",
+    "scripts/cohort_construction/p2_auto_checkpoint/fhir_io.py",
+    "scripts/cohort_construction/p2_auto_checkpoint/extract.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/context.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/source_time.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/client.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/prompts.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/provider_diagnostics.py",
+    "scripts/cohort_construction/p2_fhir_replay/core.py",
+    "scripts/cohort_construction/p2_pathway_replay/core.py",
+)
+
+
+def execution_code_hashes():
+    hashes = base.code_hashes()
+    for relative in EXTERNAL_EXECUTION_CODE_PATHS:
+        hashes[relative] = base.file_hash(base.ROOT / relative)
+    return dict(sorted(hashes.items()))
+
+
+def _verify_input_hashes(args, contract):
+    expected = dict(discovery_result_sha256=args.discovery_result,
+                    sources_sha256=args.sources,
+                    config_sha256=args.config)
+    for field, path in expected.items():
+        if path is None:
+            continue
+        if base.file_hash(path) != contract[field]:
+            raise SystemExit("INPUT_HASH_CHANGED_AFTER_AUTHORIZATION:" + field)
+
+
+def _output_hashes(output):
+    return {str(path.relative_to(output)): base.file_hash(path)
+            for path in sorted(output.rglob("*"))
+            if path.is_file() and path.name != "summary.json"}
 
 
 def _prepare(args):
@@ -56,7 +92,7 @@ def run_contract(args, plan):
         discovery_result_sha256=base.file_hash(args.discovery_result),
         sources_sha256=base.file_hash(args.sources),
         config_sha256=base.file_hash(args.config) if args.config else None,
-        code_hashes=base.code_hashes(), plan=plan,
+        code_hashes=execution_code_hashes(), plan=plan,
         candidate_projection_sha256=plan["candidate_projection_sha256"],
         execution_scope=EXECUTION_SCOPE,
         clinical_validation=False, clinical_reference_created=False,
@@ -99,6 +135,7 @@ def main(argv=None):
     if not args.authorization:
         raise SystemExit("EXECUTION_AUTHORIZATION_REQUIRED_BEFORE_PROVIDER_CLIENT")
     limits = validate_authorization(base._read(args.authorization), contract)
+    _verify_input_hashes(args, contract)
     output.mkdir(parents=True)
     os.chmod(output, 0o700)
     cache.mkdir(parents=True)
@@ -159,6 +196,7 @@ def _execute(args, contract, limits, plan, projection, projection_sha256):
         case_id=args.case_id, projection_sha256=projection_sha256, result=result))
     base._write_new(output / "model_receipts.json", transport.receipts)
     harness_summary = harness.close()
+    output_hashes = _output_hashes(output)
     summary = dict(
         format=RUN_SUMMARY_FORMAT, case_id=args.case_id, status=status,
         unfinished=unfinished,
@@ -185,7 +223,7 @@ def _execute(args, contract, limits, plan, projection, projection_sha256):
         blind_packets_created=False, reference_read_by_pipeline=False,
         doctor_packet_release=False, contract_sha256=base._contract_digest(contract),
         candidate_projection_sha256=projection_sha256,
-        output_and_cache_were_new=True)
+        output_and_cache_were_new=True, output_hashes=output_hashes)
     base._write_new(output / "summary.json", dict(
         summary, session=harness_summary, plan=plan))
     print(json.dumps(dict(execute=True, case_id=args.case_id,

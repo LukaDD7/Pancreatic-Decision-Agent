@@ -22,9 +22,10 @@ from scripts.cohort_construction.p2_checkpoint_harness.tools.sources import Sour
 
 
 TEXTS = {
-    "S-A": "术前讨论：拟行胰十二指肠切除术。",
+    "S-A": "术前讨论：结合增强CT示胰头占位，拟行胰十二指肠切除术。",
     "S-B": "复核后仍按同一胰十二指肠切除术目标推进。",
     "S-REPORT": "增强CT示胰头占位，未见远处转移。",
+    "S-REPEAT": "增强CT。间隔。增强CT。",
     "S-THIRD": "第三方文书内容。",
 }
 
@@ -147,7 +148,17 @@ class CandidateCPRelationTests(unittest.TestCase):
         self.assertEqual(set(pair["checkpoint_ids"]), {"CP-PRE", "CP-REPORT"})
         self.assertEqual(result["evidence_references"], [])
 
-    def test_CCPO006_evidence_used_accepts_report_original_without_span_but_does_not_merge(self):
+    def test_CCPO006_evidence_used_requires_textual_link_and_does_not_merge(self):
+        registry = ToolRegistry(approve=lambda *args: True)
+        organization.candidate_cp_relation_tools(
+            registry, checkpoints=[self.arrival, self.first], source_index=self.index)
+        with self.assertRaisesRegex(ToolError, "REQUIRES_EXPLICIT_TEXTUAL_LINK"):
+            registry.get("record_relation").run(
+                source_checkpoint_id="CP-REPORT", target_checkpoint_id="CP-A",
+                relation="evidence_used", confidence="supported",
+                basis_quotes=[citation("CP-REPORT", "S-REPORT", "增强CT示胰头占位"),
+                              citation("CP-A", "S-A", "拟行胰十二指肠切除术。")],
+                explanation="报告有CT结论且另一处有手术计划，但没有原文使用连接。")
         registry = ToolRegistry(approve=lambda *args: True)
         recorded = organization.candidate_cp_relation_tools(
             registry, checkpoints=[self.arrival, self.first], source_index=self.index)
@@ -155,10 +166,12 @@ class CandidateCPRelationTests(unittest.TestCase):
             source_checkpoint_id="CP-REPORT", target_checkpoint_id="CP-A",
             relation="evidence_used", confidence="supported",
             basis_quotes=[citation("CP-REPORT", "S-REPORT", "增强CT示胰头占位"),
-                          citation("CP-A", "S-A", "拟行胰十二指肠切除术。")],
-            explanation="后续手术判断明确依据该增强CT所见。")["relation"]
+                          citation("CP-A", "S-A", "结合增强CT示胰头占位，拟行胰十二指肠切除术。")],
+            explanation="目标原文以结合增强CT明确连接证据与后续手术判断。")["relation"]
         self.assertEqual(relation["evidence_use_basis"],
                          "explicit_source_text_required_not_temporal_similarity")
+        self.assertEqual(relation["evidence_text_link"]["method"],
+                         "normalized_evidence_quote_contained")
         result = organization.assemble_candidate_cp_episodes(
             [self.arrival, self.first], [relation])
         self.assertEqual(len(result["evidence_references"]), 1)
@@ -215,15 +228,96 @@ class CandidateCPRelationTests(unittest.TestCase):
         self.assertEqual(set(result["unconnected_checkpoint_ids"]),
                          {"CP-A", "CP-B", "CP-REPORT"})
 
+    def test_CCPO014_repeated_quote_requires_and_preserves_explicit_location(self):
+        repeated = checkpoint("CP-REPEAT", "management_decision", "S-REPEAT",
+                              quote="增强CT。")
+        arguments = dict(
+            source_checkpoint_id="CP-REPEAT", target_checkpoint_id="CP-B",
+            relation="same_management_process", confidence="supported",
+            basis_quotes=[citation("CP-REPEAT", "S-REPEAT", "增强CT"),
+                          citation("CP-B", "S-B", "同一胰十二指肠切除术目标推进")],
+            explanation="合成重复引文位置测试。", shared_management_goal="限期行胰十二指肠切除术")
+        registry = ToolRegistry(approve=lambda *args: True)
+        organization.candidate_cp_relation_tools(
+            registry, checkpoints=[repeated, self.second], source_index=self.index)
+        with self.assertRaisesRegex(ToolError, "OFFSET_REQUIRED_FOR_REPEATED_QUOTE"):
+            registry.get("record_relation").run(**arguments)
+        start = TEXTS["S-REPEAT"].rindex("增强CT")
+        arguments["basis_quotes"][0].update(start=start, end=start + len("增强CT"))
+        relation = registry.get("record_relation").run(**arguments)["relation"]
+        verdict = relation["citation_verdicts"][0]
+        self.assertEqual(verdict["reason"], "QUOTE_VERIFIED_AT_EXPLICIT_OFFSET")
+        self.assertEqual(verdict["selected_occurrence"], [start, start + len("增强CT")])
+        self.assertEqual((verdict["start"], verdict["end"]),
+                         (start, start + len("增强CT")))
+
+    def test_CCPO015_conflicting_component_goals_block_transitive_merge(self):
+        third = checkpoint("CP-C", "management_decision", "S-B",
+                           quote="同一胰十二指肠切除术目标推进", clock="2026-03-03")
+
+        def relation(source_id, target_id, goal):
+            return dict(source_checkpoint_id=source_id, target_checkpoint_id=target_id,
+                        relation="same_management_process", confidence="supported",
+                        shared_management_goal=goal, relation_id=source_id + target_id)
+
+        consistent = organization.assemble_candidate_cp_episodes(
+            [self.first, self.second], [relation(
+                "CP-A", "CP-B", "限期行胰十二指肠切除术")])
+        self.assertEqual(len(consistent["episodes"]), 1)
+        self.assertEqual(consistent["episodes"][0]["normalized_management_goals"],
+                         ["胰十二指肠切除术"])
+        relations = [relation("CP-A", "CP-B", "限期行胰十二指肠切除术"),
+                     relation("CP-B", "CP-C", "全身化疗")]
+        result = organization.assemble_candidate_cp_episodes(
+            [self.first, self.second, third], relations)
+        self.assertEqual(result["merged_edges"], [])
+        self.assertEqual(len(result["episodes"]), 3)
+        self.assertEqual(len(result["unresolved_relations"]), 2)
+        self.assertEqual({item["reason"] for item in result["unresolved_relations"]},
+                         {"CONFLICTING_NORMALIZED_MANAGEMENT_GOALS"})
+        self.assertEqual([item["relation"]["relation_id"]
+                          for item in result["unresolved_relations"]],
+                         ["CP-ACP-B", "CP-BCP-C"])
+        episode_b = next(item for item in result["episodes"]
+                         if item["checkpoint_ids"] == ["CP-B"])
+        self.assertEqual(episode_b["management_goal_status"], "CONFLICTING")
+        self.assertEqual(set(episode_b["normalized_management_goals"]),
+                         {"胰十二指肠切除术", "全身化疗"})
+
 
 class FinishTransport:
     def __init__(self, cache, settings, *, config=None):
         self.receipts = []
+        self.list_calls = 0
+        self.offset = 0
 
     def complete(self, messages, *, tools=None, task="agent_step", purpose=None):
         receipt = dict(task=task, usage=dict(prompt_tokens=5, completion_tokens=2))
         self.receipts.append(receipt)
-        return dict(tool_calls=[dict(id="finish-1", name="finish", arguments={})]), receipt
+        for message in reversed(messages):
+            if message.get("role") != "tool":
+                continue
+            content = json.loads(message.get("content") or "{}")
+            if "checkpoints" not in content:
+                continue
+            if content.get("truncated"):
+                self.offset += content["returned"]
+                self.list_calls += 1
+                return dict(tool_calls=[dict(
+                    id="list-next", name="list_candidate_checkpoints",
+                    arguments=dict(offset=self.offset, limit=200))]), receipt
+            return dict(tool_calls=[dict(id="finish-1", name="finish", arguments={})]), receipt
+        self.list_calls += 1
+        return dict(tool_calls=[dict(
+            id="list-first", name="list_candidate_checkpoints",
+            arguments=dict(offset=0, limit=200))]), receipt
+
+
+class EarlyFinishTransport(FinishTransport):
+    def complete(self, messages, *, tools=None, task="agent_step", purpose=None):
+        receipt = dict(task=task, usage=dict(prompt_tokens=5, completion_tokens=2))
+        self.receipts.append(receipt)
+        return dict(tool_calls=[dict(id="finish-early", name="finish", arguments={})]), receipt
 
 
 class CandidateCPRunnerTests(unittest.TestCase):
@@ -284,6 +378,10 @@ class CandidateCPRunnerTests(unittest.TestCase):
                          len(contract["plan"]["candidate_checkpoint_ids"]), 1)
         self.assertIn("scripts/cohort_construction/p2_checkpoint_harness/"
                       "stages/candidate_cp_organization.py", contract["code_hashes"])
+        for relative in ("scripts/cohort_construction/model_api.py",
+                         "scripts/cohort_construction/p2_auto_checkpoint/fhir_io.py",
+                         "scripts/cohort_construction/p2_auto_checkpoint_v04/context.py"):
+            self.assertIn(relative, contract["code_hashes"])
         self.assertFalse(self.output.exists())
         self.assertFalse(self.cache.exists())
 
@@ -328,7 +426,73 @@ class CandidateCPRunnerTests(unittest.TestCase):
         self.assertTrue(episodes["conservation"]["all_candidate_checkpoints_conserved"])
         self.assertFalse(summary["stages"]["discovery_input"]["discovery_rerun"])
         self.assertEqual(summary["status"], "COMPLETE")
-        self.assertEqual(summary["receipts"], 1)
+        self.assertEqual(summary["receipts"], 2)
+        self.assertTrue(summary["stages"]["candidate_cp_organization"][
+            "candidate_checkpoint_list_coverage"]["complete"])
+        for name in ("candidate_cp_relations.json", "candidate_cp_episodes.json",
+                     "run_contract.json", "model_receipts.json"):
+            self.assertEqual(summary["output_hashes"][name],
+                             hashlib.sha256((self.output / name).read_bytes()).hexdigest())
+        session_hashes = {name: value for name, value in summary["output_hashes"].items()
+                          if name.startswith("session/sessions/")}
+        self.assertTrue(session_hashes)
+
+    def test_CCPO016_finish_before_complete_listing_is_incomplete(self):
+        contract, _ = self.contract()
+        authorization = self.directory / "authorization.json"
+        authorization.write_text(json.dumps(self.authorization(contract)), encoding="utf-8")
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   EarlyFinishTransport):
+            self.assertEqual(run_candidate.main(self.argv(
+                "--execute", "--authorization", str(authorization))), 1)
+        summary = json.loads((self.output / "summary.json").read_text())
+        stage = summary["stages"]["candidate_cp_organization"]
+        self.assertEqual(summary["status"], "INCOMPLETE")
+        self.assertEqual(stage["stop"], "incomplete_cp_coverage")
+        self.assertEqual(len(stage["candidate_checkpoint_list_coverage"][
+            "unlisted_checkpoint_ids"]), 1)
+
+    def test_CCPO017_more_than_200_cps_require_and_satisfy_pagination(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.harness import (
+            Harness, HarnessConfig,
+        )
+
+        checkpoints = [checkpoint("CP-%03d" % index, "management_decision", "S-A",
+                                  quote="拟行胰十二指肠切除术。")
+                       for index in range(201)]
+        transport = FinishTransport(self.cache, object())
+        harness = Harness(case_id="SYN-PAGING", run_dir=self.output / "session",
+                          cache_dir=self.cache, transport=transport,
+                          config=HarnessConfig(max_inline_tool_tokens=1000000))
+        runner = organization.CandidateCPOrganizationRunner(
+            harness=harness, source_index=SourceIndex([source("S-A")]),
+            projection=dict(candidate_checkpoints=checkpoints, diagnostic_events=[]),
+            case_id="SYN-PAGING")
+        result = runner.run()
+        harness.close()
+        self.assertEqual(result["stage"]["stop"], "answered")
+        self.assertEqual(transport.list_calls, 2)
+        self.assertEqual(result["stage"]["candidate_checkpoint_list_coverage"][
+            "listed_checkpoint_count"], 201)
+
+    def test_CCPO018_input_mutation_after_authorization_is_refused_before_second_read(self):
+        contract, _ = self.contract()
+        authorization = self.directory / "authorization.json"
+        authorization.write_text(json.dumps(self.authorization(contract)), encoding="utf-8")
+
+        def mutate_after_authorization(*args):
+            self.discovery.write_text("{}", encoding="utf-8")
+            return dict(max_requests=10, max_total_tokens=10000)
+
+        with patch.object(run_candidate, "validate_authorization", mutate_after_authorization):
+            with self.assertRaisesRegex(
+                    SystemExit, "INPUT_HASH_CHANGED_AFTER_AUTHORIZATION:discovery_result_sha256"):
+                run_candidate.main(self.argv(
+                    "--execute", "--authorization", str(authorization)))
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.cache.exists())
 
 
 if __name__ == "__main__":

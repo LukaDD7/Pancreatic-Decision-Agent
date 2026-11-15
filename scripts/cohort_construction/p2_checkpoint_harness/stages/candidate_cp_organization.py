@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import re
+import unicodedata
 
 from ..tools import Tool, ToolError
 from .common import digest, finish_tool
@@ -28,6 +30,7 @@ same_event仅指严格重复身份；contains/overlap不合并Episode。evidence
 class CandidateCheckpointIndex:
     def __init__(self, checkpoints):
         self.checkpoints = list(checkpoints)
+        self.returned_checkpoint_ids = set()
         self.by_id = {}
         for checkpoint in self.checkpoints:
             checkpoint_id = checkpoint.get("checkpoint_id")
@@ -69,6 +72,7 @@ class CandidateCheckpointIndex:
             offset = max(0, int(offset))
             limit = max(1, min(200, int(limit)))
             page = rows[offset:offset + limit]
+            self.returned_checkpoint_ids.update(item["checkpoint_id"] for item in page)
             return dict(total=len(rows), offset=offset, returned=len(page),
                         truncated=offset + len(page) < len(rows),
                         checkpoints=[self._summary(item) for item in page],
@@ -125,6 +129,9 @@ def _verify_relation_citation(citation, checkpoints, source_index):
     start, end = citation.get("start"), citation.get("end")
     if (start is None) != (end is None):
         raise ToolError("RELATION_CITATION_OFFSETS_REQUIRE_BOTH")
+    repeated = verdict.get("reason") == "QUOTE_AMBIGUOUS_KEEP_ALL_SPANS"
+    if repeated and start is None:
+        raise ToolError("RELATION_CITATION_OFFSET_REQUIRED_FOR_REPEATED_QUOTE")
     if start is not None:
         if (type(start) is not int or type(end) is not int or start < 0
                 or end != start + len(citation.get("quote") or "")):
@@ -132,7 +139,54 @@ def _verify_relation_citation(citation, checkpoints, source_index):
         source = source_index.require(source_id)
         if (source.get("text") or "")[start:end] != citation.get("quote"):
             raise ToolError("RELATION_CITATION_OFFSET_MISMATCH")
+        verdict.update(reason="QUOTE_VERIFIED_AT_EXPLICIT_OFFSET", start=start, end=end,
+                       selected_occurrence=[start, end])
+    verdict["checkpoint_id"] = checkpoint_id
     return verdict
+
+
+def _normalize_evidence_text(value):
+    return "".join(character for character in unicodedata.normalize("NFKC", value or "")
+                   if not character.isspace()
+                   and not unicodedata.category(character).startswith("P"))
+
+
+def _evidence_names(source_checkpoint, evidence_quotes, source_index):
+    pattern = re.compile(
+        r"PET[- ]?CT|增强CT|CT增强|CT|MRI|MR|磁共振|超声内镜|EUS|"
+        r"病理|活检|细胞学|腹腔镜探查|超声|CA19-9", re.I)
+    names = set()
+    for source_id in source_checkpoint.get("source_ids") or ():
+        source = source_index.by_id.get(source_id) or {}
+        names.update(match.group(0) for match in pattern.finditer(source.get("title") or ""))
+    for quote in evidence_quotes:
+        names.update(match.group(0) for match in pattern.finditer(quote))
+    return sorted(names, key=lambda value: (-len(value), value))
+
+
+def _evidence_use_text_link(source_checkpoint, target_checkpoint_id, basis_quotes,
+                            source_index):
+    evidence_quotes = [item["quote"] for item in basis_quotes
+                       if item.get("checkpoint_id") == source_checkpoint["checkpoint_id"]]
+    target_quotes = [item["quote"] for item in basis_quotes
+                     if item.get("checkpoint_id") == target_checkpoint_id]
+    names = _evidence_names(source_checkpoint, evidence_quotes, source_index)
+    connectors = ("结合", "根据", "依据", "参照", "鉴于", "综合考虑")
+    for evidence_quote in evidence_quotes:
+        normalized_evidence = _normalize_evidence_text(evidence_quote)
+        for target_quote in target_quotes:
+            normalized_target = _normalize_evidence_text(target_quote)
+            if normalized_evidence and normalized_evidence in normalized_target:
+                return dict(method="normalized_evidence_quote_contained",
+                            evidence_quote=evidence_quote, target_quote=target_quote)
+            if any(connector in target_quote for connector in connectors):
+                matched_names = [name for name in names if name.lower() in target_quote.lower()]
+                if matched_names:
+                    return dict(method="evidence_name_and_usage_connector",
+                                evidence_names=matched_names, target_quote=target_quote)
+    raise ToolError(
+        "EVIDENCE_USE_REQUIRES_EXPLICIT_TEXTUAL_LINK: 目标管理引文须包含证据原文"
+        "（去标点后包含），或同时包含明确证据名称和使用连接词。")
 
 
 def candidate_cp_relation_tools(registry, *, checkpoints, source_index):
@@ -172,26 +226,33 @@ def candidate_cp_relation_tools(registry, *, checkpoints, source_index):
             time_relation = None
         if not basis_quotes:
             raise ToolError("RELATION_REQUIRES_BASIS_AND_EXPLANATION")
-        for citation in basis_quotes:
-            _verify_relation_citation(citation, known, source_index)
+        citation_verdicts = [_verify_relation_citation(citation, known, source_index)
+                             for citation in basis_quotes]
         for endpoint in (source_checkpoint_id, target_checkpoint_id):
             if not any(citation.get("checkpoint_id") == endpoint
                        for citation in basis_quotes):
                 raise ToolError("RELATION_BASIS_MISSING_ENDPOINT:" + endpoint)
+        evidence_text_link = None
+        if relation == "evidence_used":
+            evidence_text_link = _evidence_use_text_link(
+                source, target_checkpoint_id, basis_quotes, source_index)
         entry = dict(
             source_checkpoint_id=source_checkpoint_id,
             target_checkpoint_id=target_checkpoint_id,
             relation=relation, confidence="supported",
-            basis_quotes=deepcopy(basis_quotes), explanation=explanation,
-            relation_source="candidate_cp_agent_recording",
+            basis_quotes=deepcopy(basis_quotes), citation_verdicts=citation_verdicts,
+            explanation=explanation, relation_source="candidate_cp_agent_recording",
             program_diagnostic_pair=False)
         if relation == "same_management_process":
             entry["shared_management_goal"] = shared_management_goal.strip()
+            entry["normalized_shared_management_goal"] = _normalize_management_goal(
+                shared_management_goal)
         if relation == "evidence_used":
             entry.update(
                 retrieval_clock_comparison=time_relation,
                 comparison_not_choice_time=True,
-                evidence_use_basis="explicit_source_text_required_not_temporal_similarity")
+                evidence_use_basis="explicit_source_text_required_not_temporal_similarity",
+                evidence_text_link=evidence_text_link)
         entry["relation_id"] = "CPR-" + digest(entry)[:20]
         if any(item["relation_id"] == entry["relation_id"] for item in relations):
             raise ToolError("RELATION_ALREADY_RECORDED:" + entry["relation_id"])
@@ -250,6 +311,66 @@ def program_diagnostic_pair_relations(projection):
     return relations
 
 
+def _normalize_management_goal(value):
+    normalized = _normalize_evidence_text(value).casefold()
+    prefixes = ("限期行", "择期行", "计划行", "拟行", "限期", "择期", "计划",
+                "拟", "实施", "接受", "行")
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefixes:
+            if normalized.startswith(prefix) and len(normalized) > len(prefix):
+                normalized = normalized[len(prefix):]
+                changed = True
+                break
+    return normalized
+
+
+def _management_goal_conflicts(relations, known):
+    adjacency = {}
+    supported = []
+    for relation in relations:
+        source = relation.get("source_checkpoint_id")
+        target = relation.get("target_checkpoint_id")
+        if (relation.get("relation") != "same_management_process"
+                or relation.get("confidence") != "supported"
+                or source not in known or target not in known):
+            continue
+        supported.append(relation)
+        adjacency.setdefault(source, set()).add(target)
+        adjacency.setdefault(target, set()).add(source)
+    conflicts = {}
+    visited = set()
+    for start in adjacency:
+        if start in visited:
+            continue
+        stack, component = [start], set()
+        while stack:
+            node = stack.pop()
+            if node in component:
+                continue
+            component.add(node)
+            stack.extend(adjacency[node] - component)
+        visited.update(component)
+        component_relations = [relation for relation in supported
+                               if relation.get("source_checkpoint_id") in component]
+        goals = sorted({_normalize_management_goal(
+            relation.get("normalized_shared_management_goal")
+            or relation.get("shared_management_goal") or "")
+            for relation in component_relations})
+        if len(goals) <= 1:
+            continue
+        detail = dict(reason="CONFLICTING_NORMALIZED_MANAGEMENT_GOALS",
+                      normalized_management_goals=goals,
+                      shared_management_goals=sorted({
+                          relation.get("shared_management_goal") or ""
+                          for relation in component_relations}),
+                      component_checkpoint_ids=sorted(component))
+        for relation in component_relations:
+            conflicts[id(relation)] = detail
+    return conflicts
+
+
 def assemble_candidate_cp_episodes(checkpoints, relations):
     by_id = {checkpoint["checkpoint_id"]: checkpoint for checkpoint in checkpoints}
     parent = {checkpoint_id: checkpoint_id for checkpoint_id in by_id}
@@ -267,6 +388,7 @@ def assemble_candidate_cp_episodes(checkpoints, relations):
 
     merged_edges, evidence_references, composition_relations = [], [], []
     identity_relations, unresolved = [], []
+    goal_conflicts = _management_goal_conflicts(relations, by_id)
     for relation in relations:
         source = relation.get("source_checkpoint_id")
         target = relation.get("target_checkpoint_id")
@@ -279,22 +401,25 @@ def assemble_candidate_cp_episodes(checkpoints, relations):
         diagnostic_pair = (kind == "evidence_arrival"
                            and relation.get("program_diagnostic_pair") is True
                            and relation.get("relation_source") == "program_diagnostic_event_pair")
-        if supported and (kind == "same_management_process" or diagnostic_pair):
+        if id(relation) in goal_conflicts:
+            unresolved.append(dict(relation=deepcopy(relation),
+                                   **deepcopy(goal_conflicts[id(relation)])))
+        elif supported and (kind == "same_management_process" or diagnostic_pair):
             union(source, target)
             merged_edges.append(dict(
                 source_checkpoint_id=source, target_checkpoint_id=target,
                 relation=kind, relation_id=relation.get("relation_id"),
                 merge_basis=("program_diagnostic_pair" if diagnostic_pair
                              else "agent_supported_same_management_goal")))
+        elif not supported:
+            unresolved.append(dict(relation=deepcopy(relation),
+                                   reason="RELATION_NOT_SUPPORTED"))
         elif kind == "evidence_used":
             evidence_references.append(deepcopy(relation))
         elif kind in ("contains", "overlap"):
             composition_relations.append(deepcopy(relation))
         elif kind == "same_event":
             identity_relations.append(deepcopy(relation))
-        elif not supported:
-            unresolved.append(dict(relation=deepcopy(relation),
-                                   reason="RELATION_NOT_SUPPORTED"))
 
     groups = {}
     for checkpoint_id in by_id:
@@ -311,11 +436,26 @@ def assemble_candidate_cp_episodes(checkpoints, relations):
         open_questions = ["CANDIDATE_EPISODE_NOT_CLINICALLY_CONFIRMED"]
         if any(not (by_id[item].get("clock") or {}).get("value") for item in ordered):
             open_questions.append("EPISODE_ORDER_NOT_FULLY_ESTABLISHED")
+        member_set = set(ordered)
+        incident_process = [relation for relation in relations
+                            if relation.get("relation") == "same_management_process"
+                            and ({relation.get("source_checkpoint_id"),
+                                  relation.get("target_checkpoint_id")} & member_set)]
+        management_goals = sorted({relation.get("shared_management_goal") or ""
+                                   for relation in incident_process})
+        normalized_goals = sorted({_normalize_management_goal(goal)
+                                   for goal in management_goals})
+        if len(normalized_goals) > 1:
+            open_questions.append("CONFLICTING_NORMALIZED_MANAGEMENT_GOALS")
         episodes.append(dict(
             episode_id="EP-CP-%04d" % index,
             root_checkpoint_id=min(ordered, key=order_key),
             checkpoint_ids=ordered,
             checkpoint_kinds={item: by_id[item].get("kind") for item in ordered},
+            management_goals=management_goals,
+            normalized_management_goals=normalized_goals,
+            management_goal_status=("CONFLICTING" if len(normalized_goals) > 1
+                                    else "CONSISTENT" if normalized_goals else "NONE"),
             open_questions=open_questions))
 
     connected = {endpoint for relation in relations for endpoint in (
@@ -346,6 +486,7 @@ def build_prompt(checkpoints, *, case_id):
     return """## 病例 %s 的候选Checkpoint关系记录
 
 候选CP共 %d 个。先加载candidate-cp-organization技能，再list_candidate_checkpoints(limit=200)。
+必须从offset=0开始逐页读取；若truncated=true，用下一页offset继续，直到全部CP均被该工具实际返回。提前finish不会视为COMPLETE。
 CP已按程序投影组织，同一source的管理候选可能已经合并，禁止拆回member_event_ids另建节点。
 只记录原文明确支持的CP关系并立即提交；不要记录不确定边，不要组织Episode。
 诊断检查前→报告后边由程序另行保留，不要用evidence_used代替它。
@@ -372,6 +513,7 @@ class CandidateCPOrganizationRunner:
         from ..transport import TransportFailed
 
         checkpoints = self.projection.get("candidate_checkpoints") or []
+        index = CandidateCheckpointIndex(checkpoints)
         saved, recovery = [], dict(attempts=0, recovered=False,
                                   exhausted=False, sessions=[])
         stop, final, failure = ("answered", {}, None) if not checkpoints else (None, {}, None)
@@ -384,7 +526,7 @@ class CandidateCPOrganizationRunner:
             session = self.harness.session_for(name)
             registry = self.harness.new_registry(session=session)
             self.source_index.register(registry)
-            for tool in CandidateCheckpointIndex(checkpoints).tools():
+            for tool in index.tools():
                 registry.register(tool)
             recorded = candidate_cp_relation_tools(
                 registry, checkpoints=checkpoints, source_index=self.source_index)
@@ -420,10 +562,21 @@ class CandidateCPOrganizationRunner:
                 if all(item["relation_id"] != relation["relation_id"]
                        for item in agent_relations):
                     agent_relations.append(relation)
+        listed_ids = set(index.returned_checkpoint_ids)
+        expected_ids = set(index.by_id)
+        unlisted_ids = sorted(expected_ids - listed_ids)
+        coverage = dict(required_checkpoint_count=len(expected_ids),
+                        listed_checkpoint_count=len(expected_ids & listed_ids),
+                        unlisted_checkpoint_ids=unlisted_ids,
+                        complete=not unlisted_ids,
+                        rule="every_nonempty_candidate_checkpoint_returned_by_list_tool")
+        if stop == "answered" and unlisted_ids:
+            stop = "incomplete_cp_coverage"
         diagnostic_relations = program_diagnostic_pair_relations(self.projection)
         relations = agent_relations + diagnostic_relations
         episodes = assemble_candidate_cp_episodes(checkpoints, relations)
         stage = dict(stage="candidate_cp_organization", stop=stop, final=final,
+                     candidate_checkpoint_list_coverage=coverage,
                      failure=failure, recovery=recovery,
                      agent_task="record_supported_candidate_cp_relations_only",
                      container_assembly="program_derived_not_agent_reviewed",
