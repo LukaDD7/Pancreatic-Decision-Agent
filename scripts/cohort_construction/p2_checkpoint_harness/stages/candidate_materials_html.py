@@ -194,8 +194,15 @@ def _relations(packet):
                                              "data-goto": item.get("checkpoint_id")},
                                   _h(item.get("checkpoint_id"))),
                             _node("p", {}, _h(
+                                f"方向：{item.get('direction') or '未标明'} · "
+                                f"来源：{item.get('relation_source') or '旧event关系迁移'} · "
                                 f"{_relation_text(item)}：{item.get('explanation') or '未提供说明'}"
-                            ))) for item in related]),
+                            )),
+                            *([_node("details", {},
+                                      _node("summary", {}, "关系原文依据"),
+                                      *[_pre(json.dumps(quote, ensure_ascii=False))
+                                        for quote in item.get("basis_quotes") or []])]
+                              if item.get("basis_quotes") else [])) for item in related]),
               _node("p", {"class": "small"}, "显示顺序不等于已确认的临床决策顺序。")),
     )
 
@@ -250,17 +257,36 @@ def _action_form(packet):
 
 
 def _navigation(packet):
-    nav = packet.get("episode_navigation") or {}
-    def button(identifier, direction, label):
+    sequence = packet.get("sequence_navigation") or {}
+    episode = packet.get("episode_navigation") or {}
+
+    def button(identifier, scope, direction, label):
         return _node("button", {"type": "button", "class": "secondary",
                                 "data-goto": identifier,
+                                "data-navigation": f"{scope}-{direction}",
                                 "disabled": "disabled" if not identifier else None}, label)
-    return _node("nav", {"class": "checkpoint-nav", "aria-label": "Episode 节点切换"},
-                 button(nav.get("previous_checkpoint_id"), "previous", "← 前一节点"),
-                 _node("span", {}, _h(
-                     f"Episode {nav.get('index', '?')} / {nav.get('total', '?')}"
-                 )),
-                 button(nav.get("next_checkpoint_id"), "next", "后一节点 →"))
+
+    return _node(
+        "div", {"class": "checkpoint-navigation"},
+        _node("nav", {"class": "checkpoint-nav", "aria-label": "全病例显示顺序节点切换"},
+              button(sequence.get("previous_checkpoint_id"), "sequence", "previous",
+                     "← 全病例上一 CP"),
+              _node("span", {}, _h(
+                  f"全病例 CP {sequence.get('index', '?')} / {sequence.get('total', '?')}"
+              )),
+              button(sequence.get("next_checkpoint_id"), "sequence", "next",
+                     "全病例下一 CP →")),
+        _node("p", {"class": "small navigation-note"},
+              "全病例导航按 display_order 排列，仅用于浏览；显示顺序不等于已确认的临床决策、治疗或时间关系。"),
+        _node("nav", {"class": "checkpoint-nav", "aria-label": "Episode 内节点切换"},
+              button(episode.get("previous_checkpoint_id"), "episode", "previous",
+                     "← Episode 内上一 CP"),
+              _node("span", {}, _h(
+                  f"Episode 内 {episode.get('index', '?')} / {episode.get('total', '?')}"
+              )),
+              button(episode.get("next_checkpoint_id"), "episode", "next",
+                     "Episode 内下一 CP →")),
+    )
 
 
 def _packet_html(packet):
@@ -342,7 +368,7 @@ def _migration_summary(material):
 
 
 _STYLE = r"""
-:root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.notice,.migration-summary{background:#fff7e4;border:1px solid #e1c277;border-radius:8px;padding:7px 12px;margin:8px 0}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.clock-details summary,.migration-summary summary,details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
+:root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.notice,.migration-summary{background:#fff7e4;border:1px solid #e1c277;border-radius:8px;padding:7px 12px;margin:8px 0}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.clock-details summary,.migration-summary summary,details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-navigation{margin:14px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:6px 0}.navigation-note{margin:4px 0 10px}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
 """
 
 
@@ -450,13 +476,22 @@ def render_html(material, manifest_sha):
     if not packets:
         raise ValueError("MATERIAL_SET_HAS_NO_CANDIDATES")
     payload = []
-    for packet in packets:
+    for index, source_packet in enumerate(packets):
+        packet = dict(source_packet)
+        packet["sequence_navigation"] = packet.get("sequence_navigation") or dict(
+            index=index + 1,
+            total=len(packets),
+            previous_checkpoint_id=packets[index - 1]["checkpoint_id"] if index else None,
+            next_checkpoint_id=(packets[index + 1]["checkpoint_id"]
+                                if index + 1 < len(packets) else None),
+        )
         payload.append({
             "checkpoint_id": packet["checkpoint_id"],
             "kind": packet.get("kind") or "未分类",
             "title": (packet.get("target") or {}).get("title") or "通用管理任务",
             "episode_id": packet.get("episode_id"),
             "display_order": packet["display_order"],
+            "sequence_navigation": packet["sequence_navigation"],
             "html": _packet_html(packet),
         })
     script = _SCRIPT.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))

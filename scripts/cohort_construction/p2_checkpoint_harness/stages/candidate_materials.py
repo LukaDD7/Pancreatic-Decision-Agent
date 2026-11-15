@@ -8,7 +8,7 @@ from pathlib import Path
 from .materials import digest
 
 
-FORMAT = "p2-candidate-checkpoint-material-0.3.0"
+FORMAT = "p2-candidate-checkpoint-material-0.4.0"
 
 
 def _clock_value(clock):
@@ -122,16 +122,41 @@ def _navigation(packets):
                 next_checkpoint_id=(siblings[index + 1]["checkpoint_id"]
                                       if index + 1 < len(siblings) else None),
                 order_role="candidate_display_order_not_confirmed_clinical_sequence")
-    for index, packet in enumerate(sorted(packets, key=lambda item: (
-            _clock_value(item["evaluation"]["clock"]) or "9999", item["checkpoint_id"]))):
+    ordered = sorted(packets, key=lambda item: (
+        _clock_value(item["evaluation"]["clock"]) or "9999", item["checkpoint_id"]))
+    for index, packet in enumerate(ordered):
         packet["display_order"] = dict(index=index + 1, total=len(packets))
+        packet["sequence_navigation"] = dict(
+            index=index + 1, total=len(ordered),
+            previous_checkpoint_id=(ordered[index - 1]["checkpoint_id"] if index else None),
+            next_checkpoint_id=(ordered[index + 1]["checkpoint_id"]
+                                if index + 1 < len(ordered) else None),
+            order_role="whole_case_display_order_not_confirmed_clinical_sequence")
 
 
 def project_candidate_materials(*, case_id, sources, candidates, projection,
-                                relations=None, episodes=None):
+                                relations=None, episodes=None,
+                                candidate_relations=None, candidate_episodes=None):
     """Project candidate CPs; original text remains a separate researcher layer."""
     relations = relations or []
     episodes = episodes or []
+    candidate_relations = candidate_relations or []
+    organized = candidate_episodes is not None
+    candidate_episodes = candidate_episodes or []
+    checkpoint_ids = {checkpoint["checkpoint_id"]
+                      for checkpoint in projection["candidate_checkpoints"]}
+    candidate_membership = {}
+    for episode in candidate_episodes:
+        for checkpoint_id in episode.get("checkpoint_ids") or []:
+            if checkpoint_id not in checkpoint_ids:
+                raise ValueError("UNKNOWN_CANDIDATE_EPISODE_MEMBER:" + checkpoint_id)
+            if checkpoint_id in candidate_membership:
+                raise ValueError("DUPLICATE_CANDIDATE_EPISODE_MEMBERSHIP:" + checkpoint_id)
+            candidate_membership[checkpoint_id] = episode["episode_id"]
+    for relation in candidate_relations:
+        for field in ("source_checkpoint_id", "target_checkpoint_id"):
+            if relation.get(field) not in checkpoint_ids:
+                raise ValueError("UNKNOWN_CANDIDATE_RELATION_ENDPOINT:" + str(relation.get(field)))
     source_by_id = {source["source_id"]: source for source in sources}
     diagnostic_by_id = {event["event_id"]: event
                         for event in projection["diagnostic_events"]}
@@ -167,7 +192,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         target_spans_by_source = {}
         for span in checkpoint.get("masked_spans") or []:
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
-        for span in _same_event_spans(checkpoint, candidates, relations):
+        for span in ([] if organized else _same_event_spans(checkpoint, candidates, relations)):
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
         if pre_exam:
             for candidate in candidates:
@@ -227,8 +252,11 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             origin_episode_ids = sorted({membership[event_id] for event_id in
                                          checkpoint["member_event_ids"]
                                          if event_id in membership})
-            episode_id = "EP-CP-" + checkpoint["checkpoint_id"].removeprefix("CP-M-")
-            episode_basis = "one_merged_candidate_checkpoint_pending_new_episode_organization"
+            episode_id = candidate_membership.get(checkpoint["checkpoint_id"])
+            episode_basis = "candidate_cp_supported_relation_program_assembly"
+            if episode_id is None:
+                episode_id = "EP-CP-" + checkpoint["checkpoint_id"].removeprefix("CP-M-")
+                episode_basis = "one_merged_candidate_checkpoint_pending_new_episode_organization"
             target_title = next((source_by_id[source_id].get("title")
                                  for source_id in checkpoint["source_ids"]
                                  if source_id in source_by_id), "未标来源")
@@ -236,8 +264,11 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                            "其他邻近解释、执行和结局仍需复核。")
         else:
             origin_episode_ids = []
-            episode_id = "EP-DIAG-" + diagnostic["event_id"].removeprefix("EA-")
-            episode_basis = "program_diagnostic_event_pair_not_original_episode"
+            episode_id = candidate_membership.get(checkpoint["checkpoint_id"])
+            episode_basis = "candidate_cp_supported_relation_program_assembly"
+            if episode_id is None:
+                episode_id = "EP-DIAG-" + diagnostic["event_id"].removeprefix("EA-")
+                episode_basis = "program_diagnostic_event_pair_not_original_episode"
             target_title = ("本次检查（类型及结果已遮蔽）" if pre_exam
                             else "本次检查报告（新证据）")
             mask_reason = ("检查前遮蔽整个目标检查组及可见文书中的检查相关表述，"
@@ -246,9 +277,29 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         related = []
         pair = diagnostic_cp_pairs.get(checkpoint["checkpoint_id"])
         if pair:
-            related.append(dict(checkpoint_id=pair[0], relation=pair[1],
-                                explanation="同一检查事件的检查前评价与报告后再评价，由程序时间对象连接。"))
-        for relation in relations:
+            related.append(dict(
+                checkpoint_id=pair[0], relation=pair[1], direction="outgoing",
+                relation_source="program_diagnostic_event_pair",
+                explanation="同一检查事件的检查前评价与报告后再评价，由程序时间对象连接。"))
+        for relation in candidate_relations:
+            endpoints = (relation.get("source_checkpoint_id"),
+                         relation.get("target_checkpoint_id"))
+            if checkpoint["checkpoint_id"] not in endpoints:
+                continue
+            other = endpoints[1] if endpoints[0] == checkpoint["checkpoint_id"] else endpoints[0]
+            if any(item["checkpoint_id"] == other and item["relation"] == relation.get("relation")
+                   for item in related):
+                continue
+            related.append(dict(
+                checkpoint_id=other, relation=relation.get("relation"),
+                direction=("outgoing" if endpoints[0] == checkpoint["checkpoint_id"]
+                           else "incoming"),
+                confidence=relation.get("confidence"),
+                explanation=relation.get("explanation"),
+                basis_quotes=deepcopy(relation.get("basis_quotes") or []),
+                relation_source=relation.get("relation_source") or "candidate_cp_agent_recording",
+                retrieval_clock_comparison=relation.get("retrieval_clock_comparison")))
+        for relation in ([] if organized else relations):
             endpoints = (relation.get("source_event_id"), relation.get("target_event_id"))
             target_cps = {checkpoint_by_event.get(event_id) for event_id in endpoints} - {None}
             if checkpoint["checkpoint_id"] not in target_cps:
@@ -271,6 +322,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             target=dict(source_ids=list(checkpoint["source_ids"]), title=target_title,
                         diagnostic_event_id=checkpoint.get("diagnostic_event_id")),
             episode_id=episode_id, episode_basis=episode_basis,
+            candidate_organization_applied=organized,
             origin_episode_ids=origin_episode_ids,
             record_functions=list(checkpoint.get("record_functions") or []),
             supporting_event_ids=list(checkpoint.get("supporting_event_ids") or []),

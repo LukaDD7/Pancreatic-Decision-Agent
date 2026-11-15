@@ -1,6 +1,9 @@
 """Synthetic regression tests for the private candidate Checkpoint renderer."""
 import json
 from pathlib import Path
+import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -80,6 +83,64 @@ def material(packets):
     )
 
 
+_DOM_SHIM = r"""
+const assert=require('node:assert/strict');
+class Element {
+ constructor(){this.value='';this.children=[];this.dataset={};this.disabled=false;this.listeners={};}
+ addEventListener(type,listener){(this.listeners[type]||(this.listeners[type]=[])).push(listener);}
+ append(child){this.children.push(child);}
+ replaceChildren(){this.children=[];}
+ click(){if(!this.disabled)for(const listener of this.listeners.click||[])listener({currentTarget:this});}
+}
+const elements={};
+for(const id of ['kind','checkpoint','material','position','export','add-action'])elements[id]=new Element();
+let packetButtons=[];
+elements.material.innerHTML='';
+Object.defineProperty(elements.material,'innerHTML',{
+ get(){return this._html;},
+ set(value){
+  this._html=value;packetButtons=[];
+  for(const match of value.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)){
+   const button=new Element();button.textContent=match[2].replace(/<[^>]+>/g,'');
+   for(const attribute of match[1].matchAll(/([\w-]+)(?:="([^"]*)")?/g)){
+    const name=attribute[1],value=attribute[2]||'';
+    if(name==='disabled')button.disabled=true;
+    if(name.startsWith('data-'))button.dataset[name.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=value;
+   }
+   if(button.dataset.goto!==undefined)packetButtons.push(button);
+  }
+ }
+});
+const actionForm=new Element();
+const document={
+ createElement(){return new Element();},
+ querySelector(selector){
+  if(selector.startsWith('#'))return elements[selector.slice(1)]||null;
+  if(selector==='.action-form')return actionForm;
+  return null;
+ },
+ querySelectorAll(selector){
+  if(selector==='[data-goto]')return packetButtons;
+  if(selector==='[data-workflow]'||selector==='.action-row')return [];
+  const match=selector.match(/^\[data-navigation="([^"]+)"\]$/);
+  return match?packetButtons.filter(button=>button.dataset.navigation===match[1]):[];
+ }
+};
+const location={hash:''};
+const history={replaceState(_state,_title,hash){location.hash=hash;}};
+const localStorage={getItem(){return null;},setItem(){}};
+const window={scrollTo(){}};
+"""
+
+
+def execute_page(page, assertions):
+    script = re.search(r"<script>([\s\S]*)</script>", page).group(1)
+    return subprocess.run(
+        [shutil.which("node")], input=_DOM_SHIM + script + assertions,
+        text=True, capture_output=True, check=True, timeout=10,
+    )
+
+
 class CandidateMaterialsHtmlTests(unittest.TestCase):
     def test_pre_exam_header_has_no_exam_title_and_first_screen_has_required_fields(self):
         pre = packet(
@@ -115,6 +176,43 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertNotIn("http", page.lower())
         self.assertIn("一次显示一个候选 Checkpoint", page)
         self.assertIn("按任务类型筛选", page)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for DOM execution")
+    def test_top_and_bottom_sequence_navigation_cross_episode_boundaries(self):
+        first = packet(
+            "CP-PRE", "pre_exam_evaluation", title="第一 Episode 管理评价",
+            text="[已遮蔽]", original="合成研究原文")
+        second = packet(
+            "CP-POST", "management_decision", title="第二 Episode 管理评价",
+            text="[已遮蔽]", original="合成研究原文", index=2)
+        first["episode_id"] = "EP-ONE"
+        second["episode_id"] = "EP-TWO"
+        for item in (first, second):
+            item["display_order"]["total"] = 2
+            item["episode_navigation"] = dict(
+                index=1, total=1, previous_checkpoint_id=None, next_checkpoint_id=None)
+        page = render_html(material([second, first]), "manifest-sha")
+
+        execute_page(page, r"""
+assert.equal(current.checkpoint_id,'CP-PRE');
+assert.equal(current.sequence_navigation.next_checkpoint_id,'CP-POST');
+let next=document.querySelectorAll('[data-navigation="sequence-next"]');
+assert.equal(next.length,2);
+assert(next.every(button=>button.dataset.goto==='CP-POST'&&!button.disabled));
+assert(document.querySelectorAll('[data-navigation="episode-next"]').every(button=>button.disabled));
+next[0].click();
+assert.equal(current.checkpoint_id,'CP-POST');
+assert.equal(cpSelect.value,'CP-POST');
+assert.equal(location.hash,'#CP-POST');
+document.querySelectorAll('[data-navigation="sequence-previous"]')[0].click();
+assert.equal(current.checkpoint_id,'CP-PRE');
+next=document.querySelectorAll('[data-navigation="sequence-next"]');
+next[1].click();
+assert.equal(current.checkpoint_id,'CP-POST');
+assert.equal(cpSelect.value,'CP-POST');
+assert.equal(location.hash,'#CP-POST');
+assert(document.querySelectorAll('[data-navigation="episode-previous"]').every(button=>button.disabled));
+""")
 
     def test_write_html_reuses_index_and_receipt_contract(self):
         pre = packet(

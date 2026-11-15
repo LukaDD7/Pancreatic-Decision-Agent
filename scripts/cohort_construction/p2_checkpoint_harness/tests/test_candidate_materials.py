@@ -91,6 +91,58 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertNotIn("手术指征：需手术切除", target["text"])
         self.assertIn("评估病情", target["text"])
 
+    def test_candidate_relations_and_episodes_replace_temporary_containers(self):
+        base = self.material()["packets"]
+        management = next(packet for packet in base if packet["kind"] == "management_decision")
+        pre = next(packet for packet in base if packet["kind"] == "pre_exam_evaluation")
+        post = next(packet for packet in base if packet["kind"] == "evidence_arrival_reassessment")
+        relation = dict(source_checkpoint_id=management["checkpoint_id"],
+                        target_checkpoint_id=pre["checkpoint_id"],
+                        relation="same_management_process", confidence="supported",
+                        explanation="合成关系", basis_quotes=[])
+        material = project_candidate_materials(
+            case_id="SYN", sources=self.sources, candidates=self.candidates,
+            projection=self.projection, candidate_relations=[relation],
+            candidate_episodes=[dict(episode_id="EP-NEW", checkpoint_ids=[
+                management["checkpoint_id"], pre["checkpoint_id"], post["checkpoint_id"]])])
+        self.assertEqual({packet["episode_id"] for packet in material["packets"]}, {"EP-NEW"})
+        self.assertTrue(all(packet["candidate_organization_applied"]
+                            for packet in material["packets"]))
+        self.assertTrue(all(packet["episode_navigation"]["total"] == 3
+                            for packet in material["packets"]))
+        self.assertTrue(all(packet["sequence_navigation"]["total"] == 3
+                            for packet in material["packets"]))
+        projected_management = next(packet for packet in material["packets"]
+                                    if packet["kind"] == "management_decision")
+        edge = next(item for item in projected_management["related_checkpoints"]
+                    if item["checkpoint_id"] == pre["checkpoint_id"])
+        self.assertEqual(edge["direction"], "outgoing")
+        self.assertEqual(edge["relation"], "same_management_process")
+
+    def test_global_navigation_does_not_depend_on_episode(self):
+        material = self.material()
+        ordered = sorted(material["packets"], key=lambda item: item["display_order"]["index"])
+        self.assertGreater(len(ordered), 1)
+        self.assertEqual(ordered[0]["episode_navigation"]["total"], 1)
+        self.assertIsNone(ordered[0]["sequence_navigation"]["previous_checkpoint_id"])
+        self.assertEqual(ordered[0]["sequence_navigation"]["next_checkpoint_id"],
+                         ordered[1]["checkpoint_id"])
+        self.assertEqual(ordered[1]["sequence_navigation"]["previous_checkpoint_id"],
+                         ordered[0]["checkpoint_id"])
+
+    def test_candidate_organization_rejects_unknown_endpoints_and_members(self):
+        with self.assertRaisesRegex(ValueError, "UNKNOWN_CANDIDATE_RELATION_ENDPOINT"):
+            project_candidate_materials(
+                case_id="SYN", sources=self.sources, candidates=self.candidates,
+                projection=self.projection, candidate_episodes=[],
+                candidate_relations=[dict(source_checkpoint_id="CP-NOPE",
+                                          target_checkpoint_id="CP-ALSO-NOPE")])
+        with self.assertRaisesRegex(ValueError, "UNKNOWN_CANDIDATE_EPISODE_MEMBER"):
+            project_candidate_materials(
+                case_id="SYN", sources=self.sources, candidates=self.candidates,
+                projection=self.projection, candidate_relations=[],
+                candidate_episodes=[dict(episode_id="EP-BAD", checkpoint_ids=["CP-NOPE"])])
+
 
 if __name__ == "__main__":
     unittest.main()

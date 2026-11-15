@@ -1,0 +1,126 @@
+/* Real-Chrome checks for candidate CP navigation; patient data stays in the supplied file. */
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
+
+const [input, output] = process.argv.slice(2);
+const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'candidate-cp-chrome-'));
+fs.mkdirSync(output, { recursive: true });
+const chrome = process.env.REVIEW_CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const port = 9333 + Math.floor(Math.random() * 300);
+const child = spawn(chrome, [
+  '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
+  pathToFileURL(path.resolve(input)).href,
+], { stdio: 'ignore' });
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+(async () => {
+  let socket;
+  try {
+    let pages;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      try {
+        pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+        if (pages.some(page => page.type === 'page')) break;
+      } catch {}
+      await delay(100);
+    }
+    const page = pages && pages.find(item => item.type === 'page');
+    assert(page, 'Chrome page was not available');
+    socket = new WebSocket(page.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      socket.addEventListener('open', resolve, { once: true });
+      socket.addEventListener('error', reject, { once: true });
+    });
+    let serial = 0;
+    const pending = new Map();
+    const errors = [], network = [];
+    socket.addEventListener('message', event => {
+      const message = JSON.parse(event.data);
+      if (message.id) {
+        const handler = pending.get(message.id);
+        if (handler) {
+          pending.delete(message.id);
+          if (message.error) handler.reject(new Error(JSON.stringify(message.error)));
+          else handler.resolve(message.result);
+        }
+      } else if (message.method === 'Runtime.exceptionThrown') {
+        errors.push(JSON.stringify(message.params.exceptionDetails));
+      } else if (message.method === 'Network.requestWillBeSent' && /^https?:/.test(message.params.request.url)) {
+        network.push(message.params.request.url);
+      }
+    });
+    const send = (method, params = {}) => new Promise((resolve, reject) => {
+      const id = ++serial;
+      pending.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+    const evaluate = async expression => {
+      const response = await send('Runtime.evaluate', {
+        expression, returnByValue: true, awaitPromise: true,
+      });
+      if (response.exceptionDetails) throw new Error(JSON.stringify(response.exceptionDetails));
+      return response.result.value;
+    };
+    await send('Runtime.enable');
+    await send('Network.enable');
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (await evaluate("typeof DATA !== 'undefined' && !!document.querySelector('.checkpoint-nav')")) break;
+      await delay(100);
+    }
+    const initial = await evaluate(`(() => {
+      const first=[...DATA].sort((a,b)=>a.display_order.index-b.display_order.index)[0];
+      document.querySelector('#checkpoint').value=first.checkpoint_id;
+      document.querySelector('#checkpoint').dispatchEvent(new Event('change'));
+      return first.checkpoint_id;
+    })()`);
+    const visited = [initial];
+    const count = await evaluate('DATA.length');
+    assert(count > 1, 'This check requires multiple candidate CPs');
+    for (let index = 1; index < count; index++) {
+      const button = await evaluate(`(() => {
+        const button=document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[1];
+        return {disabled:button.disabled,target:button.dataset.goto};
+      })()`);
+      assert.equal(button.disabled, false, `next disabled at display index ${index}`);
+      await evaluate("document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[1].click()");
+      const selected = await evaluate("document.querySelector('#checkpoint').value");
+      assert.equal(selected, button.target);
+      visited.push(selected);
+    }
+    assert.equal(new Set(visited).size, count, 'Global navigation did not visit every CP exactly once');
+    const last = await evaluate(`(() => {
+      const button=document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[1];
+      return {disabled:button.disabled,label:button.textContent};
+    })()`);
+    assert.equal(last.disabled, true);
+    for (let index = count - 1; index > 0; index--) {
+      await evaluate("document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[0].click()");
+      assert.equal(await evaluate("document.querySelector('#checkpoint').value"), visited[index - 1]);
+    }
+    await evaluate("document.querySelector('[data-workflow=relations]').click()");
+    assert.equal(await evaluate("document.querySelector('#workflow-relations').hidden"), false);
+    const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    fs.writeFileSync(path.join(output, 'navigation-desktop.png'), Buffer.from(screenshot.data, 'base64'));
+    await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(network, []);
+    fs.writeFileSync(path.join(output, 'browser-receipt.json'), JSON.stringify({
+      status: 'PASS', private_research_preview: true, doctor_release: false,
+      candidate_count: count, visited_checkpoint_ids: visited,
+      checks: ['real_chrome_global_next_visits_all', 'real_chrome_global_previous_returns_all',
+        'relations_tab_click', 'mobile_no_horizontal_overflow'],
+      page_errors: errors, network_requests: network,
+    }, null, 2) + '\n');
+    console.log(JSON.stringify({ status: 'PASS', candidates: count, visited }));
+  } finally {
+    if (socket) socket.close();
+    child.kill('SIGTERM');
+    fs.rmSync(profile, { recursive: true, force: true });
+  }
+})().catch(error => { console.error(error.stack); process.exitCode = 1; });
