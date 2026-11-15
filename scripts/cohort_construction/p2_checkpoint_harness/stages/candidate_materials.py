@@ -73,7 +73,7 @@ def _mask_management_action_lines(text):
     terms = ("拟施", "拟行", "已申请", "已签署", "治疗计划", "检查安排",
              "输血", "冰冻病理", "排除手术禁忌", "限期行手术", "定于",
              "手术指征", "手术切除", "手术方式", "手术时间", "根治性胰", "Whipple",
-             "限期行", "择期行", "拟实施", "故拟", "签署知情同意", "积极术前准备")
+             "限期行", "择期行", "拟实施", "故拟", "需手术", "签署知情同意", "积极术前准备")
     spans = []
     for match in re.finditer(r"[^。；\n]+[。；\n]?", text):
         clause = match.group(0)
@@ -141,6 +141,15 @@ def _same_event_spans(checkpoint, candidates, relations):
     return [deepcopy(candidate["span"]) for candidate in candidates
             if candidate.get("event_id") in related_ids - members
             and candidate.get("status") == "ACCEPTED" and candidate.get("span")]
+
+
+def _candidate_relation_summary(relation):
+    kind = relation.get("relation")
+    if kind == "same_management_process":
+        return "Agent 记录为同一管理过程；共同目标、具体理由和原文依据在独立关系文件核对。"
+    if kind == "evidence_used":
+        return "Agent 记录后续管理使用该证据；具体理由和原文依据在独立关系文件核对。"
+    return "Agent 记录的候选 CP 关系；具体理由和原文依据在独立关系文件核对。"
 
 
 def _same_checkpoint_spans(checkpoint, projection, relations):
@@ -341,7 +350,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             related.append(dict(
                 checkpoint_id=pair[0], relation=pair[1], direction="outgoing",
                 relation_source="program_diagnostic_event_pair",
-                explanation="同一检查事件的检查前评价与报告后再评价，由程序时间对象连接。"))
+                projection_explanation="同一检查事件的检查前评价与报告后再评价，由程序时间对象连接。"))
         for relation in candidate_relations:
             endpoints = (relation.get("source_checkpoint_id"),
                          relation.get("target_checkpoint_id"))
@@ -356,8 +365,11 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 direction=("outgoing" if endpoints[0] == checkpoint["checkpoint_id"]
                            else "incoming"),
                 confidence=relation.get("confidence"),
-                explanation=relation.get("explanation"),
-                shared_management_goal=relation.get("shared_management_goal"),
+                projection_explanation=_candidate_relation_summary(relation),
+                explanation_location="candidate_cp_relations.json_research_audit_not_current_projection",
+                shared_management_goal_location=(
+                    "candidate_cp_relations.json_research_audit_not_current_projection"
+                    if relation.get("shared_management_goal") else None),
                 basis_quote_count=len(relation.get("basis_quotes") or []),
                 basis_quote_location="candidate_cp_relations.json_research_audit_not_current_projection",
                 relation_source=relation.get("relation_source") or "candidate_cp_agent_recording",

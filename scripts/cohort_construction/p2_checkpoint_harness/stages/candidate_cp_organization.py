@@ -313,6 +313,24 @@ def program_diagnostic_pair_relations(projection):
 
 def _normalize_management_goal(value):
     normalized = _normalize_evidence_text(value).casefold()
+    procedures = (
+        ("胰十二指肠切除术", "procedure: pancreatoduodenectomy"),
+        ("whipple", "procedure: pancreatoduodenectomy"),
+        ("全胰切除术", "procedure: total_pancreatectomy"),
+        ("胰体尾切除术", "procedure: distal_pancreatectomy"),
+        ("远端胰腺切除术", "procedure: distal_pancreatectomy"),
+        ("腹腔镜探查", "diagnostic: laparoscopy"),
+        ("增强ct", "diagnostic: contrast_ct"),
+        ("ct增强", "diagnostic: contrast_ct"),
+        ("磁共振", "diagnostic: mr"),
+    )
+    for term, identity in procedures:
+        if term in normalized:
+            return identity
+    if "ag方案" in normalized:
+        return "systemic_treatment: ag"
+    if "化疗" in normalized:
+        return "systemic_treatment: unspecified"
     prefixes = ("限期行", "择期行", "计划行", "拟行", "限期", "择期", "计划",
                 "拟", "实施", "接受", "行")
     changed = True

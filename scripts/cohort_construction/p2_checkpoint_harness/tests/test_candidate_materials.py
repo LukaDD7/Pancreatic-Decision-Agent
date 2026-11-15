@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 import unittest
 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_checkpoints import project_candidate_checkpoints
@@ -152,7 +153,8 @@ class CandidateMaterialTests(unittest.TestCase):
         relation = dict(source_checkpoint_id=post["checkpoint_id"],
                         target_checkpoint_id=management["checkpoint_id"],
                         relation="evidence_used", confidence="supported",
-                        explanation="合成关系，不包含动作原文。",
+                        explanation="未来决定立即行根治性胰十二指肠切除术。",
+                        shared_management_goal="未来根治性胰十二指肠切除术",
                         basis_quotes=[dict(checkpoint_id=management["checkpoint_id"],
                                            source_id="S-M", quote="拟行MR检查。")])
         material = project_candidate_materials(
@@ -166,6 +168,9 @@ class CandidateMaterialTests(unittest.TestCase):
         edge = next(item for item in packet["related_checkpoints"]
                     if item["relation"] == "evidence_used")
         self.assertNotIn("basis_quotes", edge)
+        self.assertNotIn("explanation", edge)
+        self.assertNotIn("shared_management_goal", edge)
+        self.assertNotIn("未来根治性胰十二指肠切除术", json.dumps(edge, ensure_ascii=False))
         self.assertEqual(edge["basis_quote_count"], 1)
         target = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-M")
@@ -202,11 +207,12 @@ class CandidateMaterialTests(unittest.TestCase):
         self.sources.append(dict(
             source_id="S-SAME", title="同刻病程", kind="document",
             clock=clock("2022-12-14 14:56:32"), clock_basis="body_record_time",
-            clocks={}, text="阅片后决定立即行根治性胰十二指肠切除术。"))
+            clocks={}, text="同意上述意见，恶性待排，需手术治疗。阅片后决定立即行根治性胰十二指肠切除术。"))
         packet = self.packet("evidence_arrival_reassessment")
         same_time = next(source for source in packet["included_sources"]
                          if source["source_id"] == "S-SAME")
         self.assertNotIn("根治性胰十二指肠切除术", same_time["text"])
+        self.assertNotIn("需手术治疗", same_time["text"])
         report = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-D")
         self.assertEqual(report["text"], "虚构MR所见及结论")

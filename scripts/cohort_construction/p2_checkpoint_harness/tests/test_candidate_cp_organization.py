@@ -101,6 +101,21 @@ class CandidateCPRelationTests(unittest.TestCase):
         self.assertTrue(result["conservation"]["all_candidate_checkpoints_conserved"])
         self.assertEqual(result["unconnected_checkpoint_ids"], ["CP-REPORT"])
 
+    def test_same_core_procedure_with_different_preparation_wording_still_merges(self):
+        first, relation = self.record([self.first, self.second])
+        edge = relation["relation"]
+        edge["shared_management_goal"] = "排除手术禁忌后限期行胰十二指肠切除术"
+        edge.pop("normalized_shared_management_goal", None)
+        second = deepcopy(edge)
+        second["relation_id"] = "CPR-OTHER"
+        second["shared_management_goal"] = "胰十二指肠切除术，术前排除手术禁忌并充分准备"
+        result = organization.assemble_candidate_cp_episodes(
+            [self.first, self.second], [edge, second])
+        self.assertEqual(len(result["episodes"]), 1)
+        self.assertEqual(result["unresolved_relations"], [])
+        self.assertEqual(result["episodes"][0]["normalized_management_goals"],
+                         ["procedure: pancreatoduodenectomy"])
+
     def test_CCPO002_non_supported_or_goal_less_process_relation_is_refused(self):
         with self.assertRaisesRegex(ToolError, "SUPPORTED_CONFIDENCE"):
             self.record([self.first, self.second], confidence="uncertain")
@@ -265,7 +280,7 @@ class CandidateCPRelationTests(unittest.TestCase):
                 "CP-A", "CP-B", "限期行胰十二指肠切除术")])
         self.assertEqual(len(consistent["episodes"]), 1)
         self.assertEqual(consistent["episodes"][0]["normalized_management_goals"],
-                         ["胰十二指肠切除术"])
+                         ["procedure: pancreatoduodenectomy"])
         relations = [relation("CP-A", "CP-B", "限期行胰十二指肠切除术"),
                      relation("CP-B", "CP-C", "全身化疗")]
         result = organization.assemble_candidate_cp_episodes(
@@ -282,7 +297,8 @@ class CandidateCPRelationTests(unittest.TestCase):
                          if item["checkpoint_ids"] == ["CP-B"])
         self.assertEqual(episode_b["management_goal_status"], "CONFLICTING")
         self.assertEqual(set(episode_b["normalized_management_goals"]),
-                         {"胰十二指肠切除术", "全身化疗"})
+                         {"procedure: pancreatoduodenectomy",
+                          "systemic_treatment: unspecified"})
 
 
 class FinishTransport:

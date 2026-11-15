@@ -165,7 +165,7 @@ def _neighbor(packet, identifier, direction):
         _node("h4", {}, _h(identifier)),
         _node("p", {}, _h(
             f"关系：{_relation_text(relation)} · "
-            f"说明：{(relation or {}).get('explanation') or '未记录直接关系'}"
+            f"说明：{(relation or {}).get('projection_explanation') or '未记录直接关系'}"
         )),
         _node("button", {"type": "button", "class": "secondary", "data-goto": identifier},
               "打开该 Checkpoint"),
@@ -196,12 +196,10 @@ def _relations(packet):
                             _node("p", {}, _h(
                                 f"方向：{item.get('direction') or '未标明'} · "
                                 f"来源：{item.get('relation_source') or '旧event关系迁移'} · "
-                                f"{_relation_text(item)}：{item.get('explanation') or '未提供说明'}"
+                                f"{_relation_text(item)}：{item.get('projection_explanation') or '具体理由在独立关系运行文件核对'}"
                             )),
                             _node("p", {"class": "small"}, _h(
-                                (f"共同管理目标：{item.get('shared_management_goal')} · "
-                                 if item.get("shared_management_goal") else "")
-                                + f"关系引文 {item.get('basis_quote_count', 0)} 条；"
+                                f"关系引文 {item.get('basis_quote_count', 0)} 条；"
                                 "请在独立关系运行文件核对，不纳入当前时点可见资料。"
                             ))) for item in related]),
               _node("p", {"class": "small"}, "显示顺序不等于已确认的临床决策顺序。")),
