@@ -69,7 +69,7 @@ def _mask_management_action_lines(text):
     import re
     terms = ("拟施", "拟行", "已申请", "已签署", "治疗计划", "检查安排",
              "输血", "冰冻病理", "排除手术禁忌", "限期行手术", "定于",
-             "根治性胰", "Whipple")
+             "手术指征", "手术切除", "手术方式", "手术时间", "根治性胰", "Whipple")
     spans = []
     for match in re.finditer(r"[^。；\n]+[。；\n]?", text):
         clause = match.group(0)
@@ -195,7 +195,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 whole_masked.append(source_id)
             else:
                 spans = list(target_spans_by_source.get(source_id) or [])
-                if checkpoint["kind"] == "management_decision" and source_id in target_ids:
+                if checkpoint["kind"] == "management_decision":
                     card["text"], action_spans = _mask_management_action_lines(card["text"])
                     for span in action_spans:
                         span.update(source_id=source_id)

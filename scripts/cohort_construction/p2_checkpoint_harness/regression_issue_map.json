@@ -9,7 +9,7 @@
       "problem": "Every accepted candidate span is projected into one Checkpoint without a gate for an evaluable management question, a concrete action space, or the clinician protocol's primary preoperative-path/NAT-reassessment task. Admission intent, generic wording, repeats, execution traces, postoperative routine care and intraoperative records can therefore become apparent standalone evaluation points even when a clinician cannot supply a valid next action.",
       "planned_change_type": "evaluable_action_gate_and_primary_task_scope",
       "implementation": "candidate_checkpoints.py adds source-level grouping, support/out-of-scope/review migrations, concrete action-plan schema and management clock gates. candidate_materials.py adds timed projections. SCALE-01 candidate-cp-v4 retains five management CPs; the admission-intent and two clockless candidates are not CPs. Real discovery recall remains under separate validation.",
-      "status": "offline_projection_implemented_live_discovery_validation_pending",
+      "status": "offline_and_scale01_live_projection_validated_clinical_semantics_pending",
       "real_counterexample": {
         "case_id": "SCALE-01",
         "run": "relations-r6-resumed-01",
@@ -40,7 +40,7 @@
       "problem": "Multiple candidates from one source become separate Checkpoints, while masking removes only the current span and strictly later spans. Same-source/same-clock alternatives remain visible in both directions, and earlier decisions remain visible in later packets, causing duplication and cross-Checkpoint target leakage.",
       "planned_change_type": "one_source_one_evaluation_unit_and_joint_masking",
       "implementation": "candidate_checkpoints.py merges same-source spans with migration conservation. candidate_materials.py jointly masks member spans, same_event restatements and bounded adjacent action clauses in one original-text coordinate pass. Independent audits caught and verified repair of same-source leakage, over-masking and offset corruption. Cross-document completeness remains explicitly unconfirmed; output is not a doctor packet.",
-      "status": "offline_projection_implemented_live_discovery_validation_pending",
+      "status": "offline_and_scale01_live_projection_validated_clinical_semantics_pending",
       "real_counterexample": {
         "case_id": "SCALE-01",
         "run": "relations-r6-resumed-01",
@@ -69,7 +69,7 @@
       "problem": "Performed-test reports are indexed as evidence artifacts but the current pipeline has no evidence-arrival re-evaluation unit and no evidence_used edges were recorded. Consequently MR/contrast CT evidence cannot become a protocol-defined opportunity to maintain or change management. This general mechanism gap must not be misreported as a confirmed preoperative omission in SCALE-01: its selected report-visibility clocks are after the operation date, and no laparoscopy deployment was found in the delivered sources.",
       "planned_change_type": "evidence_arrival_reassessment_and_visibility_clock_audit",
       "implementation": "diagnostic_events.py preserves exam/report/verified clocks, prefers report_time with verified fallback and derives an explicit operation-start boundary from an exact source field. candidate_checkpoints.py generates pre-exam and evidence-arrival candidates only with clocks, visible context and primary-task eligibility. SCALE-01 candidate-cp-v4 has MR/CT pre-exam and two preoperative report-arrival CPs; postoperative diagnostic nodes and the empty-context pre-exam node are excluded with migrations.",
-      "status": "offline_projection_implemented_live_discovery_validation_pending",
+      "status": "offline_and_scale01_live_projection_validated_clinical_semantics_pending",
       "real_counterexample": {
         "case_id": "SCALE-01",
         "evidence_inventory": 5,

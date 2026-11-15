@@ -11,7 +11,7 @@ def clock(value):
 
 class CandidateMaterialTests(unittest.TestCase):
     def setUp(self):
-        self.management_text = "评估病情。\n拟行MR检查。\n拟施麻醉方式：全麻\n之后记录。"
+        self.management_text = "评估病情。\n拟行MR检查。\n拟施麻醉方式：全麻\n手术指征：需手术切除。\n之后记录。"
         self.sources = [
             dict(source_id="S-M", title="虚构病程", kind="document",
                  clock=clock("2022-12-14 10:00:00"), clock_basis="body_record_time",
@@ -76,12 +76,19 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertTrue(pre["not_doctor_release"])
         self.assertFalse(pre["masked_projection"]["cross_document_reviewed"])
 
+    def test_discovery_only_result_has_no_relation_or_episode_container(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.render_candidate_materials import _stage_items
+        raw = dict(relations=None, episodes=None)
+        self.assertEqual(_stage_items(raw, "relations", "recorded"), [])
+        self.assertEqual(_stage_items(raw, "episodes", "episodes"), [])
+
     def test_management_source_group_masks_target_span(self):
         packet = self.packet("management_decision")
         target = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-M")
         self.assertNotIn("拟行MR检查", target["text"])
         self.assertNotIn("拟施麻醉方式", target["text"])
+        self.assertNotIn("手术指征：需手术切除", target["text"])
         self.assertIn("评估病情", target["text"])
 
 

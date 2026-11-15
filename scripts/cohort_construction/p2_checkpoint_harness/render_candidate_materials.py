@@ -14,6 +14,10 @@ from .stages.candidate_materials_html import write_html
 from .stages.diagnostic_events import build_diagnostic_events
 
 
+def _stage_items(raw, stage, key):
+    return (raw.get(stage) or {}).get(key) or []
+
+
 def render_candidate_materials(*, case_result, source_bundle, output):
     from ..p2_auto_checkpoint.fhir_io import import_sources
 
@@ -26,8 +30,9 @@ def render_candidate_materials(*, case_result, source_bundle, output):
         diagnostic_events=diagnostic_events)
     material = project_candidate_materials(
         case_id=raw["case_id"], sources=sources, candidates=raw["candidate_spans"],
-        projection=projection, relations=raw["relations"]["recorded"],
-        episodes=raw["episodes"]["episodes"])
+        projection=projection,
+        relations=_stage_items(raw, "relations", "recorded"),
+        episodes=_stage_items(raw, "episodes", "episodes"))
     material["input_provenance"] = dict(
         case_result=str(case_result),
         case_result_sha256=hashlib.sha256(Path(case_result).read_bytes()).hexdigest(),
