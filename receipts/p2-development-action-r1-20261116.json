@@ -39,7 +39,11 @@
     "private_report": "private/p2_harness_live_20261116/development-complete-run-audit.json"
   },
   "entry_html": "private/p2_harness_live_20261116/development-set-index.html",
-  "harness_tests": "251 passed, 8 subtests passed",
+  "display_revision": "daily-source-folds-and-document-profile-r1",
+  "visible_materials": "Natural-day 24-hour folds; current CP evaluation day expanded by default; no visibility or mask rule changed.",
+  "current_document_profile_display": true,
+  "material_directories": "materials-daily-r1",
+  "harness_tests": "252 passed, 8 subtests passed",
   "p1_regression_guard": "106 passed, required_tests_skipped=0",
   "private_research_preview": true,
   "formal_doctor_packet_release": false,

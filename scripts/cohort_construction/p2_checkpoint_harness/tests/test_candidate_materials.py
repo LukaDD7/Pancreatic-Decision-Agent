@@ -101,6 +101,9 @@ class CandidateMaterialTests(unittest.TestCase):
 
     def test_management_source_group_masks_target_span(self):
         packet = self.packet("management_decision")
+        self.assertEqual(packet["target"]["document_profile"], "round")
+        self.assertEqual(self.packet("pre_exam_evaluation")["target"]["document_profile"],
+                         "performed_test_report")
         target = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-M")
         self.assertNotIn("拟行胰十二指肠切除术", target["text"])

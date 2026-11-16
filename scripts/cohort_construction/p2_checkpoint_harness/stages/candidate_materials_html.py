@@ -87,6 +87,38 @@ def _source_card(source, *, researcher=False, role=None):
     )
 
 
+def _visible_source_groups(sources, target_ids, evaluation_clock):
+    evaluation_value = (evaluation_clock or {}).get("value") or ""
+    evaluation_day = evaluation_value[:10] if len(evaluation_value) >= 10 else ""
+
+    def day(source):
+        value = (source.get("clock") or {}).get("value") or ""
+        if len(value) >= 10:
+            return value[:10]
+        if source.get("source_id") in target_ids and evaluation_day:
+            return evaluation_day
+        return "时间未知"
+
+    groups = {}
+    for source in sources:
+        groups.setdefault(day(source), []).append(source)
+    ordered_days = sorted((value for value in groups if value != "时间未知"), reverse=True)
+    if "时间未知" in groups:
+        ordered_days.append("时间未知")
+    open_day = evaluation_day if evaluation_day in groups else (ordered_days[0] if ordered_days else None)
+    rendered = []
+    for value in ordered_days:
+        items = groups[value]
+        label = f"{value}（24小时）" if value != "时间未知" else value
+        rendered.append(_node(
+            "details", {"class": "day-source-group", "open": "" if value == open_day else None},
+            _node("summary", {}, _h(
+                f"{label} · {len(items)} 份来源" + (" · 当前CP评价日" if value == evaluation_day else ""))),
+            *[_source_card(source, role="target" if source.get("source_id") in target_ids else "context")
+              for source in items]))
+    return rendered
+
+
 def _researcher_originals(packet):
     originals = packet.get("researcher_target_originals") or []
     if isinstance(originals, dict):
@@ -350,6 +382,9 @@ def _packet_html(packet):
                     _node("dd", {}, _h(packet["checkpoint_id"]))),
               _node("div", {}, _node("dt", {}, "任务类型"),
                     _node("dd", {}, _h(packet.get("kind") or "未分类"))),
+              _node("div", {}, _node("dt", {}, "当前CP原始文书类型"),
+                    _node("dd", {}, _h(
+                        f"{target.get('title') or '未标来源'}（{target.get('document_profile') or '未分类'}）"))),
               _node("div", {}, _node("dt", {}, "评价时点"),
                     _node("dd", {}, _h(_clock_text(evaluation.get("clock"))))),
               _node("div", {}, _node("dt", {}, "时间依据"),
@@ -380,11 +415,8 @@ def _packet_html(packet):
               _node("div", {"class": "step-kicker"}, "本节点评价时点可见且已完成遮蔽的原文"),
               _node("h3", {}, "当时可见资料"),
               _node("p", {"class": "small"},
-                    "以下列出全部 included_sources，并标明目标来源与上下文来源；MASK 详情及研究审核未遮原文在独立页展示。"),
-              *([_source_card(
-                  source,
-                  role="target" if source.get("source_id") in target_ids else "context",
-              ) for source in included_sources]
+                    "全部 included_sources 按自然日（每个24小时折叠块）排列；当前CP评价日默认展开，其余日期可按需展开。MASK 详情及研究审核未遮原文在独立页展示。"),
+              *(_visible_source_groups(included_sources, target_ids, evaluation.get("clock"))
                 or [_node("p", {"class": "technical-failure", "role": "alert"},
                           "技术失败警示：未提供 included_sources，无法呈现当时可见资料。")])),
     )
@@ -421,7 +453,7 @@ def _migration_summary(material):
 
 _STYLE = r"""
 :root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.notice,.migration-summary{background:#fff7e4;border:1px solid #e1c277;border-radius:8px;padding:7px 12px;margin:8px 0}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.clock-details summary,.migration-summary summary,details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-navigation{margin:14px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:6px 0}.navigation-note{margin:4px 0 10px}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
-.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
+.day-source-group{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#fbfcfb}.day-source-group>summary{padding:11px 14px;background:var(--soft);border-radius:7px;color:var(--accent)}.day-source-group>.source{margin:0 14px}.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
 """
 
 

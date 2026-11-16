@@ -57,7 +57,8 @@ def packet(checkpoint_id, kind, *, title, text, original, index=1):
             actor="discovery_agent", review_source="synthetic_discovery",
         )],
         discovery_review_status="REVIEWED",
-        target=dict(source_ids=[checkpoint_id + "-SOURCE"], title=title),
+        target=dict(source_ids=[checkpoint_id + "-SOURCE"], title=title,
+                    document_profile="preoperative_summary"),
         included_sources=[
             source(checkpoint_id + "-SOURCE", title, text),
             source(checkpoint_id + "-CONTEXT", "同期病史与体检",
@@ -206,6 +207,23 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn('data-workflow="research"', packet_page)
         self.assertIn('data-workflow="relations"', packet_page)
         self.assertIn('data-workflow="action"', packet_page)
+
+    def test_visible_sources_use_daily_folds_and_current_document_profile(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="术前小结",
+            text="[已遮蔽]", original="合成研究原文")
+        pre["included_sources"][1]["clock"]["value"] = "2026-03-01 09:00"
+
+        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+
+        self.assertIn("当前CP原始文书类型", packet_page)
+        self.assertIn("术前小结（preoperative_summary）", packet_page)
+        self.assertIn("2026-03-02（24小时） · 1 份来源 · 当前CP评价日", packet_page)
+        self.assertIn("2026-03-01（24小时） · 1 份来源", packet_page)
+        groups = re.findall(r'<details class="day-source-group"([^>]*)>', packet_page)
+        self.assertEqual(len(groups), 2)
+        self.assertIn("open", groups[0])
+        self.assertNotIn("open", groups[1])
 
     def test_adjacent_episode_member_without_direct_edge_has_readable_relation(self):
         pre = packet(

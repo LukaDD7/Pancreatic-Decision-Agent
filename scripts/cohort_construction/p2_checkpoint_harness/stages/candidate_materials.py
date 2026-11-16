@@ -388,6 +388,12 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                                     relation=relation.get("relation"),
                                     confidence=relation.get("confidence"),
                                     explanation=relation.get("explanation")))
+        if checkpoint["kind"] == "management_decision":
+            document_profiles = sorted({migration_by_event[event_id].get("origin_document_profile")
+                                        for event_id in checkpoint["member_event_ids"]
+                                        if migration_by_event.get(event_id, {}).get("origin_document_profile")})
+        else:
+            document_profiles = ["performed_test_report"]
         packet = dict(
             format=FORMAT, case_id=case_id,
             checkpoint_id=checkpoint["checkpoint_id"], kind=checkpoint["kind"],
@@ -399,6 +405,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                             time_basis=checkpoint["time_basis"],
                             role=checkpoint["evaluation_time_role"]),
             target=dict(source_ids=list(checkpoint["source_ids"]), title=target_title,
+                        document_profile=" / ".join(document_profiles) or "未分类",
                         diagnostic_event_id=checkpoint.get("diagnostic_event_id")),
             episode_id=episode_id, episode_basis=episode_basis,
             candidate_organization_applied=organized,
