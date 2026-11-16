@@ -1,7 +1,8 @@
 """Offline projection of located candidate spans into reviewable task candidates.
 
-The projection is deterministic and uses frozen discovery objects. It does not
-turn a located quote into a confirmed clinical decision or clinical Reference.
+The projection is deterministic and consumes external Discovery objects, whether
+fresh or frozen. It does not turn a located quote into a confirmed clinical
+decision or clinical Reference.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import hashlib
 import json
 
 
-PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.1.0"
+PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.2.0"
 SUPPORT_FUNCTIONS = {"repeat", "execution", "generic", "uncertain"}
 OUT_OF_SCOPE_PROFILES = {"postoperative_course", "discharge_summary", "operative"}
 MODES = ["ADVANCE", "HOLD_FOR_EVIDENCE", "REDIRECT"]
@@ -77,10 +78,62 @@ def _provenance(**kwargs):
     return dict(
         projection=PROJECTION_VERSION,
         actor="deterministic_offline_program",
-        discovery_reused=True,
+        discovery_input="external_case_result_fresh_or_frozen_not_inferred_here",
         clinical_reference_created=False,
         **kwargs,
     )
+
+
+def _candidate_action(candidate, *, event_id=None):
+    action = deepcopy(candidate.get("candidate_action") or {})
+    if not action.get("action_type") or not action.get("target"):
+        return None
+    for key in ("rationale", "reason"):
+        if candidate.get(key):
+            action[key] = candidate[key]
+    action.update(actor="discovery_llm", review_source="discovery_candidate_action",
+                  answer_prefilled=False, clinical_reference_created=False)
+    if event_id:
+        action["event_id"] = event_id
+    return action
+
+
+def _normalized_action_target(value):
+    import re
+    normalized = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", (value or "").lower())
+    normalized = normalized.replace("磁共振", "mr").replace("mri", "mr")
+    for prefix in ("胰腺", "腹部", "上腹部"):
+        normalized = normalized.replace(prefix, "")
+    return normalized.removesuffix("检查")
+
+
+def _diagnostic_management_claims(checkpoints, events, reviews_by_unit):
+    claims = {}
+    for checkpoint in checkpoints:
+        if checkpoint["kind"] != "management_decision":
+            continue
+        clock = _clock(checkpoint.get("clock")).get("value")
+        targets = {_normalized_action_target(action.get("target"))
+                   for action in checkpoint.get("candidate_actions") or []} - {""}
+        if not clock or not targets:
+            continue
+        eligible = []
+        for event in events:
+            unit_id = event.get("discovery_unit_id") or event["event_id"]
+            review = reviews_by_unit.get((unit_id, "pre_exam_evaluation")) or {}
+            if review.get("disposition") != "yes" \
+                    or set(checkpoint.get("source_ids") or []) & set(event["source_ids"]):
+                continue
+            anchor = (_clock(event.get("exam_time")).get("value")
+                      or _clock(event.get("visibility_clock")).get("value"))
+            diagnostic_target = _normalized_action_target(
+                (review.get("candidate_action") or {}).get("target"))
+            if anchor and clock <= anchor and diagnostic_target in targets:
+                eligible.append((anchor, event["event_id"]))
+        if eligible:
+            _, event_id = min(eligible)
+            claims[event_id] = checkpoint["checkpoint_id"]
+    return claims
 
 
 def _source_id(candidate):
@@ -133,6 +186,8 @@ def _classify(candidate, source):
         return "REVIEW_REQUIRED", "RESEARCH_SCOPE_UNCERTAIN"
     if function not in {"new_decision", "reassessment"}:
         return "REVIEW_REQUIRED", "RECORD_FUNCTION_REQUIRES_REVIEW"
+    if _candidate_action(candidate) is None:
+        return "REVIEW_REQUIRED", "DISCOVERY_CONCRETE_ACTION_REQUIRED"
     if not _has_clock(candidate.get("clock")) and not _has_clock((source or {}).get("clock")):
         return "REVIEW_REQUIRED", "MISSING_EVALUATION_CLOCK"
     return "RETAINED", "ACTIONABLE_CANDIDATE_PENDING_REVIEW"
@@ -202,9 +257,12 @@ def _management_checkpoint(case_id, group, source):
         masked_spans=_masked_spans(group, source),
         record_functions=sorted({item["candidate"].get("record_function")
                                  for item in retained}),
-        actionability_status="PENDING_ACTIONABILITY_REVIEW",
+        actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
+        candidate_actions=[action for action in (
+            _candidate_action(item["candidate"], event_id=item["event_id"])
+            for item in retained) if action],
         action_space=_action_space(),
         task_scope=_task_scope(),
         provenance=_provenance(
@@ -215,37 +273,44 @@ def _management_checkpoint(case_id, group, source):
     )
 
 
-def _diagnostic_checkpoint(case_id, event, node_kind):
+def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=None):
     source_ids = sorted(event.get("source_ids") or [])
     checkpoint_id = "CP-D-" + _digest([case_id, event["event_id"], node_kind])
+    action = _candidate_action(review, event_id=event["event_id"])
     common = dict(
         checkpoint_id=checkpoint_id,
         kind=node_kind,
         source_ids=source_ids,
         member_event_ids=[],
         record_functions=[],
-        actionability_status="PROGRAM_GENERATED_CANDIDATE_PENDING_REVIEW",
+        actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
+        candidate_actions=[action],
+        discovery_review=deepcopy(review),
         action_space=_action_space(),
         task_scope=_task_scope(),
         program_generated_task_header=True,
-        management_question_source="program_generated_task_header_not_source_title",
+        management_question_source="discovery_agent_question_or_program_action_header",
         diagnostic_event_id=event["event_id"],
     )
     if node_kind == "pre_exam_evaluation":
         return dict(
             common,
-            management_question="在该检查执行前，下一步管理及检查选择应如何安排？",
-            clock=_clock(event.get("exam_time")),
-            time_basis="exam_time_as_pre_exam_evaluation_anchor_not_choice_timestamp",
-            evaluation_time_role="before_exam_execution",
+            management_question=(review.get("management_question") or
+                                 "在此时点，是否应安排%s？请给出 Mode 和具体管理动作。" %
+                                 action["target"]),
+            clock=_clock(event.get("exam_time") if pre_time_basis == "exam_time"
+                         else event.get("visibility_clock")),
+            time_basis=pre_time_basis,
+            evaluation_time_role=("before_exam_execution" if pre_time_basis == "exam_time"
+                                  else "report_visibility_fallback_for_exam_choice_evaluation"),
             mask_whole_diagnostic_event=True,
             show_complete_diagnostic_event=False,
             masked_spans=[],
             provenance=_provenance(
                 diagnostic_event_id=event["event_id"],
-                diagnostic_clock="exam_time",
+                diagnostic_clock=pre_time_basis,
                 source_clocks=deepcopy(event.get("source_clocks") or {}),
                 no_documented_choice_process_inferred=True),
         )
@@ -254,7 +319,8 @@ def _diagnostic_checkpoint(case_id, event, node_kind):
                         "verified_time_as_degraded_visibility_proxy")
     return dict(
         common,
-        management_question="该检查结果可见后，下一步管理应推进、暂缓补证还是调整方向？",
+        management_question=(review.get("management_question") or
+                             "该检查结果可见后，下一步管理应如何安排？"),
         clock=_clock(event.get("visibility_clock")),
         time_basis=visibility_basis,
         evaluation_time_role="after_report_visibility_proxy",
@@ -303,12 +369,18 @@ def _diagnostic_migration(case_id, event, node_kind, checkpoint_id, reason):
 
 
 def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_events,
-                                  task_time_bounds=None):
-    """Reproject candidate spans and diagnostic events without changing inputs."""
+                                  task_time_bounds=None, diagnostic_reviews=None):
+    """Project only Discovery-reviewed, actionable candidates into review tasks."""
     if task_time_bounds is None:
         from .diagnostic_events import derive_preoperative_task_bounds
         task_time_bounds = derive_preoperative_task_bounds(sources)
     operation_start = _clock(task_time_bounds.get("operation_start")).get("value")
+    reviews_by_unit = {}
+    for review in diagnostic_reviews or []:
+        unit_id = (review.get("discovery_unit_id") or review.get("unit_id")
+                   or review.get("diagnostic_event_id"))
+        if unit_id and review.get("candidate_kind"):
+            reviews_by_unit[(unit_id, review["candidate_kind"])] = deepcopy(review)
     source_by_id = {source.get("source_id"): source for source in sources}
     prepared = []
     grouped = {}
@@ -364,6 +436,8 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                                     for event in diagnostic_events
                                     for source_id in event.get("source_ids") or []}
     projected_diagnostics = []
+    management_claims = _diagnostic_management_claims(
+        candidate_checkpoints, diagnostic_events, reviews_by_unit)
     for original in diagnostic_events:
         event = deepcopy(original)
         event["candidate_checkpoint_ids"] = {}
@@ -381,53 +455,139 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         visibility_basis = event["visibility_basis"]
         exam_available = _has_clock(event.get("exam_time"))
         report_available = _has_clock(event.get("visibility_clock"))
-        exam_out = bool(operation_start and exam_available
-                        and _clock(event["exam_time"])["value"] >= operation_start)
+        clock_flags = (event.get("audit") or {}).get("clock_inconsistent_flags") or []
+        exam_usable = exam_available and "exam_time" not in clock_flags
+        report_time_usable = (_has_clock(event.get("report_time"))
+                              and "report_time" not in clock_flags)
+        pre_time_basis = ("exam_time" if exam_usable else
+                          "report_time_fallback_for_pre_exam_evaluation"
+                          if report_time_usable else None)
+        pre_clock = (event.get("exam_time") if pre_time_basis == "exam_time"
+                     else event.get("visibility_clock"))
+        pre_value = _clock(pre_clock).get("value")
+        exam_out = bool(operation_start and pre_value and pre_value >= operation_start)
         report_out = bool(operation_start and report_available
                           and _clock(event["visibility_clock"])["value"] >= operation_start)
-        exam_value = _clock(event.get("exam_time")).get("value")
         context_source_ids = []
-        if exam_value:
+        if pre_value:
             for source in sources:
                 source_id = source.get("source_id")
                 if source_id in (event.get("source_ids") or []):
                     continue
                 visible = diagnostic_source_visibility.get(
                     source_id, _clock(source.get("clock")).get("value"))
-                if visible and visible <= exam_value:
+                if visible and visible <= pre_value:
                     context_source_ids.append(source_id)
-        pre_missing_reason = ("AFTER_OPERATION_START_TASK_OUT_OF_SCOPE" if exam_out else
-                              "MISSING_EXAM_TIME" if not exam_available else
-                              "NO_VISIBLE_PRE_EXAM_CLINICAL_CONTEXT" if not context_source_ids
-                              else "exam_time_present")
+        unit_id = event.get("discovery_unit_id") or event["event_id"]
+        reviews = {kind: reviews_by_unit.get((unit_id, kind)) for kind in
+                   ("pre_exam_evaluation", "evidence_arrival_reassessment")}
+
+        def gate_reason(node_kind, clock_available, out_of_scope):
+            review = reviews[node_kind]
+            if review is None:
+                return "DISCOVERY_REVIEW_REQUIRED"
+            if review.get("disposition") == "no":
+                return "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE"
+            if review.get("disposition") != "yes":
+                return "DISCOVERY_AGENT_REVIEW_UNCERTAIN"
+            if _candidate_action(review) is None:
+                return "DISCOVERY_CONCRETE_ACTION_REQUIRED"
+            if out_of_scope:
+                return "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE"
+            if not clock_available:
+                if node_kind == "pre_exam_evaluation":
+                    return "MISSING_EXAM_AND_REPORT_TIME_FOR_EVALUATION_ANCHOR"
+                return ("MISSING_OR_CONFLICTING_REPORT_VISIBILITY" if clock_flags else
+                        "MISSING_REPORT_AND_VERIFIED_TIME_VISIBILITY_UNKNOWN")
+            if node_kind == "pre_exam_evaluation" and not context_source_ids:
+                return "NO_VISIBLE_PRE_EXAM_CLINICAL_CONTEXT"
+            return pre_time_basis if node_kind == "pre_exam_evaluation" else visibility_basis
+
+        pre_gate = gate_reason("pre_exam_evaluation", bool(pre_time_basis), exam_out)
+        pre_available = pre_gate in ("exam_time", "report_time_fallback_for_pre_exam_evaluation")
         specifications = [
-            ("pre_exam_evaluation", exam_available and not exam_out and bool(context_source_ids),
-             "exam_time_present" if not exam_out else "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE",
-             pre_missing_reason),
-            ("evidence_arrival_reassessment", report_available and not report_out,
-             visibility_basis if not report_out else "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE",
-             "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE" if report_out else
-             ("MISSING_OR_CONFLICTING_REPORT_VISIBILITY"
-              if (event.get("audit") or {}).get("clock_inconsistent_flags") else
-              "MISSING_REPORT_AND_VERIFIED_TIME_VISIBILITY_UNKNOWN")), 
+            ("pre_exam_evaluation", pre_available, pre_gate),
+            ("evidence_arrival_reassessment", False, None),
         ]
-        for node_kind, available, reason, missing_reason in specifications:
+        post_gate = gate_reason("evidence_arrival_reassessment", report_available, report_out)
+        post_available = post_gate == visibility_basis
+        management_claim = (management_claims.get(event["event_id"])
+                            if pre_available else None)
+        if management_claim:
+            pre_available = False
+            pre_gate = "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED"
+            if post_available:
+                post_available = False
+                post_gate = "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED"
+        if pre_available and post_available:
+            post_gate = "SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED"
+            post_available = False
+        specifications[0] = ("pre_exam_evaluation", pre_available, pre_gate)
+        specifications[1] = ("evidence_arrival_reassessment", post_available, post_gate)
+        for node_kind, available, audit_reason in specifications:
+            destination_id = None
             if available:
-                checkpoint = _diagnostic_checkpoint(case_id, event, node_kind)
-                candidate_checkpoints.append(checkpoint)
-                checkpoint_id = checkpoint["checkpoint_id"]
+                conflicts = [checkpoint for checkpoint in candidate_checkpoints
+                             if set(checkpoint.get("source_ids") or []) & set(event["source_ids"])]
+                management_conflicts = [checkpoint for checkpoint in conflicts
+                                        if checkpoint["kind"] == "management_decision"]
+                if node_kind == "pre_exam_evaluation" \
+                        and len(management_conflicts) == len(conflicts):
+                    checkpoint = _diagnostic_checkpoint(
+                        case_id, event, node_kind, reviews[node_kind],
+                        pre_time_basis=pre_time_basis)
+                    destination_id = checkpoint["checkpoint_id"]
+                    candidate_checkpoints.append(checkpoint)
+                    for old in management_conflicts:
+                        candidate_checkpoints.remove(old)
+                        for member_id in old.get("member_event_ids", []) \
+                                + old.get("supporting_event_ids", []):
+                            migration = migration_by_event.get(member_id)
+                            if migration:
+                                migration.update(migration_status="SUPPORT_ONLY", status="SUPPORT_ONLY",
+                                                 reason="SAME_SOURCE_PRE_EXAM_CP_RETAINED",
+                                                 to_checkpoint_id=destination_id)
+                        for support in support_records:
+                            if support.get("to_checkpoint_id") == old["checkpoint_id"]:
+                                support["to_checkpoint_id"] = destination_id
+                elif conflicts:
+                    available = False
+                    destination_id = conflicts[0]["checkpoint_id"]
+                    audit_reason = ("SAME_SOURCE_MANAGEMENT_CP_RETAINED"
+                                    if conflicts[0]["kind"] == "management_decision"
+                                    else "SOURCE_ALREADY_ASSIGNED_TO_DIAGNOSTIC_CP")
+            if available:
+                if destination_id is None:
+                    checkpoint = _diagnostic_checkpoint(
+                        case_id, event, node_kind, reviews[node_kind],
+                        pre_time_basis=pre_time_basis)
+                    destination_id = checkpoint["checkpoint_id"]
+                    candidate_checkpoints.append(checkpoint)
+                checkpoint_id = destination_id
                 event["candidate_checkpoint_ids"][node_kind] = checkpoint_id
-                audit_reason = reason
             else:
                 checkpoint_id = None
-                audit_reason = missing_reason
             audit = dict(node_kind=node_kind, generated=available,
-                         checkpoint_id=checkpoint_id, reason=audit_reason)
+                         checkpoint_id=checkpoint_id, reason=audit_reason,
+                         discovery_disposition=(reviews[node_kind] or {}).get("disposition"))
             event["generation_audits"].append(audit)
             migration = _diagnostic_migration(
                 case_id, event, node_kind, checkpoint_id, audit_reason)
-            if audit_reason == "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE":
+            if audit_reason in ("AFTER_OPERATION_START_TASK_OUT_OF_SCOPE",
+                                "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE"):
                 migration["migration_status"] = migration["status"] = "TASK_OUT_OF_SCOPE"
+            elif audit_reason in ("SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED",
+                                  "SAME_SOURCE_MANAGEMENT_CP_RETAINED",
+                                  "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED",
+                                  "SOURCE_ALREADY_ASSIGNED_TO_DIAGNOSTIC_CP"):
+                migration["migration_status"] = migration["status"] = "SUPPORT_ONLY"
+                migration["to_checkpoint_id"] = (
+                    event["candidate_checkpoint_ids"].get("pre_exam_evaluation")
+                    if audit_reason == "SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED"
+                    else management_claim or destination_id)
+            elif not available and audit_reason not in (
+                    "MISSING_EXAM_TIME", "MISSING_REPORT_AND_VERIFIED_TIME_VISIBILITY_UNKNOWN"):
+                migration["migration_status"] = migration["status"] = "REVIEW_REQUIRED"
             migrations.append(migration)
         projected_diagnostics.append(event)
 
@@ -438,6 +598,10 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         candidate_migration_count=len(candidate_migrations),
         candidate_migration_conserved=len(candidate_migrations) == len(candidates),
         candidate_checkpoint_count=len(candidate_checkpoints),
+        diagnostic_review_count=len(diagnostic_reviews or []),
+        diagnostic_events_with_multiple_checkpoints=sum(
+            1 for event in projected_diagnostics
+            if len(event["candidate_checkpoint_ids"]) > 1),
         support_record_count=len(support_records),
         migration_status_counts=dict(sorted(Counter(
             item["migration_status"] for item in migrations).items())),

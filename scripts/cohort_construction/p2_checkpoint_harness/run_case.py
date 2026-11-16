@@ -38,6 +38,16 @@ AUTH_REQUIRED = {
 }
 AUTH_BINDING = ("sources_sha256", "config_sha256", "code_sha256", "case_id")
 
+EXECUTION_CODE_PATHS = (
+    "scripts/cohort_construction/model_api.py",
+    "scripts/cohort_construction/p2_auto_checkpoint/fhir_io.py",
+    "scripts/cohort_construction/p2_auto_checkpoint/extract.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/context.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/source_time.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/client.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/prompts.py",
+    "scripts/cohort_construction/p2_auto_checkpoint_v04/provider_diagnostics.py",
+)
 
 def _read(path):
     path = Path(path)
@@ -70,6 +80,7 @@ def code_hashes():
                    + list(package.glob("stages/*.py"))
                    + list(package.glob("skills/*/SKILL.md")))
     return {str(path.relative_to(ROOT)): file_hash(path) for path in paths}
+    paths.extend(ROOT / relative for relative in EXECUTION_CODE_PATHS)
 
 
 def build_plan(sources_path, *, config_path=None):
@@ -338,6 +349,13 @@ def _unfinished(artifacts):
     for stop in artifacts.get("stage_stops") or []:
         if stop.get("stop") not in STAGE_DONE:
             reasons.append(dict(kind="stage_stop", **stop))
+    for unit_id, unit in (artifacts.get("discovery") or {}).get("units", {}).items():
+        summary = unit.get("summary") or {}
+        if summary.get("diagnostic_review_required") \
+                and not summary.get("diagnostic_review_complete"):
+            reasons.append(dict(
+                kind="diagnostic_review_incomplete", unit_id=unit_id,
+                missing_candidate_kinds=summary.get("diagnostic_missing_candidate_kinds") or []))
     coverage = artifacts.get("coverage") or {}
     if coverage.get("units_not_run"):
         reasons.append(dict(kind="units_not_run",

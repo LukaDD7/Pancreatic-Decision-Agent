@@ -77,6 +77,9 @@ def _proposal(local_id, quote, action=None, record_function="new_decision",
     arguments = dict(local_id=local_id, scope=scope,
                      record_function=record_function,
                      source_id=source_id, quote=quote, **span_offsets)
+    if scope == "yes" and record_function in ("new_decision", "reassessment"):
+        arguments.update(action_type="clinical_management",
+                         target=action or quote)
     return dict(tool_calls=[dict(id="c-" + local_id, name="propose_candidate",
                                  arguments=arguments)])
 
@@ -568,6 +571,7 @@ class PipelineTests(unittest.TestCase):
         answers = [
             dict(tool_calls=[dict(id="e1", name="propose_candidate", arguments=dict(
                 local_id="e1", scope="yes", record_function="new_decision",
+                action_type="diagnostic_evaluation", target="增强CT后评估手术",
                 source_id="S-A", quote="临床团队决定完善增强CT后评估手术"))]),
             _finish("f1"), _finish("f2"), _finish("f3")]
         runner = self._runner(answers)
@@ -593,6 +597,7 @@ class PipelineTests(unittest.TestCase):
             # Legacy evidence-organization fields are not part of this contract.
             registry.get("propose_candidate").run(
                 local_id="legacy-evidence", scope="yes", record_function="new_decision",
+                action_type="diagnostic_evaluation", target="增强CT后评估手术",
                 source_id="S-A", quote="临床团队决定完善增强CT后评估手术",
                 prechoice_quotes=[])
 

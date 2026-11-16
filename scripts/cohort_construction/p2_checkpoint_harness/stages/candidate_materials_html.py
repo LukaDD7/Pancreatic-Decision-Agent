@@ -12,7 +12,7 @@ import html
 import json
 from pathlib import Path
 
-HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.3.0"
+HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.4.0"
 RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.3.0"
 FORM_VERSION = "candidate-action-plan-development-0.3"
 
@@ -62,11 +62,15 @@ def _source_clocks(source):
     return _node("ul", {"class": "source-clocks"}, *items)
 
 
-def _source_card(source, *, researcher=False):
+def _source_card(source, *, researcher=False, role=None):
     classes = "source researcher-source" if researcher else "source"
+    if role:
+        classes += f" {role}-source"
     title = source.get("title") or "无标题来源"
+    role_label = {"target": "目标来源", "context": "上下文来源"}.get(role)
     return _node(
         "article", {"class": classes},
+        *([_node("p", {"class": "source-role"}, _h(role_label))] if role_label else []),
         _node("h4", {}, _h(title)),
         _node("p", {"class": "meta"}, _h(
             f"来源 {source.get('source_id') or '未标来源'} · "
@@ -255,6 +259,49 @@ def _action_form(packet):
     )
 
 
+def _candidate_actions(packet):
+    actions = packet.get("candidate_actions")
+    cards = []
+    if isinstance(actions, list):
+        for index, action in enumerate(actions, 1):
+            if not isinstance(action, dict):
+                continue
+            reasons = [
+                f"{label}：{action[key]}"
+                for key, label in (("reason", "reason"), ("rationale", "rationale"))
+                if action.get(key)
+            ]
+            provenance = [
+                f"{label}：{action[key]}"
+                for key, label in (("actor", "actor"), ("review_source", "review_source"))
+                if action.get(key)
+            ]
+            cards.append(_node(
+                "article", {"class": "candidate-action"},
+                _node("h4", {}, _h(f"候选动作 {index}")),
+                _node("dl", {"class": "candidate-action-grid"},
+                      _node("div", {}, _node("dt", {}, "action_type"),
+                            _node("dd", {}, _h(action.get("action_type") or "未提供"))),
+                      _node("div", {}, _node("dt", {}, "target"),
+                            _node("dd", {}, _h(action.get("target") or "未提供"))),
+                      _node("div", {}, _node("dt", {}, "理由"),
+                            _node("dd", {}, _h("；".join(reasons) or "未提供理由")))),
+                *([_node("p", {"class": "small"}, _h(" · ".join(provenance)))]
+                  if provenance else []),
+            ))
+    status = packet.get("discovery_review_status")
+    return _node(
+        "section", {"class": "candidate-actions", "aria-label": "Agent候选动作，不是答案或Reference"},
+        _node("h3", {}, "Agent候选动作（不是答案/Reference）"),
+        *([_node("p", {"class": "small"}, _h(f"发现复核状态：{status}"))] if status else []),
+        *(cards or [_node(
+            "p", {"class": "technical-failure", "role": "alert"},
+            "技术失败警示：material packet 未提供有效的 candidate_actions（非空对象数组），"
+            "无法显示 Agent 候选动作。这不表示临床上没有可行动作，也不是临床结论。"
+        )]),
+    )
+
+
 def _navigation(packet):
     sequence = packet.get("sequence_navigation") or {}
     episode = packet.get("episode_navigation") or {}
@@ -267,16 +314,16 @@ def _navigation(packet):
 
     return _node(
         "div", {"class": "checkpoint-navigation"},
-        _node("nav", {"class": "checkpoint-nav", "aria-label": "全病例显示顺序节点切换"},
+        _node("nav", {"class": "checkpoint-nav", "aria-label": "本患者显示顺序节点切换"},
               button(sequence.get("previous_checkpoint_id"), "sequence", "previous",
-                     "← 全病例上一 CP"),
+                     "← 本患者上一 CP"),
               _node("span", {}, _h(
-                  f"全病例 CP {sequence.get('index', '?')} / {sequence.get('total', '?')}"
+                  f"本患者 CP {sequence.get('index', '?')} / {sequence.get('total', '?')}"
               )),
               button(sequence.get("next_checkpoint_id"), "sequence", "next",
-                     "全病例下一 CP →")),
+                     "本患者下一 CP →")),
         _node("p", {"class": "small navigation-note"},
-              "全病例导航按 display_order 排列，仅用于浏览；显示顺序不等于已确认的临床决策、治疗或时间关系。"),
+              "本患者导航按 display_order 排列，仅用于浏览当前患者的候选 Checkpoint；显示顺序不等于已确认的临床决策、治疗或时间关系。"),
         _node("nav", {"class": "checkpoint-nav", "aria-label": "Episode 内节点切换"},
               button(episode.get("previous_checkpoint_id"), "episode", "previous",
                      "← Episode 内上一 CP"),
@@ -296,7 +343,8 @@ def _packet_html(packet):
         "header", {"class": "task-header"},
         _node("div", {"class": "eyebrow"}, "候选 Checkpoint · 私有研究审核"),
         _node("h2", {}, _h(target.get("title") or "通用管理任务")),
-        _node("p", {"class": "question"}, _h(packet.get("management_question") or "未提供管理问题")),
+        _node("p", {"class": "question"}, _h(
+            "管理问题：" + (packet.get("management_question") or "未提供管理问题"))),
         _node("dl", {"class": "task-grid"},
               _node("div", {}, _node("dt", {}, "Checkpoint"),
                     _node("dd", {}, _h(packet["checkpoint_id"]))),
@@ -318,29 +366,34 @@ def _packet_html(packet):
         )),
         _node("p", {"class": "time-guidance"},
               "仅依据本节点评价时点可见资料作答；检索时钟及报告可见性代理不等于医生实际阅读或选择时刻。"),
+        _candidate_actions(packet),
         _node("p", {"class": "meta"}, _h(
             "目标来源 ID：" + ", ".join(target.get("source_ids") or [])
         )),
     )
     target_ids = set(target.get("source_ids") or [])
-    target_sources = [source for source in packet.get("included_sources") or []
-                      if source.get("source_id") in target_ids]
+    included_sources = packet.get("included_sources") or []
     originals = _node(
         "section", {"class": "step workflow-step", "id": "workflow-original"},
         _node("div", {"class": "step-number"}, "01"),
         _node("div", {"class": "step-body"},
-              _node("div", {"class": "step-kicker"}, "管理问题与时间引导见任务头"),
-              _node("h3", {}, "当前目标文书 / 检查的时间投影"),
+              _node("div", {"class": "step-kicker"}, "本节点评价时点可见且已完成遮蔽的原文"),
+              _node("h3", {}, "当时可见资料"),
               _node("p", {"class": "small"},
-                    "先显示当前目标来源；全部当时可见来源在 MASK 页核对。研究审核未遮原文在独立页展示。"),
-              *[_source_card(source) for source in target_sources]),
+                    "以下列出全部 included_sources，并标明目标来源与上下文来源；MASK 详情及研究审核未遮原文在独立页展示。"),
+              *([_source_card(
+                  source,
+                  role="target" if source.get("source_id") in target_ids else "context",
+              ) for source in included_sources]
+                or [_node("p", {"class": "technical-failure", "role": "alert"},
+                          "技术失败警示：未提供 included_sources，无法呈现当时可见资料。")])),
     )
-    workflow = _node("nav", {"class": "workflow-tabs", "aria-label": "候选CP增量"}, *[
+    workflow = _node("nav", {"class": "workflow-tabs", "aria-label": "候选 CP 工作页"}, *[
         _node("button", {"type": "button", "data-workflow": name,
                          "class": "secondary" + (" active" if name == "original" else "")}, label)
-        for name, label in (("original", "目标文书"), ("research", "研究原文"),
-                            ("mask", "MASK与全部可见资料"), ("relations", "前后关系"),
-                            ("action", "动作计划"))])
+        for name, label in (("original", "当时可见资料"), ("research", "研究原文"),
+                            ("mask", "MASK"), ("relations", "前后关系"),
+                            ("action", "动作填写"))])
     return (header + workflow + _navigation(packet) + originals + _researcher_originals(packet)
             + _masked_projection(packet) + _relations(packet) + _action_form(packet)
             + _navigation(packet))
@@ -368,6 +421,7 @@ def _migration_summary(material):
 
 _STYLE = r"""
 :root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.notice,.migration-summary{background:#fff7e4;border:1px solid #e1c277;border-radius:8px;padding:7px 12px;margin:8px 0}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.clock-details summary,.migration-summary summary,details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-navigation{margin:14px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:6px 0}.navigation-note{margin:4px 0 10px}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
+.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
 """
 
 

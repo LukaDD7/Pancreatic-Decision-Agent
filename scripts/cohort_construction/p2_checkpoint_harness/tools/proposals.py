@@ -21,12 +21,15 @@ def _digest(value):
 class ProposalStore:
     """Proposals for one program reading task, keyed by local revision id."""
 
-    def __init__(self, *, source_index, clock_check=None, unit_id=None):
+    def __init__(self, *, source_index, clock_check=None, unit_id=None, unit_kind=None):
         self.index = source_index
         self.clock_check = clock_check  # retained constructor compatibility
         self.unit_id = unit_id
+        self.unit_kind = unit_kind
         self.proposals = {}
         self.revisions = []
+        self.diagnostic_reviews = {}
+        self.diagnostic_revisions = []
 
     def locate(self, source_id, quote):
         """Return every exact occurrence of ``quote`` in the named source."""
@@ -108,7 +111,8 @@ class ProposalStore:
 
     def tool_propose_candidate(self):
         def run(local_id, scope, record_function, source_id, quote,
-                start=None, end=None, rationale="", reason="", uncertainty=""):
+                start=None, end=None, rationale="", reason="", uncertainty="",
+                action_type=None, target=None):
             if not isinstance(local_id, str) or not local_id.strip():
                 raise ToolError("LOCAL_ID_REQUIRED")
             if scope not in ("yes", "no", "uncertain"):
@@ -117,12 +121,20 @@ class ProposalStore:
                 raise ToolError("OUT_OF_SCOPE_REASON_REQUIRED")
             if scope == "uncertain" and not str(uncertainty).strip():
                 raise ToolError("UNCERTAIN_SCOPE_REQUIRES_UNCERTAINTY")
+            candidate_action = None
+            if scope == "yes" and record_function in ("new_decision", "reassessment"):
+                if not isinstance(action_type, str) or not action_type.strip():
+                    raise ToolError("CANDIDATE_ACTION_TYPE_REQUIRED")
+                if not isinstance(target, str) or not target.strip():
+                    raise ToolError("CANDIDATE_ACTION_TARGET_REQUIRED")
+                candidate_action = dict(action_type=action_type.strip(), target=target.strip())
             verdict, span = self._span_verdict(source_id, quote, start, end)
             record = dict(
                 local_id=local_id, scope=scope, record_function=record_function,
                 span=span or dict(source_id=source_id, quote=quote,
                                   start=start, end=end),
-                rationale=rationale, reason=reason, uncertainty=uncertainty)
+                rationale=rationale, reason=reason, uncertainty=uncertainty,
+                candidate_action=candidate_action)
             record_id = _digest(record)[:20]
             record["attribution"] = self._attribution(record)
             problems = [] if verdict.get("ok") else [verdict]
@@ -169,7 +181,73 @@ class ProposalStore:
                     end=dict(type="integer", minimum=0),
                     rationale=dict(type="string"),
                     reason=dict(type="string", description="scope=no 时的简短排除理由。"),
-                    uncertainty=dict(type="string"))),
+                    uncertainty=dict(type="string"),
+                    action_type=dict(type="string", description=(
+                        "scope=yes 且 new_decision/reassessment 时必填的动作类型。")),
+                    target=dict(type="string", description=(
+                        "scope=yes 且 new_decision/reassessment 时必填的动作目标。")))),
+            run=run, writes=True)
+
+    def tool_review_diagnostic_candidate(self):
+        def run(candidate_kind, disposition, reason, action_type=None, target=None,
+                management_question=None):
+            if self.unit_kind != "performed_test_report":
+                raise ToolError("DIAGNOSTIC_REVIEW_REQUIRES_PERFORMED_TEST_REPORT")
+            if candidate_kind not in ("pre_exam_evaluation", "evidence_arrival_reassessment"):
+                raise ToolError("DIAGNOSTIC_CANDIDATE_KIND_INVALID")
+            if disposition not in ("yes", "no", "uncertain"):
+                raise ToolError("DIAGNOSTIC_DISPOSITION_INVALID")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ToolError("DIAGNOSTIC_REVIEW_REASON_REQUIRED")
+            candidate_action = None
+            if disposition == "yes":
+                if not isinstance(action_type, str) or not action_type.strip():
+                    raise ToolError("DIAGNOSTIC_ACTION_TYPE_REQUIRED")
+                if not isinstance(target, str) or not target.strip():
+                    raise ToolError("DIAGNOSTIC_ACTION_TARGET_REQUIRED")
+                candidate_action = dict(action_type=action_type.strip(), target=target.strip())
+            review_id = "DR-" + _digest([self.unit_id, candidate_kind])[:16]
+            previous = self.diagnostic_reviews.get(candidate_kind)
+            record = dict(
+                review_id=review_id, candidate_kind=candidate_kind,
+                disposition=disposition, reason=reason.strip(),
+                candidate_action=candidate_action,
+                management_question=(management_question.strip()
+                                     if isinstance(management_question, str)
+                                     and management_question.strip() else None))
+            record_id = _digest(record)[:20]
+            if previous is not None:
+                self.diagnostic_revisions.append(dict(
+                    review_id=review_id, candidate_kind=candidate_kind,
+                    previous_record_id=previous["record_id"],
+                    previous_disposition=previous["record"]["disposition"],
+                    previous_record=dict(previous["record"]), reason="replaced"))
+            self.diagnostic_reviews[candidate_kind] = dict(
+                record=record, record_id=record_id, status="REVIEWED",
+                revision=previous["record_id"] if previous else None)
+            return dict(
+                review_id=review_id, record_id=record_id,
+                candidate_kind=candidate_kind, disposition=disposition,
+                candidate_action=candidate_action,
+                status="REVIEWED", revision=self.diagnostic_reviews[candidate_kind]["revision"],
+                note=("这只保存 Discovery LLM 对程序检查候选的筛选与修订，"
+                      "不是专家真值、已确认临床决策点或原文中的管理句。"))
+        return Tool(
+            name="review_diagnostic_candidate",
+            description=("审核当前 performed_test_report 的一个程序检查候选。"
+                         "两类候选各提交一次；yes 必须给动作类型和目标，no/uncertain 也必须有理由。"
+                         "unit_id 由程序绑定，不能由 Agent 指定。"),
+            input_schema=dict(
+                type="object", additionalProperties=False,
+                required=["candidate_kind", "disposition", "reason"],
+                properties=dict(
+                    candidate_kind=dict(type="string", enum=[
+                        "pre_exam_evaluation", "evidence_arrival_reassessment"]),
+                    disposition=dict(type="string", enum=["yes", "no", "uncertain"]),
+                    reason=dict(type="string", minLength=1),
+                    action_type=dict(type="string"),
+                    target=dict(type="string"),
+                    management_question=dict(type="string"))),
             run=run, writes=True)
 
     def _attribution(self, record):
@@ -197,8 +275,15 @@ class ProposalStore:
         return [entry for entry in self.events()
                 if entry["record"].get("scope") == "no"]
 
+    def diagnostic_review_events(self):
+        return [dict(entry) for _, entry in sorted(self.diagnostic_reviews.items())]
+
     def summary(self):
         events = self.events()
+        reviews = self.diagnostic_review_events()
+        required = self.unit_kind == "performed_test_report"
+        reviewed_kinds = {entry["record"]["candidate_kind"] for entry in reviews}
+        expected_kinds = {"pre_exam_evaluation", "evidence_arrival_reassessment"}
         return dict(
             proposals=len(events),
             accepted=sum(1 for event in events if event["status"] == "ACCEPTED"),
@@ -209,7 +294,19 @@ class ProposalStore:
             out_of_scope=sum(1 for event in events if event["record"]["scope"] == "no"),
             uncertain_scope=sum(1 for event in events
                                 if event["record"]["scope"] == "uncertain"),
-            rejected_mentions=len(self.rejected()))
+            rejected_mentions=len(self.rejected()),
+            diagnostic_review_required=required,
+            diagnostic_candidate_reviews=len(reviews),
+            diagnostic_yes=sum(1 for entry in reviews
+                               if entry["record"]["disposition"] == "yes"),
+            diagnostic_no=sum(1 for entry in reviews
+                              if entry["record"]["disposition"] == "no"),
+            diagnostic_uncertain=sum(1 for entry in reviews
+                                     if entry["record"]["disposition"] == "uncertain"),
+            diagnostic_revisions=len(self.diagnostic_revisions),
+            diagnostic_review_complete=(not required or reviewed_kinds == expected_kinds),
+            diagnostic_missing_candidate_kinds=(sorted(expected_kinds - reviewed_kinds)
+                                                if required else []))
 
 
 _CITATION = dict(
@@ -221,4 +318,5 @@ _CITATION = dict(
 
 def register(registry, store):
     registry.register(store.tool_propose_candidate())
+    registry.register(store.tool_review_diagnostic_candidate())
     return registry

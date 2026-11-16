@@ -350,6 +350,7 @@ class CandidateCPRunnerTests(unittest.TestCase):
             case_id="SYN-01", candidate_spans=[dict(
                 event_id="EV-SYN", status="ACCEPTED", scope="yes",
                 record_function="new_decision",
+                candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST", target="增强CT"),
                 discovery_document_profile="preoperative_course",
                 clock=dict(value="2026-03-01", precision="date"),
                 clock_basis="body_record_time",
@@ -383,6 +384,15 @@ class CandidateCPRunnerTests(unittest.TestCase):
                     sources_sha256=contract["sources_sha256"], config_sha256=None,
                     code_sha256=run_case._code_digest(contract["code_hashes"]),
                     limits=dict(max_requests=10, max_total_tokens=10000))
+
+    def test_incomplete_frozen_diagnostic_review_cannot_enter_cp_organization(self):
+        raw = json.loads(self.discovery.read_text(encoding="utf-8"))
+        raw["discovery"]["units"]["TU-I"] = dict(summary=dict(
+            diagnostic_review_required=True, diagnostic_review_complete=False))
+        self.discovery.write_text(json.dumps(raw), encoding="utf-8")
+        with self.assertRaisesRegex(SystemExit,
+                                    "FROZEN_DISCOVERY_DIAGNOSTIC_REVIEW_INCOMPLETE:TU-I"):
+            run_candidate.main(self.argv("--dry-run"))
 
     def test_CCPO010_dry_run_binds_new_scope_projection_and_writes_nothing(self):
         self.assertEqual(run_candidate.main(self.argv("--dry-run")), 0)

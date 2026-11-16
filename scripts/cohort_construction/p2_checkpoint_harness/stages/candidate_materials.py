@@ -73,7 +73,9 @@ def _mask_management_action_lines(text):
     terms = ("拟施", "拟行", "已申请", "已签署", "治疗计划", "检查安排",
              "输血", "冰冻病理", "排除手术禁忌", "限期行手术", "定于",
              "手术指征", "手术切除", "手术方式", "手术时间", "根治性胰", "Whipple",
-             "限期行", "择期行", "拟实施", "故拟", "需手术", "签署知情同意", "积极术前准备")
+             "限期行", "择期行", "拟实施", "故拟", "需手术", "签署知情同意", "积极术前准备",
+             "建议", "转肿瘤内科", "系统化疗", "化疗", "放疗", "免疫治疗", "靶向治疗",
+             "保守治疗", "转诊", "随访", "复查")
     spans = []
     for match in re.finditer(r"[^。；\n]+[。；\n]?", text):
         clause = match.group(0)
@@ -260,10 +262,12 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         for span in (_same_event_spans(checkpoint, candidates, relations)
                      + _same_checkpoint_spans(checkpoint, projection, candidate_relations)):
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
-        if pre_exam:
+        if pre_exam or checkpoint["kind"] == "evidence_arrival_reassessment":
             for candidate in candidates:
-                if candidate.get("status") == "ACCEPTED" and candidate.get("span"):
-                    span = candidate["span"]
+                if candidate.get("status") != "ACCEPTED" or not candidate.get("span"):
+                    continue
+                span = candidate["span"]
+                if pre_exam or span.get("source_id") not in target_ids:
                     target_spans_by_source.setdefault(span["source_id"], []).append(span)
         aliases = _diagnostic_aliases(diagnostic, source_by_id) if pre_exam else []
         included, excluded, mask_metadata = [], [], []
@@ -294,7 +298,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                     for span in action_spans:
                         span.update(source_id=source_id)
                     spans.extend(action_spans)
-                if pre_exam and aliases and source_id not in diagnostic_source_map:
+                if pre_exam and aliases:
                     card["text"], heuristic_spans = _mask_diagnostic_restatements(
                         card["text"], aliases)
                     for span in heuristic_spans:
@@ -402,6 +406,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             record_functions=list(checkpoint.get("record_functions") or []),
             supporting_event_ids=list(checkpoint.get("supporting_event_ids") or []),
             action_space=deepcopy(checkpoint["action_space"]),
+            candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
+            discovery_review_status=(checkpoint.get("discovery_review") or {}).get("disposition"),
             included_sources=included, excluded_sources=excluded,
             researcher_target_originals=originals,
             masked_projection=dict(

@@ -23,7 +23,11 @@ description: 如何逐项定位病历中的候选管理判断表述，而不提�
 - 一个实际 `source_id`；
 - 同一来源内逐字、连续、非空的 `quote` 与字符区间 `[start, end)`；
 - 发现阶段 LLM 的 `record_function` 和 `scope`；
+- `scope=yes` 且 `record_function=new_decision/reassessment` 时必填的 `action_type`、`target`；
 - 必要的简短 `rationale`、`reason` 或 `uncertainty`。
+
+动作字段描述该候选对应的结构化动作类型与目标，不替代或改写 quote，也不是专家拟定的动作方案。
+`scope=no` 不需要动作字段。
 
 quote 应包含复现该管理判断所需的部署、条件、指征或限制，不要只摘措施名，也不要为了扩大
 遮蔽范围而收入无关内容。唯一出现时程序可以补全 start/end；重复出现时必须给 start。
@@ -55,18 +59,37 @@ quote 应包含复现该管理判断所需的部署、条件、指征或限制�
 - `uncertain`：无法确定。
 
 同一份文书有多个候选时逐项保留。你可以先分别保留一个组合表述和其中的具体表述，
-**不要判断谁应合并、谁是同一事件或谁是子事件**。严格的身份、包含、重叠和过程关系
-属于后续病例级组织。
+**不要判断谁应合并、谁是同一事件或谁是子事件**。一个 source 中提交多个 span 后，
+后续程序可以把它们组织、合并成同一评审候选；严格的身份、包含、重叠和过程关系
+属于后续病例级组织，发现阶段不要自行删并。
 
 ## 5 不在这里做的工作
 
-- 不填写 `management_question`、动作改写、`prechoice_quotes`、`postchoice_quotes`、
-  `choice_time` 或证据使用关系；原文本身是候选依据。
+- 除上述结构化 `action_type`、`target` 外，不改写管理句，不填写 `prechoice_quotes`、
+  `postchoice_quotes`、`choice_time` 或证据使用关系；原文本身是候选依据。
 - 不用文书记录时间、检查时间或执行时间冒充临床团队的选择时刻。程序保存的是实际来源的
   检索时钟，供后续排序参考。
 - 不把多个候选组织成 episode，不判断“第几轮”，不指定历史比较事件。
 - 不替检查报告编造管理问题、检查选择原因或部署句。程序对已交付检查报告建立单独证据索引；
   后续证据组织再核对引用、时点和匹配依据。报告存在不等于已知是谁、何时、为何选择检查。
+
+### performed_test_report：分别筛选两个程序候选
+
+当前单位为 `performed_test_report` 时，除保留原文中确实存在的管理判断外，还必须阅读报告原文，
+分别对 `pre_exam_evaluation` 和 `evidence_arrival_reassessment` 调用
+`review_diagnostic_candidate`。两类各提交一次 `disposition=yes/no/uncertain` 和具体 `reason`，
+不能只依赖程序证据索引而跳过审核。工具从构造状态取得当前单位，不接受 Agent 传入 `unit_id`。
+
+- 审核以动作为中心。检查前候选的 `target` 可依据报告类型写为增强CT、MRI、病理等；
+  不得因此捏造临床团队选择检查的原因。只要检查本身属于 PDAC 根治路径可评价的补证动作，
+  就为 `yes`；不得因报告没有医嘱、选择时间、指征或部署句而判 `uncertain`。
+- 报告后候选只要能根据新证据提出可作答的 PDAC 根治路径后续动作，就为 `yes`，并提交
+  `action_type`、`target`，可选 `management_question`。不要求报告原文已写出管理决定；
+  该动作只是待评审提议，不能冒充病历记载的临床团队决策。异常所见无法形成根治路径动作时才排除或待核。
+- PICC 置管等输液通路安排若不属于 PDAC 根治路径，明确 `no`，并在 `reason` 中写明
+  “输液通路不属于PDAC根治路径”等范围外理由。这是 Discovery LLM 的判断，不是程序关键词过滤。
+- 不能确定时用 `uncertain` 并说明不确定性。重复提交同一类会替代当前审核并保留修订记录。
+- 审核结果只是 Discovery LLM 对程序候选的筛选，不是专家真值、原文管理句或已确认临床决策点。
 
 ## 6 给后续遮蔽保留什么
 

@@ -61,7 +61,8 @@ def render_candidate_materials(*, case_result, source_bundle, output,
     diagnostic_events = build_diagnostic_events(sources, raw["evidence_inventory"])
     projection = project_candidate_checkpoints(
         case_id=raw["case_id"], candidates=raw["candidate_spans"], sources=sources,
-        diagnostic_events=diagnostic_events)
+        diagnostic_events=diagnostic_events,
+        diagnostic_reviews=raw.get("diagnostic_candidate_reviews") or [])
     cp_relations = cp_episodes = None
     if candidate_relations is not None or candidate_episodes is not None:
         if candidate_relations is None or candidate_episodes is None:

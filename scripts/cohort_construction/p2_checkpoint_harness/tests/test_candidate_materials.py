@@ -13,7 +13,7 @@ def clock(value):
 
 class CandidateMaterialTests(unittest.TestCase):
     def setUp(self):
-        self.management_text = "评估病情。\n拟行MR检查。\n拟施麻醉方式：全麻\n手术指征：需手术切除。\n之后记录。"
+        self.management_text = "评估病情。\n拟行胰十二指肠切除术。\n拟施麻醉方式：全麻\n手术指征：需手术切除。\n之后记录。"
         self.sources = [
             dict(source_id="S-M", title="虚构病程", kind="document",
                  clock=clock("2022-12-14 10:00:00"), clock_basis="body_record_time",
@@ -28,31 +28,44 @@ class CandidateMaterialTests(unittest.TestCase):
                  clock=clock("2022-12-17 10:00:00"), clock_basis="body_record_time",
                  clocks={}, text="后续决定手术。"),
         ]
-        start = self.management_text.index("拟行MR检查。")
-        span = dict(source_id="S-M", quote="拟行MR检查。", start=start,
-                    end=start + len("拟行MR检查。"))
+        start = self.management_text.index("拟行胰十二指肠切除术。")
+        span = dict(source_id="S-M", quote="拟行胰十二指肠切除术。", start=start,
+                    end=start + len("拟行胰十二指肠切除术。"))
         self.candidates = [dict(event_id="EV-M", status="ACCEPTED", scope="yes",
                                 record_function="new_decision", clock=clock("2022-12-14 10:00:00"),
+                                candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST",
+                                                      target="胰十二指肠切除术"),
                                 origin_document_profile="round", span=span)]
-        self.inventory = [dict(event_id="EA-D", source_ids=["S-D"])]
+        self.inventory = [dict(event_id="EA-D", discovery_unit_id="U-D", source_ids=["S-D"])]
         events = build_diagnostic_events(self.sources, self.inventory)
-        self.projection = project_candidate_checkpoints(
-            case_id="SYN", candidates=self.candidates, sources=self.sources,
-            diagnostic_events=events)
+        self.events = events
+        self.projection = self.diagnostic_projection("yes", "no")
 
-    def material(self):
+    def diagnostic_projection(self, pre, post):
+        reviews = []
+        for kind, disposition, action in (
+                ("pre_exam_evaluation", pre, "MR"),
+                ("evidence_arrival_reassessment", post, "根治性切除")):
+            reviews.append(dict(discovery_unit_id="U-D", candidate_kind=kind,
+                                disposition=disposition, reason="合成Discovery审核",
+                                candidate_action=dict(action_type="MANAGE", target=action)))
+        return project_candidate_checkpoints(
+            case_id="SYN", candidates=self.candidates, sources=self.sources,
+            diagnostic_events=self.events, diagnostic_reviews=reviews)
+
+    def material(self, projection=None):
         return project_candidate_materials(
             case_id="SYN", sources=self.sources, candidates=self.candidates,
-            projection=self.projection)
+            projection=projection or self.projection)
 
-    def packet(self, kind):
-        return next(packet for packet in self.material()["packets"]
+    def packet(self, kind, projection=None):
+        return next(packet for packet in self.material(projection)["packets"]
                     if packet["kind"] == kind)
 
     def test_pre_exam_has_time_question_and_no_target_modality_or_result(self):
         packet = self.packet("pre_exam_evaluation")
         self.assertEqual(packet["evaluation"]["clock"]["value"], "2022-12-14 12:17:25")
-        self.assertIn("下一步管理", packet["management_question"])
+        self.assertIn("是否应安排MR", packet["management_question"])
         projected = "".join(source["title"] + source["text"]
                             for source in packet["included_sources"])
         self.assertNotIn("MR", projected)
@@ -62,19 +75,21 @@ class CandidateMaterialTests(unittest.TestCase):
                       + packet["researcher_target_originals"][0]["title"])
 
     def test_report_uses_report_time_shows_report_and_excludes_future(self):
-        packet = self.packet("evidence_arrival_reassessment")
+        packet = self.packet("evidence_arrival_reassessment",
+                             self.diagnostic_projection("no", "yes"))
         self.assertEqual(packet["evaluation"]["clock"]["value"], "2022-12-14 14:56:32")
         target = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-D")
         self.assertEqual(target["text"], "虚构MR所见及结论")
         self.assertIn("S-L", {source["source_id"] for source in packet["excluded_sources"]})
 
-    def test_diagnostic_pair_is_linked_and_not_a_doctor_release(self):
-        pre = self.packet("pre_exam_evaluation")
-        post = self.packet("evidence_arrival_reassessment")
-        self.assertEqual(pre["related_checkpoints"][0]["checkpoint_id"],
-                         post["checkpoint_id"])
-        self.assertEqual(pre["episode_id"], post["episode_id"])
+    def test_one_diagnostic_source_has_one_checkpoint_and_no_answer_pair(self):
+        packets = [packet for packet in self.material()["packets"]
+                   if packet["kind"] != "management_decision"]
+        self.assertEqual(len(packets), 1)
+        pre = packets[0]
+        self.assertFalse(any(item["relation"] == "evidence_arrival"
+                             for item in pre["related_checkpoints"]))
         self.assertTrue(pre["not_doctor_release"])
         self.assertFalse(pre["masked_projection"]["cross_document_reviewed"])
 
@@ -88,7 +103,7 @@ class CandidateMaterialTests(unittest.TestCase):
         packet = self.packet("management_decision")
         target = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-M")
-        self.assertNotIn("拟行MR检查", target["text"])
+        self.assertNotIn("拟行胰十二指肠切除术", target["text"])
         self.assertNotIn("拟施麻醉方式", target["text"])
         self.assertNotIn("手术指征：需手术切除", target["text"])
         self.assertIn("评估病情", target["text"])
@@ -97,7 +112,6 @@ class CandidateMaterialTests(unittest.TestCase):
         base = self.material()["packets"]
         management = next(packet for packet in base if packet["kind"] == "management_decision")
         pre = next(packet for packet in base if packet["kind"] == "pre_exam_evaluation")
-        post = next(packet for packet in base if packet["kind"] == "evidence_arrival_reassessment")
         relation = dict(source_checkpoint_id=management["checkpoint_id"],
                         target_checkpoint_id=pre["checkpoint_id"],
                         relation="same_management_process", confidence="supported",
@@ -106,13 +120,13 @@ class CandidateMaterialTests(unittest.TestCase):
             case_id="SYN", sources=self.sources, candidates=self.candidates,
             projection=self.projection, candidate_relations=[relation],
             candidate_episodes=[dict(episode_id="EP-NEW", checkpoint_ids=[
-                management["checkpoint_id"], pre["checkpoint_id"], post["checkpoint_id"]])])
+                management["checkpoint_id"], pre["checkpoint_id"]])])
         self.assertEqual({packet["episode_id"] for packet in material["packets"]}, {"EP-NEW"})
         self.assertTrue(all(packet["candidate_organization_applied"]
                             for packet in material["packets"]))
-        self.assertTrue(all(packet["episode_navigation"]["total"] == 3
+        self.assertTrue(all(packet["episode_navigation"]["total"] == 2
                             for packet in material["packets"]))
-        self.assertTrue(all(packet["sequence_navigation"]["total"] == 3
+        self.assertTrue(all(packet["sequence_navigation"]["total"] == 2
                             for packet in material["packets"]))
         projected_management = next(packet for packet in material["packets"]
                                     if packet["kind"] == "management_decision")
@@ -147,7 +161,8 @@ class CandidateMaterialTests(unittest.TestCase):
 
 
     def test_relation_quotes_do_not_enter_timed_packet_projection(self):
-        base = self.material()["packets"]
+        post_projection = self.diagnostic_projection("no", "yes")
+        base = self.material(post_projection)["packets"]
         management = next(packet for packet in base if packet["kind"] == "management_decision")
         post = next(packet for packet in base if packet["kind"] == "evidence_arrival_reassessment")
         relation = dict(source_checkpoint_id=post["checkpoint_id"],
@@ -156,10 +171,10 @@ class CandidateMaterialTests(unittest.TestCase):
                         explanation="未来决定立即行根治性胰十二指肠切除术。",
                         shared_management_goal="未来根治性胰十二指肠切除术",
                         basis_quotes=[dict(checkpoint_id=management["checkpoint_id"],
-                                           source_id="S-M", quote="拟行MR检查。")])
+                                           source_id="S-M", quote="拟行胰十二指肠切除术。")])
         material = project_candidate_materials(
             case_id="SYN", sources=self.sources, candidates=self.candidates,
-            projection=self.projection, candidate_relations=[relation],
+            projection=post_projection, candidate_relations=[relation],
             candidate_episodes=[dict(episode_id="EP-" + packet["checkpoint_id"],
                                      checkpoint_ids=[packet["checkpoint_id"]])
                                 for packet in base])
@@ -174,7 +189,7 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertEqual(edge["basis_quote_count"], 1)
         target = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-M")
-        self.assertNotIn("拟行MR检查", target["text"])
+        self.assertNotIn("拟行胰十二指肠切除术", target["text"])
 
     def test_new_same_event_relation_masks_other_checkpoint_answer(self):
         self.sources[2]["clock"] = clock("2022-12-13 10:00:00")
@@ -207,15 +222,31 @@ class CandidateMaterialTests(unittest.TestCase):
         self.sources.append(dict(
             source_id="S-SAME", title="同刻病程", kind="document",
             clock=clock("2022-12-14 14:56:32"), clock_basis="body_record_time",
-            clocks={}, text="同意上述意见，恶性待排，需手术治疗。阅片后决定立即行根治性胰十二指肠切除术。"))
-        packet = self.packet("evidence_arrival_reassessment")
+            clocks={}, text="同意上述意见，恶性待排，需手术治疗。阅片后建议转肿瘤内科接受系统化疗。"))
+        packet = self.packet("evidence_arrival_reassessment",
+                             self.diagnostic_projection("no", "yes"))
         same_time = next(source for source in packet["included_sources"]
                          if source["source_id"] == "S-SAME")
-        self.assertNotIn("根治性胰十二指肠切除术", same_time["text"])
-        self.assertNotIn("需手术治疗", same_time["text"])
+        self.assertNotIn("系统化疗", same_time["text"])
+        self.assertNotIn("转肿瘤内科", same_time["text"])
         report = next(source for source in packet["included_sources"]
                       if source["source_id"] == "S-D")
         self.assertEqual(report["text"], "虚构MR所见及结论")
+
+    def test_pre_exam_masks_target_restatement_in_another_diagnostic_report(self):
+        self.sources.append(dict(
+            source_id="S-OTHER", title="另一份影像报告", kind="imaging",
+            clock=clock("2022-12-13 09:00:00"), clock_basis="report_time",
+            clocks=dict(report_time=clock("2022-12-13 09:00:00")),
+            text="结合同日增强MR：胰头占位，包绕肠系膜上动脉。"))
+        self.events = build_diagnostic_events(self.sources, self.inventory + [
+            dict(event_id="EA-OTHER", discovery_unit_id="U-OTHER", source_ids=["S-OTHER"])])
+        self.projection = self.diagnostic_projection("yes", "no")
+        packet = self.packet("pre_exam_evaluation")
+        other = next(source for source in packet["included_sources"]
+                     if source["source_id"] == "S-OTHER")
+        self.assertNotIn("包绕肠系膜上动脉", other["text"])
+        self.assertNotIn("增强MR", other["text"])
 
     def test_future_body_datetime_and_source_clocks_are_redacted(self):
         self.sources[0]["text"] += "\n签名时间：2022-12-15 10:44:00"

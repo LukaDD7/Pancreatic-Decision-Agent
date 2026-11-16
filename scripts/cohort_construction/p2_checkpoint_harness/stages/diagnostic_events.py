@@ -107,6 +107,7 @@ def build_diagnostic_events(sources, evidence_inventory):
 
         events.append(dict(
             event_id=item.get("event_id"),
+            discovery_unit_id=item.get("discovery_unit_id"),
             source_ids=source_ids,
             exam_time=combined["exam_time"],
             report_time=combined["report_time"],

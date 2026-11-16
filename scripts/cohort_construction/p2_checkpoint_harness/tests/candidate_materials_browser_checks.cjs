@@ -1,4 +1,4 @@
-/* Real-Chrome checks for candidate CP navigation; patient data stays in the supplied file. */
+/* Real-Chrome checks for candidate CP first screen and patient navigation. */
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -81,6 +81,52 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     const visited = [initial];
     const count = await evaluate('DATA.length');
     assert(count > 1, 'This check requires multiple candidate CPs');
+    const firstScreen = await evaluate(`(() => {
+      const header=document.querySelector('.task-header');
+      const original=document.querySelector('#workflow-original');
+      const actions=document.querySelector('.candidate-actions');
+      const nav=document.querySelector('.checkpoint-nav');
+      return {
+        originalVisible:!original.hidden && original.getClientRects().length>0,
+        sourceCount:original.querySelectorAll('.source').length,
+        maskSourceCount:document.querySelectorAll('#workflow-mask .source').length,
+        targetCount:original.querySelectorAll('.target-source').length,
+        contextCount:original.querySelectorAll('.context-source').length,
+        contextText:[...original.querySelectorAll('.context-source pre')].map(node=>node.textContent.trim()).join('\\n'),
+        heading:actions.querySelector('h3').textContent,
+        candidateCount:actions.querySelectorAll('.candidate-action').length,
+        actionText:actions.textContent,
+        failureVisible:!!actions.querySelector('.technical-failure[role="alert"]'),
+        headerText:header.textContent,
+        navAria:nav.getAttribute('aria-label'),
+        previousLabel:nav.querySelectorAll('button')[0].textContent,
+        positionLabel:nav.querySelector('span').textContent,
+        nextLabel:nav.querySelectorAll('button')[1].textContent,
+        materialText:document.querySelector('#material').textContent,
+      };
+    })()`);
+    assert.equal(firstScreen.originalVisible, true, 'Visible-source panel is not the first screen');
+    assert(firstScreen.sourceCount >= 2, 'First screen must include target and context sources');
+    assert.equal(firstScreen.sourceCount, firstScreen.maskSourceCount, 'First screen omitted included_sources');
+    assert(firstScreen.targetCount >= 1, 'Target source is not labelled');
+    assert(firstScreen.contextCount >= 1, 'Context source is not visible and labelled');
+    assert(firstScreen.contextText.length > 0, 'Context source text is blank on the first screen');
+    assert(firstScreen.heading.includes('Agent候选动作（不是答案/Reference）'));
+    assert(firstScreen.candidateCount > 0 || firstScreen.failureVisible,
+      'Candidate actions and technical-failure warning are both absent');
+    if (firstScreen.candidateCount > 0) {
+      for (const label of ['action_type', 'target', '理由']) {
+        assert(firstScreen.actionText.includes(label), `Candidate action lacks ${label}`);
+      }
+    }
+    assert(firstScreen.headerText.indexOf('评价时点') < firstScreen.headerText.indexOf('Agent候选动作'));
+    assert.equal(firstScreen.navAria, '本患者显示顺序节点切换');
+    assert(firstScreen.previousLabel.includes('本患者上一 CP'));
+    assert(firstScreen.positionLabel.includes('本患者 CP'));
+    assert(firstScreen.nextLabel.includes('本患者下一 CP'));
+    assert(!firstScreen.materialText.includes('全病例'), 'Navigation implies a cross-patient scope');
+    const firstScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    fs.writeFileSync(path.join(output, 'first-screen-desktop.png'), Buffer.from(firstScreenshot.data, 'base64'));
     for (let index = 1; index < count; index++) {
       const button = await evaluate(`(() => {
         const button=document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[1];
@@ -92,7 +138,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       assert.equal(selected, button.target);
       visited.push(selected);
     }
-    assert.equal(new Set(visited).size, count, 'Global navigation did not visit every CP exactly once');
+    assert.equal(new Set(visited).size, count, 'Patient navigation did not visit every CP exactly once');
     const last = await evaluate(`(() => {
       const button=document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[1];
       return {disabled:button.disabled,label:button.textContent};
@@ -104,7 +150,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     }
     await evaluate("document.querySelector('[data-workflow=relations]').click()");
     assert.equal(await evaluate("document.querySelector('#workflow-relations').hidden"), false);
-    const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     fs.writeFileSync(path.join(output, 'navigation-desktop.png'), Buffer.from(screenshot.data, 'base64'));
     await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
@@ -113,8 +159,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     fs.writeFileSync(path.join(output, 'browser-receipt.json'), JSON.stringify({
       status: 'PASS', private_research_preview: true, doctor_release: false,
       candidate_count: count, visited_checkpoint_ids: visited,
-      checks: ['real_chrome_global_next_visits_all', 'real_chrome_global_previous_returns_all',
-        'relations_tab_click', 'mobile_no_horizontal_overflow'],
+      checks: ['real_chrome_first_screen_context_visible', 'real_chrome_candidate_actions_or_failure_visible',
+        'real_chrome_patient_labels', 'real_chrome_patient_next_visits_all',
+        'real_chrome_patient_previous_returns_all', 'relations_tab_click', 'mobile_no_horizontal_overflow'],
       page_errors: errors, network_requests: network,
     }, null, 2) + '\n');
     console.log(JSON.stringify({ status: 'PASS', candidates: count, visited }));

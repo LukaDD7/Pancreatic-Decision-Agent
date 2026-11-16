@@ -69,12 +69,18 @@ def _prepare(args):
             raise SystemExit("FROZEN_DISCOVERY_FIELD_MISSING:" + field)
     if frozen["case_id"] != args.case_id:
         raise SystemExit("FROZEN_DISCOVERY_CASE_ID_MISMATCH")
+    for unit_id, unit in (frozen.get("discovery") or {}).get("units", {}).items():
+        summary = unit.get("summary") or {}
+        if summary.get("diagnostic_review_required") \
+                and not summary.get("diagnostic_review_complete"):
+            raise SystemExit("FROZEN_DISCOVERY_DIAGNOSTIC_REVIEW_INCOMPLETE:" + unit_id)
     plan = base.build_plan(args.sources, config_path=args.config)
     sources, _ = import_sources(base._read(args.sources))
     diagnostic_events = build_diagnostic_events(sources, frozen["evidence_inventory"])
     projection = project_candidate_checkpoints(
         case_id=args.case_id, candidates=frozen["candidate_spans"], sources=sources,
-        diagnostic_events=diagnostic_events)
+        diagnostic_events=diagnostic_events,
+        diagnostic_reviews=frozen.get("diagnostic_candidate_reviews") or [])
     projection_sha256 = base._contract_digest(projection)
     plan.update(
         case_id=args.case_id,

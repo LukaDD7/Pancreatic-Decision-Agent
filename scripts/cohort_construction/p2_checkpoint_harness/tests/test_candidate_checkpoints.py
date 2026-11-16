@@ -19,8 +19,18 @@ def candidate(event_id, source_id, text, quote, *, function="new_decision", **kw
                 record_function=function,
                 clock=dict(value=kwargs.pop("clock", "2026-03-01")),
                 clock_basis="body_record_time",
+                candidate_action=kwargs.pop("candidate_action", dict(
+                    action_type="ORDER_DIAGNOSTIC_TEST", target="目标检查")),
                 span=dict(source_id=source_id, quote=quote,
                           start=start, end=start + len(quote)), **kwargs)
+
+
+def review(kind, disposition="yes", **kwargs):
+    value = dict(candidate_kind=kind, disposition=disposition,
+                 reason="Discovery研究范围审核", candidate_action=dict(
+                     action_type="ORDER_DIAGNOSTIC_TEST", target="胰腺增强MR"))
+    value.update(kwargs)
+    return value
 
 
 def diagnostic(event_id="DE-MR", **kwargs):
@@ -34,13 +44,16 @@ def diagnostic(event_id="DE-MR", **kwargs):
 
 
 class CandidateCheckpointTests(unittest.TestCase):
-    def project(self, candidates=(), sources=(), events=()):
+    def project(self, candidates=(), sources=(), events=(), reviews=None):
         sources = list(sources)
         if events and not sources:
             sources = [source("S-CONTEXT", "既往临床资料。", clock="2026-03-01")]
+        if reviews is None:
+            reviews = [review("pre_exam_evaluation", diagnostic_event_id=event["event_id"])
+                       for event in events]
         return project_candidate_checkpoints(
             case_id="SYN", candidates=candidates, sources=sources,
-            diagnostic_events=events)
+            diagnostic_events=events, diagnostic_reviews=reviews)
 
     def test_admission_repeat_and_postoperative_profile_do_not_become_checkpoints(self):
         admission_text = "患者为求手术治疗，今日收入我科。"
@@ -78,47 +91,71 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(checkpoint["management_question_source"],
                          "program_generated_task_header_not_model_quote")
         self.assertEqual(checkpoint["actionability_status"],
-                         "PENDING_ACTIONABILITY_REVIEW")
+                         "DISCOVERY_AGENT_ACTIONABLE_CANDIDATE")
+        self.assertEqual(len(checkpoint["candidate_actions"]), 5)
         self.assertEqual(checkpoint["review_status"], "REVIEW_REQUIRED")
         self.assertTrue(all(item["to_checkpoint_id"] == checkpoint["checkpoint_id"]
                             for item in result["migrations"]))
 
-    def test_diagnostic_event_has_two_nodes_without_pre_exam_type_leakage(self):
-        result = self.project(events=[diagnostic()])
-        self.assertEqual(len(result["candidate_checkpoints"]), 2)
-        pre = next(item for item in result["candidate_checkpoints"]
-                   if item["kind"] == "pre_exam_evaluation")
-        post = next(item for item in result["candidate_checkpoints"]
-                    if item["kind"] == "evidence_arrival_reassessment")
+    def test_diagnostic_event_has_one_actionable_pre_exam_checkpoint(self):
+        result = self.project(events=[diagnostic()], reviews=[
+            review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+            review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        pre = result["candidate_checkpoints"][0]
+        self.assertEqual(pre["kind"], "pre_exam_evaluation")
         self.assertEqual(pre["source_ids"], ["MR-1", "MR-2"])
         self.assertEqual(pre["clock"]["value"], "2026-03-02 08:00")
         self.assertEqual(pre["evaluation_time_role"], "before_exam_execution")
         self.assertTrue(pre["mask_whole_diagnostic_event"])
         self.assertFalse(pre["show_complete_diagnostic_event"])
-        self.assertNotIn("MR", pre["management_question"])
-        self.assertNotIn("MR-1-标题", pre["management_question"])
+        self.assertIn("胰腺增强MR", pre["management_question"])
+        self.assertEqual(pre["candidate_actions"][0]["target"], "胰腺增强MR")
+        self.assertEqual(pre["candidate_actions"][0]["reason"], "Discovery研究范围审核")
+        self.assertEqual(result["diagnostic_events"][0]["generation_audits"][1]["reason"],
+                         "SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED")
+        self.assertEqual(result["summary"]["diagnostic_events_with_multiple_checkpoints"], 0)
+
+    def test_report_time_is_explicit_pre_exam_fallback(self):
+        result = self.project(events=[diagnostic(exam_time=None)])
+        pre = result["candidate_checkpoints"][0]
+        self.assertEqual(pre["clock"]["value"], "2026-03-02 12:00")
+        self.assertEqual(pre["time_basis"], "report_time_fallback_for_pre_exam_evaluation")
+
+    def test_post_report_checkpoint_requires_separate_agent_acceptance(self):
+        result = self.project(events=[diagnostic()], reviews=[
+            review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+            review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR",
+                   candidate_action=dict(action_type="ADVANCE_RESECTION", target="根治性切除"))])
+        post = result["candidate_checkpoints"][0]
+        self.assertEqual(post["kind"], "evidence_arrival_reassessment")
         self.assertEqual(post["clock"]["value"], "2026-03-02 12:00")
-        self.assertEqual(post["time_basis"], "report_time_as_visibility_proxy")
         self.assertTrue(post["show_complete_diagnostic_event"])
         self.assertFalse(post["mask_whole_diagnostic_event"])
         self.assertTrue(post["provenance"]["evidence_arrival_does_not_imply_evidence_used"])
 
-    def test_verified_time_is_explicit_fallback(self):
-        result = self.project(events=[diagnostic(report_time=None)])
-        post = next(item for item in result["candidate_checkpoints"]
-                    if item["kind"] == "evidence_arrival_reassessment")
-        self.assertEqual(post["clock"]["value"], "2026-03-02 13:00")
-        self.assertEqual(post["time_basis"], "verified_time_as_degraded_visibility_proxy")
+    def test_missing_review_and_picc_rejection_do_not_become_checkpoints(self):
+        missing = self.project(events=[diagnostic()], reviews=[])
+        self.assertEqual(missing["candidate_checkpoints"], [])
+        rejected = self.project(events=[diagnostic()], reviews=[
+            review("pre_exam_evaluation", "no", reason="PICC仅用于输液通路",
+                   diagnostic_event_id="DE-MR")])
+        self.assertEqual(rejected["candidate_checkpoints"], [])
+        self.assertEqual(rejected["migrations"][0]["migration_status"], "TASK_OUT_OF_SCOPE")
+        self.assertEqual(rejected["migrations"][0]["reason"],
+                         "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE")
 
     def test_missing_diagnostic_clocks_generate_audits_not_fake_checkpoints(self):
         event = diagnostic(event_id="DE-NO-CLOCK", exam_time=None,
                            report_time=None, verified_time=None)
-        result = self.project(events=[event])
+        result = self.project(events=[event], reviews=[
+            review("pre_exam_evaluation", diagnostic_event_id="DE-NO-CLOCK"),
+            review("evidence_arrival_reassessment", diagnostic_event_id="DE-NO-CLOCK")])
         self.assertEqual(result["candidate_checkpoints"], [])
         self.assertEqual([item["migration_status"] for item in result["migrations"]],
-                         ["NOT_GENERATED", "NOT_GENERATED"])
+                         ["REVIEW_REQUIRED", "NOT_GENERATED"])
         self.assertEqual([item["reason"] for item in result["migrations"]],
-                         ["MISSING_EXAM_TIME",
+                         ["MISSING_EXAM_AND_REPORT_TIME_FOR_EVALUATION_ANCHOR",
                           "MISSING_REPORT_AND_VERIFIED_TIME_VISIBILITY_UNKNOWN"])
         self.assertEqual(result["diagnostic_events"][0]["visibility_basis"],
                          "unknown")
@@ -157,7 +194,7 @@ class CandidateCheckpointTests(unittest.TestCase):
         text = "拟行手术。"
         result = self.project([candidate("EV-A", "S", text, text)],
                               [source("S", text)], [diagnostic()])
-        self.assertEqual(len(result["candidate_checkpoints"]), 3)
+        self.assertEqual(len(result["candidate_checkpoints"]), 2)
         for checkpoint in result["candidate_checkpoints"]:
             space = checkpoint["action_space"]
             self.assertEqual(space["modes"],
@@ -183,6 +220,9 @@ class CandidateCheckpointTests(unittest.TestCase):
         result = project_candidate_checkpoints(
             case_id="SYN", candidates=[],
             sources=[source("S-CONTEXT", "既往临床资料。")], diagnostic_events=[event],
+            diagnostic_reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
             task_time_bounds=bounds)
         self.assertEqual([item["kind"] for item in result["candidate_checkpoints"]],
                          ["pre_exam_evaluation"])
@@ -198,7 +238,9 @@ class CandidateCheckpointTests(unittest.TestCase):
             visibility_clock=dict(value=None, precision="unknown"),
             visibility_basis="unknown",
             audit=dict(clock_inconsistent_flags=["report_time"]))
-        result = self.project(events=[event])
+        result = self.project(events=[event], reviews=[
+            review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+            review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")])
         self.assertEqual([item["kind"] for item in result["candidate_checkpoints"]],
                          ["pre_exam_evaluation"])
         self.assertEqual(result["migrations"][1]["reason"],
@@ -208,11 +250,91 @@ class CandidateCheckpointTests(unittest.TestCase):
         event = diagnostic()
         result = project_candidate_checkpoints(
             case_id="SYN", candidates=[], sources=[], diagnostic_events=[event],
+            diagnostic_reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
             task_time_bounds=dict(operation_start=dict(value=None)))
         self.assertEqual([item["kind"] for item in result["candidate_checkpoints"]],
                          ["evidence_arrival_reassessment"])
         self.assertEqual(result["migrations"][0]["reason"],
                          "NO_VISIBLE_PRE_EXAM_CLINICAL_CONTEXT")
+
+    def test_same_source_management_and_pre_exam_become_one_checkpoint(self):
+        text = "阅片后拟行胰十二指肠切除术。"
+        report = source("MR-1", text)
+        item = candidate("EV-POST", "MR-1", text, text)
+        event = diagnostic(source_ids=["MR-1"])
+        result = self.project([item], [source("S-CONTEXT", "既往资料。"), report], [event])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(result["candidate_checkpoints"][0]["kind"], "pre_exam_evaluation")
+        migration = next(item for item in result["migrations"] if item["event_id"] == "EV-POST")
+        self.assertEqual(migration["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(migration["to_checkpoint_id"],
+                         result["candidate_checkpoints"][0]["checkpoint_id"])
+
+    def test_same_source_management_blocks_post_report_checkpoint(self):
+        text = "阅片后拟行胰十二指肠切除术。"
+        report = source("MR-1", text)
+        item = candidate("EV-POST", "MR-1", text, text)
+        event = diagnostic(source_ids=["MR-1"])
+        result = self.project([item], [source("S-CONTEXT", "既往资料。"), report], [event], reviews=[
+            review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+            review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")])
+        self.assertEqual([cp["kind"] for cp in result["candidate_checkpoints"]],
+                         ["management_decision"])
+        post_migration = next(item for item in result["migrations"]
+                              if item.get("node_kind") == "evidence_arrival_reassessment")
+        self.assertEqual(post_migration["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(post_migration["to_checkpoint_id"],
+                         result["candidate_checkpoints"][0]["checkpoint_id"])
+
+    def test_cross_source_same_diagnostic_action_uses_management_checkpoint(self):
+        text = "讨论后拟行胰腺增强CT。"
+        item = candidate("EV-CT", "S-M", text, text,
+                         candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST",
+                                               target="胰腺增强CT"))
+        event = diagnostic(source_ids=["MR-1"])
+        result = self.project([item], [source("S-M", text), source("MR-1", "CT报告")], [event], reviews=[
+            review("pre_exam_evaluation", diagnostic_event_id="DE-MR",
+                   candidate_action=dict(action_type="imaging", target="增强CT"))])
+        self.assertEqual([cp["kind"] for cp in result["candidate_checkpoints"]],
+                         ["management_decision"])
+        pre_migration = next(item for item in result["migrations"]
+                             if item.get("node_kind") == "pre_exam_evaluation")
+        self.assertEqual(pre_migration["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(pre_migration["to_checkpoint_id"],
+                         result["candidate_checkpoints"][0]["checkpoint_id"])
+
+    def test_one_management_action_does_not_suppress_later_distinct_ct(self):
+        text = "讨论后拟行胰腺增强CT。"
+        item = candidate("EV-CT", "S-M", text, text,
+                         candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST",
+                                               target="胰腺增强CT"))
+        first = diagnostic(event_id="DE-CT-1", source_ids=["CT-1"])
+        second = diagnostic(event_id="DE-CT-2", source_ids=["CT-2"],
+                            exam_time="2026-03-04 08:00", report_time="2026-03-04 12:00")
+        reviews = [review("pre_exam_evaluation", diagnostic_event_id=event["event_id"],
+                          candidate_action=dict(action_type="imaging", target="增强CT"))
+                   for event in (first, second)]
+        result = self.project([item], [source("S-M", text), source("CT-1", "第一次"),
+                                       source("CT-2", "第二次")], [first, second], reviews=reviews)
+        self.assertEqual([cp["kind"] for cp in result["candidate_checkpoints"]],
+                         ["management_decision", "pre_exam_evaluation"])
+        claimed = next(item for item in result["diagnostic_events"]
+                       if item["event_id"] == "DE-CT-1")
+        later = next(item for item in result["diagnostic_events"]
+                     if item["event_id"] == "DE-CT-2")
+        self.assertEqual(claimed["generation_audits"][0]["reason"],
+                         "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED")
+        self.assertTrue(later["generation_audits"][0]["generated"])
+
+    def test_management_candidate_without_concrete_action_is_not_a_checkpoint(self):
+        text = "拟行手术。"
+        item = candidate("EV-NO-ACTION", "S", text, text, candidate_action={})
+        result = self.project([item], [source("S", text)])
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][0]["reason"],
+                         "DISCOVERY_CONCRETE_ACTION_REQUIRED")
 
     def test_same_source_support_record_has_checkpoint_destination(self):
         text = "拟行手术。前次已执行。"

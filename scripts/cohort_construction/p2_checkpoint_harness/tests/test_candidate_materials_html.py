@@ -51,8 +51,18 @@ def packet(checkpoint_id, kind, *, title, text, original, index=1):
             role=kind,
         ),
         action_space=action_space(),
+        candidate_actions=[dict(
+            action_type="HOLD_FOR_EVIDENCE", target=checkpoint_id + "-TARGET",
+            reason="合成候选动作理由", rationale="当时上下文提示需要补充证据。",
+            actor="discovery_agent", review_source="synthetic_discovery",
+        )],
+        discovery_review_status="REVIEWED",
         target=dict(source_ids=[checkpoint_id + "-SOURCE"], title=title),
-        included_sources=[source(checkpoint_id + "-SOURCE", title, text)],
+        included_sources=[
+            source(checkpoint_id + "-SOURCE", title, text),
+            source(checkpoint_id + "-CONTEXT", "同期病史与体检",
+                   "当时可见上下文：合成病史、体检及既有检验。"),
+        ],
         researcher_target_originals=[source(
             checkpoint_id + "-ORIGINAL", "研究审核原始文书", original)],
         masked_projection=dict(
@@ -141,27 +151,73 @@ def execute_page(page, assertions):
     )
 
 
+def rendered_packet_html(page, checkpoint_id="CP-PRE"):
+    script = re.search(r"<script>([\s\S]*)</script>", page).group(1)
+    payload = json.loads(re.search(r"const DATA=(.*);\nconst caseId=", script).group(1))
+    return next(item["html"] for item in payload if item["checkpoint_id"] == checkpoint_id)
+
+
 class CandidateMaterialsHtmlTests(unittest.TestCase):
     def test_pre_exam_header_has_no_exam_title_and_first_screen_has_required_fields(self):
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
             text="当时病情稳定。[目标检查计划已遮蔽]", original="研究原始医嘱已合成遮蔽。")
         page = render_html(material([pre]), "manifest-sha")
+        packet_page = rendered_packet_html(page)
 
         self.assertNotIn("胰腺MR平扫+增强", page)
-        self.assertIn("检查前管理评价", page)
-        self.assertIn("管理问题", page)
-        self.assertIn("时间依据", page)
-        self.assertIn("exam_time", page)
-        self.assertIn("MASK 范围、理由与遮蔽后全文", page)
-        self.assertIn('name="mode"', page)
-        self.assertIn('name="action_type"', page)
-        self.assertIn('name="target"', page)
-        self.assertIn('name="timing"', page)
+        self.assertIn("检查前管理评价", packet_page)
+        self.assertIn("管理问题", packet_page)
+        self.assertIn("时间依据", packet_page)
+        self.assertIn("exam_time", packet_page)
+        self.assertIn("MASK 范围、理由与遮蔽后全文", packet_page)
+        self.assertIn('name="mode"', packet_page)
+        self.assertIn('name="action_type"', packet_page)
+        self.assertIn('name="target"', packet_page)
+        self.assertIn('name="timing"', packet_page)
         self.assertIn("研究审核，不是医生投影", page)
         self.assertIn("迁移 summary", page)
         self.assertNotIn("不得展示的MASK原文", page)
         self.assertNotIn("不得嵌入的迁移原始quote", page)
+
+    def test_first_screen_shows_candidate_actions_and_all_visible_sources(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[目标检查结果已遮蔽]", original="合成研究原文")
+        page = render_html(material([pre]), "manifest-sha")
+        packet_page = rendered_packet_html(page)
+        first_screen = packet_page.split('id="workflow-original"', 1)[1].split(
+            'id="workflow-research"', 1)[0]
+
+        self.assertIn("Agent候选动作（不是答案/Reference）", packet_page)
+        self.assertIn("HOLD_FOR_EVIDENCE", packet_page)
+        self.assertIn("CP-PRE-TARGET", packet_page)
+        self.assertIn("合成候选动作理由", packet_page)
+        self.assertIn("当时上下文提示需要补充证据。", packet_page)
+        self.assertIn("发现复核状态：REVIEWED", packet_page)
+        self.assertIn("目标来源", first_screen)
+        self.assertIn("上下文来源", first_screen)
+        self.assertIn("[目标检查结果已遮蔽]", first_screen)
+        self.assertIn("当时可见上下文：合成病史、体检及既有检验。", first_screen)
+        self.assertNotIn("技术失败警示", first_screen)
+        self.assertLess(packet_page.index("评价时点"), packet_page.index("Agent候选动作"))
+        self.assertLess(packet_page.index("Agent候选动作"), packet_page.index('id="workflow-original"'))
+        self.assertIn('data-workflow="mask"', packet_page)
+        self.assertIn('data-workflow="research"', packet_page)
+        self.assertIn('data-workflow="relations"', packet_page)
+        self.assertIn('data-workflow="action"', packet_page)
+
+    def test_missing_candidate_actions_has_visible_technical_failure(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")
+        del pre["candidate_actions"]
+        page = render_html(material([pre]), "manifest-sha")
+
+        self.assertIn("Agent候选动作（不是答案/Reference）", page)
+        self.assertIn("技术失败警示", page)
+        self.assertIn("未提供有效的 candidate_actions", page)
+        self.assertIn("不表示临床上没有可行动作", page)
 
     def test_post_report_shows_synthetic_report_and_is_offline(self):
         post = packet(
@@ -178,7 +234,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn("按任务类型筛选", page)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for DOM execution")
-    def test_top_and_bottom_sequence_navigation_cross_episode_boundaries(self):
+    def test_top_and_bottom_patient_navigation_cross_episode_boundaries(self):
         first = packet(
             "CP-PRE", "pre_exam_evaluation", title="第一 Episode 管理评价",
             text="[已遮蔽]", original="合成研究原文")
@@ -193,6 +249,12 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
                 index=1, total=1, previous_checkpoint_id=None, next_checkpoint_id=None)
         page = render_html(material([second, first]), "manifest-sha")
 
+        packet_page = rendered_packet_html(page)
+        self.assertIn("← 本患者上一 CP", packet_page)
+        self.assertIn("本患者 CP 1 / 2", packet_page)
+        self.assertIn("本患者下一 CP →", packet_page)
+        self.assertIn('aria-label="本患者显示顺序节点切换"', packet_page)
+        self.assertNotIn("全病例", page)
         execute_page(page, r"""
 assert.equal(current.checkpoint_id,'CP-PRE');
 assert.equal(current.sequence_navigation.next_checkpoint_id,'CP-POST');

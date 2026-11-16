@@ -33,6 +33,7 @@ class DiscoverySpanTests(unittest.TestCase):
     def candidate(self, local_id, quote, **kwargs):
         return self.store.tool_propose_candidate().run(
             local_id=local_id, scope="yes", record_function="new_decision",
+            action_type="MANAGE", target="候选管理目标",
             source_id="S", quote=quote, **kwargs)
 
     def test_HPL027_multiple_coexisting_candidates_keep_distinct_verified_spans(self):

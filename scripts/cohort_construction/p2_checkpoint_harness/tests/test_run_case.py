@@ -80,7 +80,20 @@ class RunCaseTests(unittest.TestCase):
         self.assertIn("scripts/cohort_construction/p2_checkpoint_harness/agent.py", hashes)
         self.assertIn("scripts/cohort_construction/p2_checkpoint_harness/skills/discovery/SKILL.md",
                       hashes)
+        self.assertIn("scripts/cohort_construction/model_api.py", hashes)
+        self.assertIn("scripts/cohort_construction/p2_auto_checkpoint/fhir_io.py", hashes)
+        self.assertIn("scripts/cohort_construction/p2_auto_checkpoint_v04/context.py", hashes)
         self.assertEqual(len({value for value in hashes.values()}), len(hashes))
+
+    def test_missing_diagnostic_review_is_unfinished_even_with_answered_units(self):
+        artifacts = dict(stage_stops=[], coverage=dict(units_not_run=0), discovery=dict(units={
+            "TU-I": dict(stop="answered", summary=dict(
+                diagnostic_review_required=True, diagnostic_review_complete=False,
+                diagnostic_missing_candidate_kinds=["evidence_arrival_reassessment"]))}))
+        reasons = run_case._unfinished(artifacts)
+        self.assertEqual(reasons[0]["kind"], "diagnostic_review_incomplete")
+        self.assertEqual(reasons[0]["missing_candidate_kinds"],
+                         ["evidence_arrival_reassessment"])
 
     def test_HRC004_execute_without_authorization_is_refused_before_provider(self):
         with self.assertRaises(SystemExit) as caught:

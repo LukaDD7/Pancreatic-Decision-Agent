@@ -14,8 +14,9 @@ Concretely:
 * a candidate with citation problems still carries its problem list and is never
   silently deleted;
 * performed-test units also receive a program-built evidence inventory. The
-  discovery LLM does not invent a management question or choice reason for them;
-  problem list and reaches ordering; it is never deleted for failing a check;
+  discovery LLM separately reviews both program candidate kinds with an action,
+  disposition and reason; that screening is not an expert reference or source
+  management sentence, and the evidence inventory still reaches ordering;
 * ordering may demote an event, but the demotion is a recorded annotation with
   the overturning quote attached, and the event remains in the case with its
   original classification readable;
@@ -46,6 +47,8 @@ class CaseRunner:
         self.relations = []
         self.rejected = []
         self.evidence_inventory = []
+        self.diagnostic_reviews = []
+        self.diagnostic_review_revisions = []
         self.episodes = None
         self.audit = None
         self.stage_stops = []
@@ -61,7 +64,8 @@ class CaseRunner:
             # the previous unit's conversation, and re-sending prior units'
             # transcripts is the repeat cost the frozen batch paid 94% of
             # the time.
-            store = ProposalStore(source_index=self.index, unit_id=unit["unit_id"])
+            store = ProposalStore(source_index=self.index, unit_id=unit["unit_id"],
+                                  unit_kind=unit.get("kind"))
             stop, requests, failure = None, 0, None
             spent_before = self.harness.spend()["requests"]
             recovery = dict(attempts=0, recovered=False, exhausted=False,
@@ -121,8 +125,14 @@ class CaseRunner:
                     recovery["exhausted"] = True
                     break
             requests = self.harness.spend()["requests"] - spent_before
+            diagnostic_reviews = [_diagnostic_review(unit, entry)
+                                  for entry in store.diagnostic_review_events()]
+            diagnostic_revisions = [dict(revision, discovery_unit_id=unit["unit_id"])
+                                    for revision in store.diagnostic_revisions]
             record = dict(unit_id=unit["unit_id"], stop=stop,
                           requests=requests, summary=store.summary(),
+                          diagnostic_candidate_reviews=diagnostic_reviews,
+                          diagnostic_candidate_review_revisions=diagnostic_revisions,
                           final=dict(getattr(result, "final", None) or {}) \
                               if "result" in locals() else {},
                           failure=failure, recovery=recovery,
@@ -136,6 +146,8 @@ class CaseRunner:
                               _event(unit, entry) for entry in store.rejected()])
             if unit.get("kind") == "performed_test_report":
                 self.evidence_inventory.append(_evidence_artifact(unit))
+            self.diagnostic_reviews.extend(diagnostic_reviews)
+            self.diagnostic_review_revisions.extend(diagnostic_revisions)
             self.discovery[unit["unit_id"]] = record
             self.stage_stops.append(dict(stage="discovery", unit_id=unit["unit_id"],
                                          stop=stop))
@@ -484,6 +496,8 @@ class CaseRunner:
                 units=dict(sorted(self.discovery.items())),
                 units_total=len(self.units),
                 units_run=len(self.discovery)),
+            diagnostic_candidate_reviews=self.diagnostic_reviews,
+            diagnostic_candidate_review_revisions=self.diagnostic_review_revisions,
             candidate_spans=self.events,
             events=self.events,
             out_of_scope_candidates=self.rejected,
@@ -500,6 +514,14 @@ class CaseRunner:
             coverage=_coverage(self.units, self.discovery),
             counts=dict(
                 events=len(self.events),
+                diagnostic_candidate_reviews=len(self.diagnostic_reviews),
+                diagnostic_candidate_review_revisions=len(self.diagnostic_review_revisions),
+                diagnostic_yes=sum(1 for review in self.diagnostic_reviews
+                                   if review["disposition"] == "yes"),
+                diagnostic_no=sum(1 for review in self.diagnostic_reviews
+                                  if review["disposition"] == "no"),
+                diagnostic_uncertain=sum(1 for review in self.diagnostic_reviews
+                                         if review["disposition"] == "uncertain"),
                 candidate_spans=len(self.events),
                 out_of_scope=len(self.rejected),
                 evidence_artifacts=len(self.evidence_inventory),
@@ -513,7 +535,9 @@ class CaseRunner:
             note=("本文件是带原文边界的候选重建结果，不是临床Reference。"
                   "scope=no 保留为明确排除索引，不进入候选事件组织；未运行、未识别、"
                   "被降级、未解析关系和带引文问题的候选均保留并计数。"
-                  "程序证据索引不是管理判断或已确认临床决策点。"))
+                  "程序证据索引不是管理判断或已确认临床决策点。"
+                  "检查双候选审核只是Discovery LLM筛选，不是专家Reference；其当前记录和修订均保留。"
+                  "候选容器不是后续医生可见材料。"))
 
 
 def _event(unit, entry):
@@ -546,11 +570,29 @@ def _event(unit, entry):
         uncertainty=record.get("uncertainty"),
         rationale=record.get("rationale"),
         reason=record.get("reason"),
+        candidate_action=(dict(record["candidate_action"])
+                          if record.get("candidate_action") else None),
         record_id=entry["record_id"],
         citation_verdicts=entry["citation_verdicts"],
         revision=entry.get("revision"),
         demoted=False,
         demotion=None)
+
+
+def _diagnostic_review(unit, entry):
+    record = entry["record"]
+    return dict(
+        review_id=record["review_id"], record_id=entry["record_id"],
+        status=entry["status"], candidate_kind=record["candidate_kind"],
+        disposition=record["disposition"], reason=record["reason"],
+        candidate_action=(dict(record["candidate_action"])
+                          if record.get("candidate_action") else None),
+        management_question=record.get("management_question"),
+        discovery_unit_id=unit["unit_id"], discovery_unit_kind=unit.get("kind"),
+        discovery_document_profile=unit.get("document_profile"),
+        source_ids=list(unit.get("source_ids") or ()),
+        revision=entry.get("revision"),
+        review_role="discovery_llm_screening_not_expert_reference")
 
 
 def _evidence_artifact(unit):
@@ -561,6 +603,10 @@ def _evidence_artifact(unit):
                for source in unit.get("original_texts") or []
                if source.get("source_id")]
     origins = sorted(source["source_id"] for source in sources)
+    first_text = next((source for source in unit.get("original_texts") or []
+                       if source.get("source_id")), {})
+    span = dict(source_id=first_text.get("source_id"),
+                quote=first_text.get("text") or "") if origins else {}
     return dict(
         event_id="EA-" + digest([unit["unit_id"], origins])[:16],
         local_id=None, candidate_kind="evidence_artifact",
@@ -572,7 +618,7 @@ def _evidence_artifact(unit):
         origin_source_ids=origins, origin_unit_id=unit["unit_id"],
         origin_unit_kind=unit.get("kind"),
         origin_document_profile=unit.get("document_profile"),
-        source_ids=origins, source_inventory=sources,
+        source_ids=origins, source_inventory=sources, span=span,
         attribution_problems=[], clock=_clock_of(unit),
         clock_basis=unit.get("clock_basis"),
         status="SOURCE_INDEXED", scope=None, record_function=None,
