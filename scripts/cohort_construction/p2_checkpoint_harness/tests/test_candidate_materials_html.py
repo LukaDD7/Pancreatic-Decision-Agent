@@ -207,6 +207,17 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn('data-workflow="relations"', packet_page)
         self.assertIn('data-workflow="action"', packet_page)
 
+    def test_adjacent_episode_member_without_direct_edge_has_readable_relation(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")
+        pre["related_checkpoints"] = []
+
+        page = render_html(material([pre]), "manifest-sha")
+
+        self.assertIn("关系：未分类", page)
+        self.assertIn("说明：未记录直接关系", page)
+
     def test_missing_candidate_actions_has_visible_technical_failure(self):
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",

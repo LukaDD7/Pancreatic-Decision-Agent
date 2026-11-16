@@ -149,7 +149,7 @@ def _masked_projection(packet):
 
 
 def _relation_text(item):
-    relation = item.get("relation")
+    relation = (item or {}).get("relation")
     if isinstance(relation, dict):
         return relation.get("relation") or relation.get("type") or "未分类"
     return relation or "未分类"
