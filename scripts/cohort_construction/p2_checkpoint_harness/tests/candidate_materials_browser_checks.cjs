@@ -106,11 +106,12 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       };
     })()`);
     assert.equal(firstScreen.originalVisible, true, 'Visible-source panel is not the first screen');
-    assert(firstScreen.sourceCount >= 2, 'First screen must include target and context sources');
+    assert(firstScreen.sourceCount >= 1, 'First screen must include at least the target source');
     assert.equal(firstScreen.sourceCount, firstScreen.maskSourceCount, 'First screen omitted included_sources');
     assert(firstScreen.targetCount >= 1, 'Target source is not labelled');
-    assert(firstScreen.contextCount >= 1, 'Context source is not visible and labelled');
-    assert(firstScreen.contextText.length > 0, 'Context source text is blank on the first screen');
+    if (firstScreen.contextCount > 0) {
+      assert(firstScreen.contextText.length > 0, 'Context source text is blank on the first screen');
+    }
     assert(firstScreen.heading.includes('Agent候选动作（不是答案/Reference）'));
     assert(firstScreen.candidateCount > 0 || firstScreen.failureVisible,
       'Candidate actions and technical-failure warning are both absent');

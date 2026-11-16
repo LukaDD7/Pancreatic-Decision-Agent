@@ -1,0 +1,47 @@
+{
+  "format": "p2-development-complete-run-receipt-0.1.0",
+  "run": "development-action-r1-with-scale02-r4-recovery",
+  "case_count": 10,
+  "complete_cases": 10,
+  "candidate_checkpoints": 118,
+  "candidate_counts_by_case": {
+    "SCALE-01": 8,
+    "SCALE-02": 17,
+    "SCALE-03": 11,
+    "SCALE-04": 13,
+    "SCALE-05": 17,
+    "SCALE-06": 7,
+    "SCALE-07": 7,
+    "SCALE-08": 7,
+    "SCALE-09": 21,
+    "SCALE-10": 10
+  },
+  "fresh_discovery_and_candidate_cp_organization": true,
+  "scale02_recovery": {
+    "original_answered_units_preserved": 92,
+    "failed_units_separately_recovered": 5,
+    "merged_units_answered": 97,
+    "successful_units_rerun": 0,
+    "hash_bound_provenance": true
+  },
+  "scale05_html_rerender": "Indirect episode neighbors without a direct edge now render as no recorded direct relation; model stages were not rerun.",
+  "technical_audit": {
+    "status": "PASS",
+    "passed_cases": 10,
+    "failed_cases": 0,
+    "all_candidates_have_actions": true,
+    "target_source_duplicate_assignments": 0,
+    "checked_mask_projection_errors": 0,
+    "browser_pass_cases": 10,
+    "browser_visited_candidate_checkpoints": 118,
+    "page_errors": 0,
+    "external_network_requests": 0,
+    "private_report": "private/p2_harness_live_20261116/development-complete-run-audit.json"
+  },
+  "entry_html": "private/p2_harness_live_20261116/development-set-index.html",
+  "harness_tests": "251 passed, 8 subtests passed",
+  "p1_regression_guard": "106 passed, required_tests_skipped=0",
+  "private_research_preview": true,
+  "formal_doctor_packet_release": false,
+  "clinical_accuracy_assessed": false
+}
