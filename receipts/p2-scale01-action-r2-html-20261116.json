@@ -1,0 +1,14 @@
+{
+  "format": "p2-private-html-share-receipt-0.1.0",
+  "private_html": "private/p2_harness_live_20261115/SCALE-01-action-r2-full-demo/index.html",
+  "sha256": "f03bb5a019de14f8af377b2f6505751c81c4ff3465c45b3fc25aefad2b887e86",
+  "bytes": 2934036,
+  "single_html": true,
+  "external_network_requests_observed": 0,
+  "browser_check": "private/p2_harness_live_20261115/SCALE-01-action-r2-full-demo/browser-checks/browser-receipt.json",
+  "git_html_committed": false,
+  "git_html_commit_explanation": "完整临床材料必须留在private；不以改名或强制暂存绕过仓库病历保护。",
+  "private_research_preview": true,
+  "formal_doctor_packet_release": false,
+  "clinical_accuracy_assessed": false
+}
