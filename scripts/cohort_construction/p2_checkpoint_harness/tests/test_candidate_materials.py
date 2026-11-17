@@ -111,6 +111,93 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertNotIn("手术指征：需手术切除", target["text"])
         self.assertIn("评估病情", target["text"])
 
+    def test_management_action_fallback_masks_actions_but_preserves_adjacent_facts(self):
+        actions = (
+            "可考虑予抑酸/抑酶",
+            "诊疗计划：充分术前准备",
+            "取消手术",
+            "穿刺活检",
+            "决定下一步治疗",
+            "转入普外科",
+            "择期手术",
+            "完善检查",
+            "出院/随诊",
+        )
+        for index, action in enumerate(actions):
+            with self.subTest(action=action):
+                source_id = "S-ACTION-" + str(index)
+                text = "胰头占位伴胆道梗阻，" + action + "，肝功能仍异常。"
+                self.sources.append(dict(
+                    source_id=source_id, title="合成管理病程", kind="document",
+                    clock=clock("2022-12-13 10:00:00"), clock_basis="body_record_time",
+                    clocks={}, text=text))
+                packet = self.packet("management_decision")
+                card = next(source for source in packet["included_sources"]
+                            if source["source_id"] == source_id)
+                self.assertNotIn(action, card["text"])
+                self.assertIn("胰头占位伴胆道梗阻", card["text"])
+                self.assertIn("肝功能仍异常", card["text"])
+
+    def test_document_created_after_cutoff_is_excluded_without_mutating_source(self):
+        original_sources = deepcopy(self.sources)
+        for index, key in enumerate(("source_create_time", "create_time", "record_create_time")):
+            with self.subTest(key=key):
+                source_id = "S-CREATED-" + str(index)
+                source = dict(
+                    source_id=source_id, title="晚创建病程", kind="document",
+                    clock=clock("2022-12-13 10:00:00"), clock_basis="body_record_time",
+                    clocks={key: clock("2022-12-14 11:00:00")}, text="截止后创建的正文。")
+                self.sources.append(source)
+                original = deepcopy(source)
+                packet = self.packet("management_decision")
+                excluded = next(item for item in packet["excluded_sources"]
+                                if item["source_id"] == source_id)
+                self.assertEqual(excluded["reason"], "SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF")
+                self.assertNotIn(source_id, {item["source_id"]
+                                             for item in packet["included_sources"]})
+                self.assertEqual(source, original)
+        self.assertEqual(self.sources[:3], original_sources)
+
+    def test_same_day_coarse_creation_clock_is_not_treated_as_exactly_after_cutoff(self):
+        self.sources.append(dict(
+            source_id="S-SAME-DAY", title="同日病程", kind="document",
+            clock=clock("2022-12-13 10:00:00"), clock_basis="body_record_time",
+            clocks=dict(source_create_time=clock("2022-12-14")), text="同日但先后不确定。"))
+        packet = self.packet("management_decision")
+        card = next(source for source in packet["included_sources"]
+                    if source["source_id"] == "S-SAME-DAY")
+        self.assertEqual(card["text"], "同日但先后不确定。")
+
+    def test_report_time_visibility_is_not_overridden_by_document_creation_rule(self):
+        self.sources[1]["clocks"]["source_create_time"] = clock("2022-12-15 10:00:00")
+        packet = self.packet("evidence_arrival_reassessment",
+                             self.diagnostic_projection("no", "yes"))
+        report = next(source for source in packet["included_sources"]
+                      if source["source_id"] == "S-D")
+        self.assertEqual(report["text"], "虚构MR所见及结论")
+        self.assertEqual(report["clock"]["value"], "2022-12-14 14:56:32")
+        self.assertIsNone(report["clocks"]["source_create_time"]["value"])
+        self.assertEqual(self.sources[1]["clocks"]["source_create_time"]["value"],
+                         "2022-12-15 10:00:00")
+
+    def test_checkpoint_without_visible_context_becomes_review_migration_not_task(self):
+        self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-15 10:00:00")
+        material = self.material(self.diagnostic_projection("no", "no"))
+        self.assertEqual(material["packets"], [])
+        self.assertEqual(material["summary"]["material_no_visible_context_count"], 1)
+        self.assertEqual(material["summary"]["material_action_cycle_count"], 0)
+        self.assertEqual(material["summary"]["material_evidence_state_count"], 0)
+        self.assertEqual(material["summary"]["migration_reason_counts"], {
+            "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE": 2,
+            "NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF": 1})
+        migration = next(item for item in material["migrations"]
+                         if item.get("event_id") == "EV-M")
+        self.assertEqual(migration["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(migration["reason"], "NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF")
+        self.assertIsNone(migration["to_checkpoint_id"])
+        self.assertTrue(all(not episode["checkpoint_ids"]
+                            for episode in material["management_episodes"]))
+
     def test_candidate_relations_and_episodes_replace_temporary_containers(self):
         base = self.material()["packets"]
         management = next(packet for packet in base if packet["kind"] == "management_decision")
@@ -253,6 +340,7 @@ class CandidateMaterialTests(unittest.TestCase):
 
     def test_future_body_datetime_and_source_clocks_are_redacted(self):
         self.sources[0]["text"] += "\n签名时间：2022-12-15 10:44:00"
+        self.sources[0]["text"] += "\n点号日期：2022.12.15 10:44:00"
         self.sources[0]["text"] += "\n既往时间：2022-12-13 09:00:00"
         packet = self.packet("pre_exam_evaluation")
         target = next(source for source in packet["included_sources"]
@@ -263,6 +351,7 @@ class CandidateMaterialTests(unittest.TestCase):
         management = next(source for source in packet["included_sources"]
                           if source["source_id"] == "S-M")
         self.assertNotIn("2022-12-15 10:44:00", management["text"])
+        self.assertNotIn("2022.12.15 10:44:00", management["text"])
         self.assertIn("2022-12-13 09:00:00", management["text"])
         original = next(source for source in packet["researcher_target_originals"]
                         if source["source_id"] == "S-D")

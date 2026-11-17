@@ -12,7 +12,8 @@ import json
 import re
 
 from scripts.cohort_construction.p2_pathway_replay.core import (
-    clock as parse_clock, available_source_clock, _structured_clock, relation_to_cutoff,
+    clock as parse_clock, available_source_clock, availability_clock_role,
+    _structured_clock, relation_to_cutoff,
 )
 from .source_time import source_record_time
 
@@ -140,6 +141,21 @@ def _unit_hints(source):
     return hints
 
 
+def _management_report_source(source):
+    kind = source.get('kind')
+    return kind in ('pathology', 'procedure', 'operation') or (
+        kind == 'lab' and _exam_number(source) is not None)
+
+
+def _report_visibility(source):
+    if source.get('kind') in ('lab', 'pathology'):
+        return _available_clock(source)
+    role = availability_clock_role(source.get('clocks'))
+    if role:
+        return _clock(source['clocks'][role]), role + '_proxy'
+    return _available_clock(source)
+
+
 def build_units(sources, config=None, *, routing_audit=None):
     """Return whole primary document units and same-test report variant groups.
 
@@ -155,7 +171,7 @@ def build_units(sources, config=None, *, routing_audit=None):
     if routing_audit is not None and not isinstance(routing_audit, list):
         raise TypeError('routing_audit must be a list or None')
     routing_start = len(routing_audit) if routing_audit is not None else 0
-    units, imaging_groups = [], {}
+    units, report_groups = [], {}
     for source in sources:
         document = source.get('kind') == 'document'
         nonempty = bool((source.get('text') or '').strip())
@@ -179,23 +195,43 @@ def build_units(sources, config=None, *, routing_audit=None):
             exam = _exam_number(source)
             exam_clock = _clock((source.get('clocks') or {}).get('exam_time') or source.get('clock'))
             key = (exam, exam_clock['value'], source.get('title')) if exam else ('unknown_exam_number', source['source_id'])
-            imaging_groups.setdefault(key, []).append(source)
+            report_groups.setdefault(key, []).append(source)
             route.update(disposition='IMAGING_CANDIDATE_GROUP_MEMBER', unit_id=None,
                          reason='EXACT_EXAM_NUMBER_TIME_TITLE_GROUPING')
+        elif _management_report_source(source):
+            if not nonempty:
+                route.update(disposition='EMPTY_REPORT_NOT_DISCOVERED', unit_id=None,
+                             reason='EMPTY_OR_WHITESPACE_SOURCE_TEXT')
+            else:
+                visibility, _ = _report_visibility(source)
+                if not visibility['value']:
+                    route.update(disposition='REPORT_VISIBILITY_UNAVAILABLE', unit_id=None,
+                                 reason='REPORT_VISIBILITY_TIME_REQUIRED')
+                else:
+                    exam = _exam_number(source)
+                    exam_clock = _clock((source.get('clocks') or {}).get('exam_time'))
+                    key = ((source.get('kind'), exam, exam_clock['value'], source.get('title')) if exam
+                           else ('unknown_exam_number', source['source_id']))
+                    report_groups.setdefault(key, []).append(source)
+                    route.update(disposition='MANAGEMENT_REPORT_CANDIDATE_GROUP_MEMBER', unit_id=None,
+                                 reason='EXACT_EXAM_NUMBER_TIME_TITLE_GROUPING' if exam
+                                 else 'UNKNOWN_EXAM_NUMBER_SOURCE_NOT_MERGED')
         else:
             route.update(disposition='SUPPORT_DOCUMENT_CONTEXT_ONLY' if document else 'NON_DISCOVERY_SOURCE',
                          unit_id=None, reason='SUPPORT_DOCUMENTS_DISABLED' if document else 'SOURCE_KIND_NOT_DISCOVERY_UNIT')
         if routing_audit is not None:
             routing_audit.append(route)
-    for key, group in imaging_groups.items():
+    for key, group in report_groups.items():
         source = group[0]
-        upper = _clock((source.get('clocks') or {}).get('exam_time') or source.get('clock'))
+        imaging = source.get('kind') == 'imaging'
+        upper = _clock((source.get('clocks') or {}).get('exam_time') or
+                       (source.get('clock') if imaging else None))
         ids = sorted(s['source_id'] for s in group)
         # The report group is retrieved by its visibility clock, never by the
         # earlier exam occurrence. The two clocks answer different questions and
         # their roles must remain available independently to organization.
-        clock = source_clock(source)
-        clock_basis = _raw(source)['clock_basis']
+        clock, clock_basis = (source_clock(source), _raw(source)['clock_basis']) if imaging \
+            else _report_visibility(source)
         units.append(dict(unit_id='TU'+_sha(json.dumps(ids))[:20], source_ids=ids,
                           same_test_source_ids=ids, kind='performed_test_report',
                           document_profile='performed_test_report', type_prior=_TYPE_PRIORS['performed_test_report'],

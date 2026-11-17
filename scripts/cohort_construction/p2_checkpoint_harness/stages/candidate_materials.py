@@ -1,6 +1,7 @@
 """Private timed materials for reprojected candidate Checkpoints."""
 from __future__ import annotations
 
+from collections import Counter
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -8,11 +9,39 @@ from pathlib import Path
 from .materials import digest
 
 
-FORMAT = "p2-candidate-checkpoint-material-0.4.0"
+FORMAT = "p2-candidate-checkpoint-material-0.5.0"
+BEFORE_KINDS = {"pre_exam_evaluation", "BEFORE_ACQUISITION"}
+ARRIVAL_KINDS = {"evidence_arrival_reassessment", "AFTER_EVIDENCE_ARRIVAL"}
+MANAGEMENT_KINDS = {"management_decision", "MANAGEMENT_REASSESSMENT"}
+DIAGNOSTIC_KINDS = BEFORE_KINDS | ARRIVAL_KINDS
 
 
 def _clock_value(clock):
     return (clock or {}).get("value") if isinstance(clock, dict) else clock
+
+
+def _created_after_cutoff(created_clock, cutoff_clock):
+    created_value = _clock_value(created_clock)
+    cutoff_value = _clock_value(cutoff_clock)
+    if not created_value or not cutoff_value:
+        return False
+    created_value = created_value.replace("T", " ")
+    cutoff_value = cutoff_value.replace("T", " ")
+    created_date, created_separator, created_time = created_value.partition(" ")
+    cutoff_date, cutoff_separator, cutoff_time = cutoff_value.partition(" ")
+    if len(created_date) != 10 or len(cutoff_date) != 10:
+        return False
+    if created_date != cutoff_date:
+        return created_date > cutoff_date
+    coarse_precisions = {"year", "month", "day", "date", "unknown"}
+    created_precision = (created_clock or {}).get("precision") \
+        if isinstance(created_clock, dict) else None
+    cutoff_precision = (cutoff_clock or {}).get("precision") \
+        if isinstance(cutoff_clock, dict) else None
+    if not created_separator or not cutoff_separator \
+            or created_precision in coarse_precisions or cutoff_precision in coarse_precisions:
+        return False
+    return bool(created_time and cutoff_time and created_time > cutoff_time)
 
 
 def _source_card(source, visibility_clock):
@@ -70,17 +99,20 @@ def _diagnostic_aliases(event, source_by_id):
 
 def _mask_management_action_lines(text):
     import re
-    terms = ("拟施", "拟行", "已申请", "已签署", "治疗计划", "检查安排",
-             "输血", "冰冻病理", "排除手术禁忌", "限期行手术", "定于",
+    terms = ("拟施", "拟行", "已申请", "已签署", "诊疗计划", "治疗计划", "处置计划",
+             "检查安排", "可考虑予", "可考虑行", "抑酸", "抑酶", "术前准备",
+             "取消手术", "穿刺活检", "下一步治疗", "转入", "择期手术", "完善检查",
+             "出院", "随诊", "输血", "冰冻病理", "排除手术禁忌", "限期行手术", "定于",
              "手术指征", "手术切除", "手术方式", "手术时间", "根治性胰", "Whipple",
              "限期行", "择期行", "拟实施", "故拟", "需手术", "签署知情同意", "积极术前准备",
              "建议", "转肿瘤内科", "系统化疗", "化疗", "放疗", "免疫治疗", "靶向治疗",
              "保守治疗", "转诊", "随访", "复查")
     spans = []
-    for match in re.finditer(r"[^。；\n]+[。；\n]?", text):
+    for match in re.finditer(r"[^。；，,\n]+[。；，,\n]?", text):
         clause = match.group(0)
-        if clause and any(term in clause for term in terms):
-            spans.append(dict(start=match.start(), end=match.end(),
+        positions = [clause.find(term) for term in terms if term in clause]
+        if positions:
+            spans.append(dict(start=match.start() + min(positions), end=match.end(),
                               mask_reason="ADJACENT_MANAGEMENT_ACTION_HEURISTIC"))
     return text, spans
 
@@ -90,10 +122,11 @@ def _future_datetime_spans(text, cutoff):
     if not cutoff:
         return []
     spans = []
-    pattern = r"20\d{2}[-/年]\d{1,2}[-/月]\d{1,2}日?(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?"
+    pattern = r"20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?"
     for match in re.finditer(pattern, text):
         normalized = match.group(0).replace("年", "-").replace("月", "-")
-        normalized = normalized.replace("日", "").replace("/", "-").replace("T", " ")
+        normalized = normalized.replace("日", "").replace("/", "-").replace(".", "-")
+        normalized = normalized.replace("T", " ")
         parts = normalized.split(" ", 1)
         date = "-".join(part.zfill(2) for part in parts[0].split("-"))
         value = date + ((" " + parts[1]) if len(parts) == 2 else "")
@@ -229,6 +262,10 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                         for event in projection["diagnostic_events"]}
     diagnostic_source_map = {source_id: event for event in projection["diagnostic_events"]
                              for source_id in event["source_ids"]}
+    cycle_by_id = {item.get("action_cycle_id"): item
+                   for item in projection.get("action_cycles") or []}
+    state_by_id = {item.get("evidence_state_id"): item
+                   for item in projection.get("evidence_states") or []}
     effective_clocks = {}
     for source in sources:
         event = diagnostic_source_map.get(source["source_id"])
@@ -244,32 +281,43 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
     diagnostic_cp_pairs = {}
     for event in projection["diagnostic_events"]:
         ids = event["candidate_checkpoint_ids"]
-        if ids.get("pre_exam_evaluation") and ids.get("evidence_arrival_reassessment"):
-            diagnostic_cp_pairs[ids["pre_exam_evaluation"]] = (
-                ids["evidence_arrival_reassessment"], "evidence_arrival")
-            diagnostic_cp_pairs[ids["evidence_arrival_reassessment"]] = (
-                ids["pre_exam_evaluation"], "pre_exam_evaluation")
+        before_id = ids.get("BEFORE_ACQUISITION") or ids.get("pre_exam_evaluation")
+        arrival_id = ids.get("AFTER_EVIDENCE_ARRIVAL") or ids.get("evidence_arrival_reassessment")
+        if before_id and arrival_id:
+            diagnostic_cp_pairs[before_id] = (arrival_id, "evidence_arrival")
+            diagnostic_cp_pairs[arrival_id] = (before_id, "BEFORE_ACQUISITION")
 
+    material_migrations = deepcopy(projection["migrations"])
     packets = []
     for checkpoint in projection["candidate_checkpoints"]:
         cutoff = _clock_value(checkpoint["clock"])
         target_ids = set(checkpoint["source_ids"])
         diagnostic = diagnostic_by_id.get(checkpoint.get("diagnostic_event_id"))
-        pre_exam = checkpoint["kind"] == "pre_exam_evaluation"
+        diagnostic_targets = [diagnostic_by_id[event_id]
+                              for event_id in checkpoint.get("diagnostic_event_ids")
+                              or ([checkpoint.get("diagnostic_event_id")]
+                                  if checkpoint.get("diagnostic_event_id") else [])
+                              if event_id in diagnostic_by_id]
+        pre_exam = checkpoint["kind"] in BEFORE_KINDS
+        if checkpoint["kind"] in ARRIVAL_KINDS and diagnostic_targets:
+            target_ids = {source_id for event in diagnostic_targets
+                          for source_id in event.get("source_ids") or []}
         target_spans_by_source = {}
         for span in checkpoint.get("masked_spans") or []:
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
         for span in (_same_event_spans(checkpoint, candidates, relations)
                      + _same_checkpoint_spans(checkpoint, projection, candidate_relations)):
             target_spans_by_source.setdefault(span["source_id"], []).append(span)
-        if pre_exam or checkpoint["kind"] == "evidence_arrival_reassessment":
+        if pre_exam or checkpoint["kind"] in ARRIVAL_KINDS:
             for candidate in candidates:
                 if candidate.get("status") != "ACCEPTED" or not candidate.get("span"):
                     continue
                 span = candidate["span"]
                 if pre_exam or span.get("source_id") not in target_ids:
                     target_spans_by_source.setdefault(span["source_id"], []).append(span)
-        aliases = _diagnostic_aliases(diagnostic, source_by_id) if pre_exam else []
+        aliases = sorted({alias for event in diagnostic_targets
+                          for alias in _diagnostic_aliases(event, source_by_id)},
+                         key=len, reverse=True) if pre_exam else []
         included, excluded, mask_metadata = [], [], []
         whole_masked = []
         for source in sources:
@@ -277,6 +325,16 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             visible_clock = effective_clocks[source_id]
             visible_value = _clock_value(visible_clock)
             is_masked_pre_exam_target = pre_exam and source_id in target_ids
+            creation_clocks = source.get("clocks") or {}
+            created_after_cutoff = source.get("kind") == "document" and any(
+                _created_after_cutoff(creation_clocks.get(key), checkpoint["clock"])
+                for key in ("source_create_time", "create_time", "record_create_time",
+                            "created_time", "creation_time", "document_create_time"))
+            if created_after_cutoff:
+                excluded.append(dict(
+                    source_id=source_id, disposition="EXCLUDED_BY_CANDIDATE_TIMELINE",
+                    reason="SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF"))
+                continue
             if not is_masked_pre_exam_target and (
                     not cutoff or not visible_value or visible_value > cutoff):
                 excluded.append(dict(source_id=source_id,
@@ -291,9 +349,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 whole_masked.append(source_id)
             else:
                 spans = list(target_spans_by_source.get(source_id) or [])
-                if checkpoint["kind"] == "management_decision" or (
-                        checkpoint["kind"] == "evidence_arrival_reassessment"
-                        and source_id not in target_ids):
+                if checkpoint["kind"] in MANAGEMENT_KINDS or (
+                        checkpoint["kind"] in ARRIVAL_KINDS and source_id not in target_ids):
                     card["text"], action_spans = _mask_management_action_lines(card["text"])
                     for span in action_spans:
                         span.update(source_id=source_id)
@@ -322,7 +379,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 original = _source_card(source, source.get("clock") or {})
                 original["presentation_scope"] = "researcher_original_not_doctor_projection"
                 originals.append(original)
-        if checkpoint["kind"] == "management_decision":
+        if checkpoint["kind"] in MANAGEMENT_KINDS:
             origin_episode_ids = sorted({membership[event_id] for event_id in
                                          checkpoint["member_event_ids"]
                                          if event_id in membership})
@@ -388,15 +445,28 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                                     relation=relation.get("relation"),
                                     confidence=relation.get("confidence"),
                                     explanation=relation.get("explanation")))
-        if checkpoint["kind"] == "management_decision":
+        if checkpoint["kind"] in MANAGEMENT_KINDS:
             document_profiles = sorted({migration_by_event[event_id].get("origin_document_profile")
                                         for event_id in checkpoint["member_event_ids"]
                                         if migration_by_event.get(event_id, {}).get("origin_document_profile")})
         else:
             document_profiles = ["performed_test_report"]
+        cycle = cycle_by_id.get(checkpoint.get("action_cycle_id")) or {}
+        evidence_state = state_by_id.get(checkpoint.get("evidence_state_id")) or {}
         packet = dict(
             format=FORMAT, case_id=case_id,
             checkpoint_id=checkpoint["checkpoint_id"], kind=checkpoint["kind"],
+            management_goal=deepcopy(checkpoint.get("management_goal")
+                                     or cycle.get("goal")),
+            phase=checkpoint.get("phase") or cycle.get("phase"),
+            action_cycle_id=checkpoint.get("action_cycle_id"),
+            action_cycle=deepcopy(cycle) or None,
+            evidence_state_id=checkpoint.get("evidence_state_id"),
+            evidence_state=deepcopy(evidence_state) or None,
+            input_evidence_ids=list(checkpoint.get("input_evidence_ids")
+                                    or cycle.get("input_evidence_ids") or []),
+            support_source_ids=list(checkpoint.get("support_source_ids")
+                                    or cycle.get("support_source_ids") or []),
             candidate_status=checkpoint["candidate_status"],
             review_status=checkpoint["review_status"],
             management_question=checkpoint["management_question"],
@@ -406,7 +476,11 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                             role=checkpoint["evaluation_time_role"]),
             target=dict(source_ids=list(checkpoint["source_ids"]), title=target_title,
                         document_profile=" / ".join(document_profiles) or "未分类",
-                        diagnostic_event_id=checkpoint.get("diagnostic_event_id")),
+                        diagnostic_event_id=checkpoint.get("diagnostic_event_id"),
+                        created_after_cutoff_source_ids=[
+                            item["source_id"] for item in excluded
+                            if item["source_id"] in target_ids
+                            and item.get("reason") == "SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF"]),
             episode_id=episode_id, episode_basis=episode_basis,
             candidate_organization_applied=organized,
             origin_episode_ids=origin_episode_ids,
@@ -425,19 +499,97 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 heuristic_diagnostic_restatement_mask=bool(pre_exam)),
             related_checkpoints=related,
             migration_event_ids=list(checkpoint.get("member_event_ids") or []),
+            migration_records=[dict(
+                event_id=item.get("event_id"), migration_type=item.get("migration_type"),
+                migration_status=item.get("migration_status"), reason=item.get("reason"),
+                source_id=item.get("source_id"))
+                for item in material_migrations
+                if item.get("to_checkpoint_id") == checkpoint["checkpoint_id"]],
             clinical_reference_created=False, doctor_answer_prefilled=False,
             not_doctor_release=True)
         packet["content_sha256"] = digest(packet)
         packets.append(packet)
+    no_context_ids = {packet["checkpoint_id"] for packet in packets
+                      if not packet["included_sources"]}
+    if no_context_ids:
+        packets = [packet for packet in packets
+                   if packet["checkpoint_id"] not in no_context_ids]
+        for migration in material_migrations:
+            if migration.get("to_checkpoint_id") in no_context_ids:
+                migration.update(migration_status="REVIEW_REQUIRED", status="REVIEW_REQUIRED",
+                                 reason="NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF",
+                                 to_checkpoint_id=None)
+    material_diagnostic_events = deepcopy(projection["diagnostic_events"])
+    for event in material_diagnostic_events:
+        event["candidate_checkpoint_ids"] = {
+            kind: checkpoint_id for kind, checkpoint_id
+            in (event.get("candidate_checkpoint_ids") or {}).items()
+            if checkpoint_id not in no_context_ids}
+    no_context_cycle_ids = {checkpoint.get("action_cycle_id")
+                            for checkpoint in projection["candidate_checkpoints"]
+                            if checkpoint["checkpoint_id"] in no_context_ids}
+    material_episodes = []
+    for episode in deepcopy(projection.get("management_episodes") or []):
+        episode["checkpoint_ids"] = [checkpoint_id for checkpoint_id
+                                     in episode.get("checkpoint_ids") or []
+                                     if checkpoint_id not in no_context_ids]
+        episode["action_cycle_ids"] = [cycle_id for cycle_id
+                                       in episode.get("action_cycle_ids") or []
+                                       if cycle_id not in no_context_cycle_ids]
+        if episode["checkpoint_ids"]:
+            material_episodes.append(episode)
+    material_cycles = [deepcopy(cycle) for cycle in projection.get("action_cycles") or []
+                       if not (set(cycle.get("checkpoint_ids") or []) & no_context_ids)]
+    material_states = [deepcopy(state) for state in projection.get("evidence_states") or []
+                       if not (set(state.get("checkpoint_ids") or []) & no_context_ids)]
+    material_support_records = deepcopy(projection["support_records"])
+    for support in material_support_records:
+        if support.get("to_checkpoint_id") in no_context_ids:
+            support["to_checkpoint_id"] = None
+            support["review_reason"] = "NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF"
+    summary = deepcopy(projection["summary"])
+    summary.update(
+        material_checkpoint_count=len(packets),
+        material_action_cycle_count=len(material_cycles),
+        material_evidence_state_count=len(material_states),
+        material_no_visible_context_count=len(no_context_ids),
+        material_no_visible_context_checkpoint_ids=sorted(no_context_ids),
+        migration_status_counts=dict(sorted(Counter(
+            item.get("migration_status") for item in material_migrations).items())),
+        migration_type_counts=dict(sorted(Counter(
+            item.get("migration_type") for item in material_migrations).items())),
+        migration_reason_counts=dict(sorted(Counter(
+            item.get("reason") for item in material_migrations).items())))
     _navigation(packets)
+    packet_by_id = {packet["checkpoint_id"]: packet for packet in packets}
     for packet in packets:
+        navigation = packet["episode_navigation"]
+        for direction, key, relation in (
+                ("incoming", "previous_checkpoint_id", "previous_state"),
+                ("outgoing", "next_checkpoint_id", "next_state")):
+            other_id = navigation.get(key)
+            if not other_id or any(item.get("checkpoint_id") == other_id
+                                   for item in packet["related_checkpoints"]):
+                continue
+            other = packet_by_id[other_id]
+            packet["related_checkpoints"].append(dict(
+                checkpoint_id=other_id, relation=relation, direction=direction,
+                relation_source="program_management_trajectory_state_order",
+                projection_explanation=(
+                    "同一持续管理目标内的相邻证据/动作状态；显示顺序不等于已确认临床时序。"
+                    + (" action cycle 发生变化。" if other.get("action_cycle_id")
+                       != packet.get("action_cycle_id") else " 属于同一 action cycle 的时间投影。")),
+                evidence_use_claimed=False))
         packet["content_sha256"] = digest({key: value for key, value in packet.items()
                                           if key != "content_sha256"})
     return dict(format=FORMAT + "-set", case_id=case_id,
-                packets=packets, migrations=projection["migrations"],
-                support_records=projection["support_records"],
-                diagnostic_events=projection["diagnostic_events"],
-                summary=projection["summary"], source_count=len(sources),
+                packets=packets, migrations=material_migrations,
+                support_records=material_support_records,
+                diagnostic_events=material_diagnostic_events,
+                management_episodes=material_episodes,
+                action_cycles=material_cycles,
+                evidence_states=material_states,
+                summary=summary, source_count=len(sources),
                 clinical_accuracy_assessed=False, not_doctor_release=True,
                 note="候选CP私有研究预览；研究原文和未来节点均嵌入HTML，不能作为医生盲评包。")
 

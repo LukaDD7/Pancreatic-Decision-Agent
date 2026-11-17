@@ -12,6 +12,7 @@ from .stages.candidate_materials import (
 )
 from .stages.candidate_materials_html import write_html
 from .stages.diagnostic_events import build_diagnostic_events
+from .stages.management_trajectory import project_management_trajectory
 
 
 def _stage_items(raw, stage, key):
@@ -52,18 +53,27 @@ def _validate_organization(organization, episodes, *, case_id, projection):
 
 
 def render_candidate_materials(*, case_result, source_bundle, output,
-                               candidate_relations=None, candidate_episodes=None):
+                               candidate_relations=None, candidate_episodes=None,
+                               projection_version="trajectory-v0.1"):
     from ..p2_auto_checkpoint.fhir_io import import_sources
 
     raw = json.loads(Path(case_result).read_text(encoding="utf-8"))
     bundle = json.loads(Path(source_bundle).read_text(encoding="utf-8"))
     sources, _ = import_sources(bundle)
     diagnostic_events = build_diagnostic_events(sources, raw["evidence_inventory"])
-    projection = project_candidate_checkpoints(
+    projector = (project_management_trajectory
+                 if projection_version == "trajectory-v0.1"
+                 else project_candidate_checkpoints if projection_version == "candidate-v0.2"
+                 else None)
+    if projector is None:
+        raise ValueError("UNKNOWN_CANDIDATE_PROJECTION_VERSION:" + projection_version)
+    projection = projector(
         case_id=raw["case_id"], candidates=raw["candidate_spans"], sources=sources,
         diagnostic_events=diagnostic_events,
         diagnostic_reviews=raw.get("diagnostic_candidate_reviews") or [])
     cp_relations = cp_episodes = None
+    if projection_version == "trajectory-v0.1":
+        cp_relations, cp_episodes = [], projection["management_episodes"]
     if candidate_relations is not None or candidate_episodes is not None:
         if candidate_relations is None or candidate_episodes is None:
             raise ValueError("CANDIDATE_RELATIONS_AND_EPISODES_REQUIRED_TOGETHER")
@@ -80,6 +90,8 @@ def render_candidate_materials(*, case_result, source_bundle, output,
         episodes=_stage_items(raw, "episodes", "episodes"),
         candidate_relations=cp_relations, candidate_episodes=cp_episodes)
     material["input_provenance"] = dict(
+        projection_version=projection_version,
+        discovery_execution="external_case_result_not_rerun_by_renderer",
         case_result=str(case_result),
         case_result_sha256=hashlib.sha256(Path(case_result).read_bytes()).hexdigest(),
         source_bundle=str(source_bundle),
@@ -108,12 +120,16 @@ def main():
     parser.add_argument("--sources", type=Path, required=True)
     parser.add_argument("--candidate-relations", type=Path)
     parser.add_argument("--candidate-episodes", type=Path)
+    parser.add_argument("--projection-version",
+                        choices=("trajectory-v0.1", "candidate-v0.2"),
+                        default="trajectory-v0.1")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     print(json.dumps(render_candidate_materials(
         case_result=args.case_result, source_bundle=args.sources, output=args.output,
         candidate_relations=args.candidate_relations,
-        candidate_episodes=args.candidate_episodes),
+        candidate_episodes=args.candidate_episodes,
+        projection_version=args.projection_version),
         ensure_ascii=False, indent=2))
 
 

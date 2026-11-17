@@ -12,9 +12,14 @@ import html
 import json
 from pathlib import Path
 
-HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.4.0"
-RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.3.0"
-FORM_VERSION = "candidate-action-plan-development-0.3"
+HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.5.0"
+RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.4.0"
+FORM_VERSION = "candidate-action-plan-development-0.4"
+KIND_LABELS = {
+    "BEFORE_ACQUISITION": "证据获取前状态",
+    "AFTER_EVIDENCE_ARRIVAL": "新证据到达后状态",
+    "MANAGEMENT_REASSESSMENT": "管理再评估状态",
+}
 
 
 def _h(value):
@@ -141,7 +146,9 @@ def _researcher_originals(packet):
               _node("div", {"class": "research-warning"},
                     _node("strong", {}, "研究审核，不是医生投影"),
                     _node("p", {}, "以下原文仅供研究者核对；不得把本页作为医生盲评材料分发。")),
-              *(cards or [_node("p", {"class": "empty"}, "未提供研究审核原文。")])),
+              *(cards or [_node("p", {"class": "empty"}, "未提供研究审核原文。")]),
+              *([_candidate_actions(packet)]
+                if packet.get("kind") == "BEFORE_ACQUISITION" else [])),
     )
 
 
@@ -381,7 +388,15 @@ def _packet_html(packet):
               _node("div", {}, _node("dt", {}, "Checkpoint"),
                     _node("dd", {}, _h(packet["checkpoint_id"]))),
               _node("div", {}, _node("dt", {}, "任务类型"),
-                    _node("dd", {}, _h(packet.get("kind") or "未分类"))),
+                    _node("dd", {}, _h(
+                        KIND_LABELS.get(packet.get("kind"), packet.get("kind") or "未分类")))),
+              _node("div", {}, _node("dt", {}, "管理目标"),
+                    _node("dd", {}, _h(
+                        (packet.get("management_goal") or {}).get("label")
+                        if isinstance(packet.get("management_goal"), dict)
+                        else packet.get("management_goal") or "PDAC根治性切除路径"))),
+              _node("div", {}, _node("dt", {}, "当前阶段 phase"),
+                    _node("dd", {}, _h(packet.get("phase") or "旧版候选未提供"))),
               _node("div", {}, _node("dt", {}, "当前CP原始文书类型"),
                     _node("dd", {}, _h(
                         f"{target.get('title') or '未标来源'}（{target.get('document_profile') or '未分类'}）"))),
@@ -401,10 +416,36 @@ def _packet_html(packet):
         )),
         _node("p", {"class": "time-guidance"},
               "仅依据本节点评价时点可见资料作答；检索时钟及报告可见性代理不等于医生实际阅读或选择时刻。"),
-        _candidate_actions(packet),
+        _node("div", {"class": "state-delta"},
+              _node("strong", {}, "本状态相对前一状态的新增内容"),
+              _node("p", {}, _h(
+                  "新证据：即将获取的证据已遮蔽，任务是选择下一步管理动作。"
+                  if packet.get("kind") == "BEFORE_ACQUISITION" else
+                  "当前报告作为新证据完整可见，后续管理动作仍遮蔽。"
+                  if packet.get("kind") == "AFTER_EVIDENCE_ARRIVAL" else
+                  "当前管理问题或条件发生变化；重复执行记录仅作支持。")),
+              _node("p", {"class": "small"}, _h(
+                  "action_cycle_id：" + str(packet.get("action_cycle_id") or "旧版未提供")
+                  + " · evidence_state_id：" + str(packet.get("evidence_state_id") or "旧版未提供")
+                  + " · 支持来源：" + ", ".join(packet.get("support_source_ids") or ["无"])))),
+        (_node("p", {"class": "small"},
+               "Discovery 候选动作及理由含目标检查信息，已移至“研究原文”页；默认任务头不展示，避免泄漏。")
+         if packet.get("kind") == "BEFORE_ACQUISITION" else _candidate_actions(packet)),
+        _node("details", {"class": "migration-details"},
+              _node("summary", {}, _h(
+                  f"本 CP 的旧候选迁移与归并理由（{len(packet.get('migration_records') or [])} 项）")),
+              *[_node("p", {"class": "small"}, _h(
+                  f"{item.get('event_id') or '未标事件'} · {item.get('migration_status') or '未标状态'}"
+                  f" · {item.get('reason') or '未标理由'}"))
+                for item in packet.get("migration_records") or []]),
         _node("p", {"class": "meta"}, _h(
             "目标来源 ID：" + ", ".join(target.get("source_ids") or [])
         )),
+        (_node("p", {"class": "technical-failure target-cutoff-warning"}, _h(
+            "目标原文截止后创建，未进入当时可见资料："
+            + ", ".join(target.get("created_after_cutoff_source_ids") or [])
+            + "。保留其他时点内上下文供审核，不将该文书正文回填到本状态。"
+         )) if target.get("created_after_cutoff_source_ids") else ""),
     )
     target_ids = set(target.get("source_ids") or [])
     included_sources = packet.get("included_sources") or []
@@ -453,7 +494,7 @@ def _migration_summary(material):
 
 _STYLE = r"""
 :root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.notice,.migration-summary{background:#fff7e4;border:1px solid #e1c277;border-radius:8px;padding:7px 12px;margin:8px 0}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}.clock-details summary,.migration-summary summary,details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-navigation{margin:14px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:6px 0}.navigation-note{margin:4px 0 10px}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
-.day-source-group{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#fbfcfb}.day-source-group>summary{padding:11px 14px;background:var(--soft);border-radius:7px;color:var(--accent)}.day-source-group>.source{margin:0 14px}.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
+.state-delta{border:1px solid #aac4b5;background:var(--soft);border-radius:7px;padding:10px 14px;margin:10px 0}.state-delta p{margin:5px 0}.day-source-group{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#fbfcfb}.day-source-group>summary{padding:11px 14px;background:var(--soft);border-radius:7px;color:var(--accent)}.day-source-group>.source{margin:0 14px}.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
 """
 
 

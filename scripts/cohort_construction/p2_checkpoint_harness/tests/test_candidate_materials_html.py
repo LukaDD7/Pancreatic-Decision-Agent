@@ -159,6 +159,53 @@ def rendered_packet_html(page, checkpoint_id="CP-PRE"):
 
 
 class CandidateMaterialsHtmlTests(unittest.TestCase):
+    def test_state_transition_header_exposes_goal_phase_cycle_and_new_evidence(self):
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据到达后状态",
+            text="合成新病理报告。", original="合成新病理报告。", index=2)
+        post.update(management_goal=dict(label="持续根治切除评估"),
+                    phase="INITIAL_RESECTABILITY_ASSESSMENT",
+                    action_cycle_id="AC-SYN", evidence_state_id="ES-SYN",
+                    support_source_ids=["S-CONTEXT"])
+        packet_page = rendered_packet_html(render_html(material([post]), "manifest-sha"),
+                                           "CP-POST")
+        self.assertIn("持续根治切除评估", packet_page)
+        self.assertIn("INITIAL_RESECTABILITY_ASSESSMENT", packet_page)
+        self.assertIn("AC-SYN", packet_page)
+        self.assertIn("ES-SYN", packet_page)
+        self.assertIn("当前报告作为新证据完整可见", packet_page)
+        self.assertIn("S-CONTEXT", packet_page)
+        self.assertNotIn("pre_exam_evaluation", packet_page)
+
+    def test_before_acquisition_candidate_action_is_researcher_only_not_default_header(self):
+        pre = packet(
+            "CP-PRE", "BEFORE_ACQUISITION", title="证据获取前状态",
+            text="[目标检查及报告已遮蔽]", original="合成目标检查安排")
+        pre["candidate_actions"] = [dict(
+            action_type="ORDER_DIAGNOSTIC_TEST", target="胰腺增强MRI",
+            reason="报告中的血管接触结果不得进入检查前任务头",
+            actor="discovery_llm", review_source="synthetic_discovery")]
+        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        header = packet_page.split('id="workflow-original"', 1)[0]
+        research = packet_page.split('id="workflow-research"', 1)[1]
+        self.assertNotIn("胰腺增强MRI", header)
+        self.assertNotIn("血管接触结果", header)
+        self.assertIn("已移至“研究原文”页", header)
+        self.assertIn("胰腺增强MRI", research)
+        self.assertIn("研究审核，不是医生投影", research)
+
+    def test_target_created_after_cutoff_is_explicit_without_restoring_its_text(self):
+        pre = packet(
+            "CP-PRE", "BEFORE_ACQUISITION", title="目标状态",
+            text="当时上下文仍可见。", original="截止后创建的目标原文")
+        pre["included_sources"] = [pre["included_sources"][1]]
+        pre["target"]["created_after_cutoff_source_ids"] = ["CP-PRE-SOURCE"]
+        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+
+        self.assertIn("目标原文截止后创建，未进入当时可见资料", packet_page)
+        self.assertIn("CP-PRE-SOURCE", packet_page)
+        self.assertIn("当时可见上下文：合成病史、体检及既有检验。", packet_page)
+
     def test_pre_exam_header_has_no_exam_title_and_first_screen_has_required_fields(self):
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",

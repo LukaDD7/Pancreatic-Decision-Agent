@@ -91,6 +91,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         sourceCount:original.querySelectorAll('.source').length,
         maskSourceCount:document.querySelectorAll('#workflow-mask .source').length,
         targetCount:original.querySelectorAll('.target-source').length,
+        targetExcludedCount:document.querySelectorAll('.target-cutoff-warning').length,
         contextCount:original.querySelectorAll('.context-source').length,
         contextText:[...original.querySelectorAll('.context-source pre')].map(node=>node.textContent.trim()).join('\\n'),
         heading:actions.querySelector('h3').textContent,
@@ -106,15 +107,17 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       };
     })()`);
     assert.equal(firstScreen.originalVisible, true, 'Visible-source panel is not the first screen');
-    assert(firstScreen.sourceCount >= 1, 'First screen must include at least the target source');
+    assert(firstScreen.sourceCount >= 1, 'First screen must include at least one visible source');
     assert.equal(firstScreen.sourceCount, firstScreen.maskSourceCount, 'First screen omitted included_sources');
-    assert(firstScreen.targetCount >= 1, 'Target source is not labelled');
+    assert(firstScreen.targetCount >= 1 || firstScreen.targetExcludedCount >= 1,
+      'Target source is neither labelled nor explicitly excluded as created after cutoff');
     if (firstScreen.contextCount > 0) {
       assert(firstScreen.contextText.length > 0, 'Context source text is blank on the first screen');
     }
     assert(firstScreen.heading.includes('Agent候选动作（不是答案/Reference）'));
-    assert(firstScreen.candidateCount > 0 || firstScreen.failureVisible,
-      'Candidate actions and technical-failure warning are both absent');
+    assert(firstScreen.candidateCount > 0 || firstScreen.failureVisible
+      || firstScreen.headerText.includes('已移至“研究原文”页'),
+      'Candidate actions, technical-failure warning, and before-acquisition research gate are all absent');
     if (firstScreen.candidateCount > 0) {
       for (const label of ['action_type', 'target', '理由']) {
         assert(firstScreen.actionText.includes(label), `Candidate action lacks ${label}`);
