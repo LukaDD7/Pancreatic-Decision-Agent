@@ -104,6 +104,11 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         positionLabel:nav.querySelector('span').textContent,
         nextLabel:nav.querySelectorAll('button')[1].textContent,
         materialText:document.querySelector('#material').textContent,
+        hasGlobalWarning:!document.querySelector('.notice,.migration-summary'),
+        taskColumnCount:getComputedStyle(document.querySelector('.task-grid')).gridTemplateColumns.split(' ').length,
+        taskCellsFit:[...document.querySelectorAll('.task-grid>div')].every(cell=>
+          cell.scrollWidth<=cell.clientWidth+1 &&
+          [...cell.children].every(field=>field.scrollWidth<=field.clientWidth+1)),
       };
     })()`);
     assert.equal(firstScreen.originalVisible, true, 'Visible-source panel is not the first screen');
@@ -129,6 +134,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert(firstScreen.positionLabel.includes('本患者 CP'));
     assert(firstScreen.nextLabel.includes('本患者下一 CP'));
     assert(!firstScreen.materialText.includes('全病例'), 'Navigation implies a cross-patient scope');
+    assert.equal(firstScreen.hasGlobalWarning, true, 'Global warning or migration summary remains visible');
+    assert.equal(firstScreen.taskColumnCount, 3, 'Desktop task header is not a three-column grid');
+    assert.equal(firstScreen.taskCellsFit, true, 'Task header text overflows its grid cell');
     const firstScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     fs.writeFileSync(path.join(output, 'first-screen-desktop.png'), Buffer.from(firstScreenshot.data, 'base64'));
     for (let index = 1; index < count; index++) {
@@ -165,7 +173,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       candidate_count: count, visited_checkpoint_ids: visited,
       checks: ['real_chrome_first_screen_context_visible', 'real_chrome_candidate_actions_or_failure_visible',
         'real_chrome_patient_labels', 'real_chrome_patient_next_visits_all',
-        'real_chrome_patient_previous_returns_all', 'relations_tab_click', 'mobile_no_horizontal_overflow'],
+        'real_chrome_patient_previous_returns_all', 'relations_tab_click', 'desktop_task_header_three_columns_without_overflow',
+        'global_warning_and_migration_summary_removed', 'mobile_no_horizontal_overflow'],
       page_errors: errors, network_requests: network,
     }, null, 2) + '\n');
     console.log(JSON.stringify({ status: 'PASS', candidates: count, visited }));

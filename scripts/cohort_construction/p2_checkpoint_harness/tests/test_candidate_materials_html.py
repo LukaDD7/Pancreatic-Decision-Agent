@@ -224,7 +224,12 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn('name="target"', packet_page)
         self.assertIn('name="timing"', packet_page)
         self.assertIn("研究审核，不是医生投影", page)
-        self.assertIn("迁移 summary", page)
+        self.assertIn("私有研究审核：含未遮原文，不是医生盲评文件。", page)
+        self.assertNotIn("class='notice'", page)
+        self.assertNotIn("迁移 summary", page)
+        self.assertNotIn('class="migration-summary"', page)
+        self.assertIn("grid-template-columns:repeat(3,minmax(0,1fr))", page)
+        self.assertIn(".task-grid>div{min-width:0}", page)
         self.assertNotIn("不得展示的MASK原文", page)
         self.assertNotIn("不得嵌入的迁移原始quote", page)
 
