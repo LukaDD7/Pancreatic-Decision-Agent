@@ -177,6 +177,34 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn("S-CONTEXT", packet_page)
         self.assertNotIn("pre_exam_evaluation", packet_page)
 
+    def test_evidence_adjudication_shows_comparator_reason_quotes_and_merged_support(self):
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据到达后状态",
+            text="合成新病理报告。", original="合成新病理报告。", index=2)
+        post.update(
+            global_adjudication=dict(
+                checkpoint_id="CP-POST", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-PRE",
+                rationale="病理结果改变了可见证据状态。",
+                evidence_supports=[dict(source_id="S-PATH", start=4, end=16,
+                                        quote="未见远处转移，新病理")]),
+            supporting_adjudications=[dict(
+                checkpoint_id="CP-REPEATED", disposition="SUPPORT_ONLY",
+                evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id="CP-POST",
+                rationale="转入记录只是复述EUS+FNA和择期手术，没有新增患者证据。",
+                evidence_supports=[])],
+        )
+        packet_page = rendered_packet_html(
+            render_html(material([post]), "manifest-sha"), "CP-POST")
+        self.assertIn("比较的最近保留 CP：CP-PRE", packet_page)
+        self.assertIn("NEW_EVIDENCE_ROUND", packet_page)
+        self.assertIn("病理结果改变了可见证据状态", packet_page)
+        self.assertIn("来源 S-PATH", packet_page)
+        self.assertIn("未见远处转移，新病理", packet_page)
+        self.assertIn("归并到本 CP 的支持记录：CP-REPEATED", packet_page)
+        self.assertIn("只是复述EUS+FNA和择期手术", packet_page)
+        self.assertIn("SAME_ROUND_SUPPORT", packet_page)
+
     def test_before_acquisition_candidate_action_is_researcher_only_not_default_header(self):
         pre = packet(
             "CP-PRE", "BEFORE_ACQUISITION", title="证据获取前状态",

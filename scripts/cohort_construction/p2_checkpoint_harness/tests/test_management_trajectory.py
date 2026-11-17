@@ -668,6 +668,15 @@ class ManagementTrajectoryTests(unittest.TestCase):
                          {"EV-EUS", "EV-SURGERY"})
         self.assertTrue(all(row["to_checkpoint_id"] == diagnostic_id
                             for row in result["support_records"]))
+        self.assertEqual(checkpoint["supporting_adjudications"], [dict(
+            checkpoint_id=management_id, disposition="SUPPORT_ONLY",
+            evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id=diagnostic_id,
+            evidence_supports=["DE-CT"], rationale="合成全局裁决")])
+        packet = project_candidate_materials(
+            case_id="SYN-TRAJECTORY", sources=sources, candidates=items,
+            projection=result)["packets"][0]
+        self.assertEqual(packet["supporting_adjudications"],
+                         checkpoint["supporting_adjudications"])
 
     def test_global_retain_new_evidence_round_skips_legacy_signature_merge(self):
         event = diagnostic("DE-CT", "CT-1")
@@ -692,6 +701,9 @@ class ManagementTrajectoryTests(unittest.TestCase):
                           if cp["kind"] == REASSESSMENT)
         self.assertEqual(management["checkpoint_id"], management_id)
         self.assertEqual(management["member_event_ids"], ["EV-SURGERY"])
+        self.assertEqual(management["global_adjudication"]["rationale"],
+                         "新证据轮次保留独立CP")
+        self.assertEqual(management["global_adjudication"]["evidence_supports"], ["DE-CT"])
         migration = next(row for row in result["migrations"]
                          if row["event_id"] == "EV-SURGERY")
         self.assertEqual(migration["migration_status"], "RETAINED")

@@ -401,6 +401,7 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
         disposition = adjudication["disposition"]
         if disposition == "RETAIN_CP":
             draft["global_adjudication_retain"] = True
+            draft["checkpoint"]["global_adjudication"] = deepcopy(adjudication)
             retained.append(draft)
             continue
         comparator_id = adjudication.get("comparator_checkpoint_id")
@@ -413,6 +414,9 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
                   if disposition == "SUPPORT_ONLY" else "GLOBAL_ADJUDICATION_UNCERTAIN")
         destination_id = (destination["checkpoint"]["checkpoint_id"]
                           if destination is not None else comparator_id)
+        if destination is not None:
+            destination["checkpoint"].setdefault(
+                "supporting_adjudications", []).append(deepcopy(adjudication))
         for item in draft["items"]:
             item["migration_status"] = status
             item["global_adjudication"] = True
