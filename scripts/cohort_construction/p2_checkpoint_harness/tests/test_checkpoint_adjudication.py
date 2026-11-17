@@ -130,7 +130,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertTrue(result["summary"]["candidate_checkpoint_list_coverage"]["complete"])
         self.assertFalse(result["summary"]["clinical_reference_created"])
 
-    def test_evidence_start_and_quote_do_not_require_manual_end(self):
+    def test_unique_evidence_quote_does_not_require_manual_offsets(self):
         first_text = "拟行胰十二指肠切除术。"
         second_text = "复查MRI后仍拟行胰十二指肠切除术。"
         evidence_text = "MRI示胰头占位较前缩小，未见远处转移。"
@@ -144,6 +144,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                               source("S-SECOND", second_text, "2026-03-03"),
                               source("S-MRI", evidence_text, "2026-03-02")])
         schema = registry.get("adjudicate_checkpoint").input_schema
+        self.assertNotIn("start", schema["properties"]["evidence_supports"]["items"]["properties"])
         self.assertNotIn("end", schema["properties"]["evidence_supports"]["items"]["properties"])
         store.adjudicate(
             checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
@@ -152,9 +153,8 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         result = store.adjudicate(
             checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
             evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
-            evidence_supports=[dict(source_id="S-MRI", quote=quote,
-                                    start=evidence_text.index(quote))],
-            rationale="程序按quote和start核验并生成终点。")
+            evidence_supports=[dict(source_id="S-MRI", quote=quote)],
+            rationale="程序按唯一quote核验并生成区间。")
         self.assertEqual(result["item"]["evidence_supports"][0]["end"],
                          evidence_text.index(quote) + len(quote))
 

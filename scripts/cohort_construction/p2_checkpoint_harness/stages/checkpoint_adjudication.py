@@ -43,7 +43,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 5. SUPPORT_ONLY必须给最近保留CP作为comparator，evolution只能是SAME_ROUND_SUPPORT/REPEATED_PLAN/EXECUTION。
 6. 时间缺失、先后无法确定或证据关系无法确定时用REVIEW_REQUIRED+UNCERTAIN，不要为了通过校验猜测时间或编造引文。不同任务但没有新增证据也不能冒充NEW_EVIDENCE_ROUND。
 
-evidence_supports中的quote必须逐字、连续来自同一source_id；start为Python字符起点，重复quote必须给start。不要计算或提供end，程序会按quote长度核验并生成半开区间。程序会拒绝非最近比较状态、比较状态以前的旧证据、未来证据、无法定位的引文，以及和当前CP member candidate span重叠的引文。逐项提交后立即继续，不要反复重新列出全部CP；完成全部管理CP后调用finish，未知、重复或漏裁决会在finish报错。"""
+evidence_supports只提供source_id和逐字、连续来自该来源的quote，不提供start或end；若quote重复，请扩大引用上下文使其唯一。程序会定位quote、核验原文并生成字符半开区间。程序会拒绝非最近比较状态、比较状态以前的旧证据、未来证据、无法定位的引文，以及和当前CP member candidate span重叠的引文。逐项提交后立即继续，不要反复重新列出全部CP；完成全部管理CP后调用finish，未知、重复或漏裁决会在finish报错。"""
 
 
 def _event_id(candidate, index):
@@ -414,9 +414,8 @@ class CheckpointAdjudicationStore:
             type="object", additionalProperties=False,
             required=["source_id", "quote"],
             properties=dict(source_id=dict(type="string", minLength=1),
-                            quote=dict(type="string", minLength=1),
-                            start=dict(type="integer", minimum=0,
-                                       description="quote的字符起点；不要提供end，程序自动核验。")))
+                            quote=dict(type="string", minLength=1,
+                                       description="逐字且在同一来源中唯一；重复时扩大引用上下文。")))
         return Tool(
             name="adjudicate_checkpoint",
             description=("裁决一个MANAGEMENT_REASSESSMENT候选CP。RETAIN比较时必须给新增患者证据；"
