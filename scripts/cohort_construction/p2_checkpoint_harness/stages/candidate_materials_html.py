@@ -342,7 +342,6 @@ def _candidate_actions(packet):
 
 def _navigation(packet):
     sequence = packet.get("sequence_navigation") or {}
-    episode = packet.get("episode_navigation") or {}
 
     def button(identifier, scope, direction, label):
         return _node("button", {"type": "button", "class": "secondary",
@@ -362,14 +361,6 @@ def _navigation(packet):
                      "本患者下一 CP →")),
         _node("p", {"class": "small navigation-note"},
               "本患者导航按 display_order 排列，仅用于浏览当前患者的候选 Checkpoint；显示顺序不等于已确认的临床决策、治疗或时间关系。"),
-        _node("nav", {"class": "checkpoint-nav", "aria-label": "Episode 内节点切换"},
-              button(episode.get("previous_checkpoint_id"), "episode", "previous",
-                     "← Episode 内上一 CP"),
-              _node("span", {}, _h(
-                  f"Episode 内 {episode.get('index', '?')} / {episode.get('total', '?')}"
-              )),
-              button(episode.get("next_checkpoint_id"), "episode", "next",
-                     "Episode 内下一 CP →")),
     )
 
 

@@ -41,6 +41,12 @@ def _created_after_cutoff(created_clock, cutoff_clock):
     if not created_separator or not cutoff_separator \
             or created_precision in coarse_precisions or cutoff_precision in coarse_precisions:
         return False
+    precision_lengths = {"hour": 2, "minute": 5, "second": 8}
+    known_precisions = [precision_lengths[value] for value in
+                        (created_precision, cutoff_precision) if value in precision_lengths]
+    if known_precisions:
+        length = min(known_precisions)
+        created_time, cutoff_time = created_time[:length], cutoff_time[:length]
     return bool(created_time and cutoff_time and created_time > cutoff_time)
 
 

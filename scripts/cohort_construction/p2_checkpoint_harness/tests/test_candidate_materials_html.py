@@ -335,6 +335,8 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn("本患者 CP 1 / 2", packet_page)
         self.assertIn("本患者下一 CP →", packet_page)
         self.assertIn('aria-label="本患者显示顺序节点切换"', packet_page)
+        self.assertNotIn('data-navigation="episode-next"', packet_page)
+        self.assertNotIn('data-navigation="episode-previous"', packet_page)
         self.assertNotIn("全病例", page)
         execute_page(page, r"""
 assert.equal(current.checkpoint_id,'CP-PRE');
@@ -342,7 +344,7 @@ assert.equal(current.sequence_navigation.next_checkpoint_id,'CP-POST');
 let next=document.querySelectorAll('[data-navigation="sequence-next"]');
 assert.equal(next.length,2);
 assert(next.every(button=>button.dataset.goto==='CP-POST'&&!button.disabled));
-assert(document.querySelectorAll('[data-navigation="episode-next"]').every(button=>button.disabled));
+assert.equal(document.querySelectorAll('[data-navigation="episode-next"]').length,0);
 next[0].click();
 assert.equal(current.checkpoint_id,'CP-POST');
 assert.equal(cpSelect.value,'CP-POST');
@@ -354,7 +356,7 @@ next[1].click();
 assert.equal(current.checkpoint_id,'CP-POST');
 assert.equal(cpSelect.value,'CP-POST');
 assert.equal(location.hash,'#CP-POST');
-assert(document.querySelectorAll('[data-navigation="episode-previous"]').every(button=>button.disabled));
+assert.equal(document.querySelectorAll('[data-navigation="episode-previous"]').length,0);
 """)
 
     def test_write_html_reuses_index_and_receipt_contract(self):

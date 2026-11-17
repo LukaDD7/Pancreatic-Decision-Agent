@@ -13,7 +13,7 @@ const chrome = process.env.REVIEW_CHROME_PATH || '/Applications/Google Chrome.ap
 const port = 9333 + Math.floor(Math.random() * 300);
 const child = spawn(chrome, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-  `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
+  '--remote-debugging-address=127.0.0.1', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
   pathToFileURL(path.resolve(input)).href,
 ], { stdio: 'ignore' });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -133,6 +133,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert(firstScreen.previousLabel.includes('本患者上一 CP'));
     assert(firstScreen.positionLabel.includes('本患者 CP'));
     assert(firstScreen.nextLabel.includes('本患者下一 CP'));
+    assert.equal(await evaluate("document.querySelectorAll('[data-navigation^=\"episode-\"]').length"), 0,
+      'Duplicate Episode navigation remains visible');
     assert(!firstScreen.materialText.includes('全病例'), 'Navigation implies a cross-patient scope');
     assert.equal(firstScreen.hasGlobalWarning, true, 'Global warning or migration summary remains visible');
     assert.equal(firstScreen.taskColumnCount, 3, 'Desktop task header is not a three-column grid');

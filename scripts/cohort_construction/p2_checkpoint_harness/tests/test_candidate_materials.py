@@ -158,6 +158,25 @@ class CandidateMaterialTests(unittest.TestCase):
                 self.assertEqual(source, original)
         self.assertEqual(self.sources[:3], original_sources)
 
+    def test_minute_cutoff_does_not_exclude_document_created_in_same_minute(self):
+        self.sources[0]["clock"] = dict(value="2022-12-14 10:00:00", precision="minute")
+        self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-14 10:00:09")
+        self.candidates[0]["clock"] = dict(value="2022-12-14 10:00:00", precision="minute")
+        projection = self.diagnostic_projection("yes", "no")
+
+        packet = self.packet("management_decision", projection)
+
+        card = next(source for source in packet["included_sources"]
+                    if source["source_id"] == "S-M")
+        self.assertIn("评估病情", card["text"])
+        self.assertEqual(packet["target"]["created_after_cutoff_source_ids"], [])
+        self.sources.append(dict(
+            source_id="S-EARLIER", title="既往病程", kind="document",
+            clock=clock("2022-12-13 10:00:00"), clocks={}, text="既往可见资料。"))
+        self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-14 10:01:00")
+        packet = self.packet("management_decision", projection)
+        self.assertEqual(packet["target"]["created_after_cutoff_source_ids"], ["S-M"])
+
     def test_same_day_coarse_creation_clock_is_not_treated_as_exactly_after_cutoff(self):
         self.sources.append(dict(
             source_id="S-SAME-DAY", title="同日病程", kind="document",
