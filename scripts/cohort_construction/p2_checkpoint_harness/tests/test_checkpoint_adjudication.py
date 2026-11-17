@@ -130,6 +130,47 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertTrue(result["summary"]["candidate_checkpoint_list_coverage"]["complete"])
         self.assertFalse(result["summary"]["clinical_reference_created"])
 
+    def test_evidence_start_and_quote_do_not_require_manual_end(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "复查MRI后仍拟行胰十二指肠切除术。"
+        evidence_text = "MRI示胰头占位较前缩小，未见远处转移。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03"),
+                              source("S-MRI", evidence_text, "2026-03-02")])
+        schema = registry.get("adjudicate_checkpoint").input_schema
+        self.assertNotIn("end", schema["properties"]["evidence_supports"]["items"]["properties"])
+        store.adjudicate(
+            checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+            evolution="FIRST_VISIBLE", rationale="首个可见管理锚点。")
+        quote = "未见远处转移"
+        result = store.adjudicate(
+            checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
+            evidence_supports=[dict(source_id="S-MRI", quote=quote,
+                                    start=evidence_text.index(quote))],
+            rationale="程序按quote和start核验并生成终点。")
+        self.assertEqual(result["item"]["evidence_supports"][0]["end"],
+                         evidence_text.index(quote) + len(quote))
+
+    def test_checkpoint_list_is_compact_but_detail_retains_actions_and_spans(self):
+        text = "拟行胰十二指肠切除术。"
+        member = candidate("EV-FIRST", "S-FIRST", text, text)
+        index = adjudication.AdjudicationCheckpointIndex(
+            [checkpoint("CP-FIRST", [member])], [member])
+        tools = {tool.name: tool for tool in index.tools()}
+        listed = tools["list_candidate_checkpoints"].run()["checkpoints"][0]
+        self.assertNotIn("candidate_actions", listed)
+        self.assertNotIn("masked_spans", listed)
+        detail = tools["read_candidate_checkpoint"].run("CP-FIRST")
+        self.assertEqual(detail["candidate_actions"], [member["candidate_action"]])
+        self.assertEqual(detail["masked_spans"], [member["span"]])
+
     def test_same_action_with_new_patient_evidence_is_retained(self):
         first_text = "讨论后拟行胰十二指肠切除术。"
         second_text = "复查MRI后仍拟行胰十二指肠切除术。"

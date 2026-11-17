@@ -43,7 +43,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 5. SUPPORT_ONLY必须给最近保留CP作为comparator，evolution只能是SAME_ROUND_SUPPORT/REPEATED_PLAN/EXECUTION。
 6. 时间缺失、先后无法确定或证据关系无法确定时用REVIEW_REQUIRED+UNCERTAIN，不要为了通过校验猜测时间或编造引文。不同任务但没有新增证据也不能冒充NEW_EVIDENCE_ROUND。
 
-evidence_supports中的quote必须逐字、连续来自同一source_id；start/end为Python字符半开区间，重复quote必须给start。程序会拒绝非最近比较状态、比较状态以前的旧证据、未来证据、无法定位的引文，以及和当前CP member candidate span重叠的引文。完成全部管理CP后调用finish；未知、重复或漏裁决会在finish报错。"""
+evidence_supports中的quote必须逐字、连续来自同一source_id；start为Python字符起点，重复quote必须给start。不要计算或提供end，程序会按quote长度核验并生成半开区间。程序会拒绝非最近比较状态、比较状态以前的旧证据、未来证据、无法定位的引文，以及和当前CP member candidate span重叠的引文。逐项提交后立即继续，不要反复重新列出全部CP；完成全部管理CP后调用finish，未知、重复或漏裁决会在finish报错。"""
 
 
 def _event_id(candidate, index):
@@ -139,14 +139,8 @@ class AdjudicationCheckpointIndex:
             clock_basis=checkpoint.get("clock_basis"),
             time_basis=checkpoint.get("time_basis"),
             source_ids=list(checkpoint.get("source_ids") or ()),
-            support_source_ids=list(checkpoint.get("support_source_ids") or ()),
             member_event_ids=list(checkpoint.get("member_event_ids") or ()),
-            supporting_event_ids=list(checkpoint.get("supporting_event_ids") or ()),
-            candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
-            masked_spans=deepcopy(checkpoint.get("masked_spans") or []),
-            diagnostic_event_ids=list(checkpoint.get("diagnostic_event_ids") or ()),
-            review_status=checkpoint.get("review_status"),
-            candidate_status=checkpoint.get("candidate_status"))
+            diagnostic_event_ids=list(checkpoint.get("diagnostic_event_ids") or ()))
 
     def tools(self):
         def list_candidate_checkpoints(kind=None, source_id=None, offset=0, limit=100):
@@ -170,6 +164,12 @@ class AdjudicationCheckpointIndex:
             checkpoint = self.require(checkpoint_id)
             result = self._summary(checkpoint)
             result.update(
+                support_source_ids=list(checkpoint.get("support_source_ids") or ()),
+                supporting_event_ids=list(checkpoint.get("supporting_event_ids") or ()),
+                candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
+                masked_spans=deepcopy(checkpoint.get("masked_spans") or []),
+                review_status=checkpoint.get("review_status"),
+                candidate_status=checkpoint.get("candidate_status"),
                 management_question=checkpoint.get("management_question"),
                 member_candidates=[
                     self._member_candidate(event_id)
@@ -185,8 +185,8 @@ class AdjudicationCheckpointIndex:
 
         return [
             Tool(name="list_candidate_checkpoints",
-                 description=("逐页列出全部候选CP，含kind、clock、candidate_actions、"
-                              "member_event_ids、source_ids和masked_spans。"),
+                 description=("逐页列出全部候选CP的ID、kind、clock、member_event_ids和source_ids；"
+                              "动作及span只在read_candidate_checkpoint按需读取。"),
                  input_schema=dict(type="object", additionalProperties=False,
                                    properties=dict(
                                        kind=dict(type="string"),
@@ -415,8 +415,8 @@ class CheckpointAdjudicationStore:
             required=["source_id", "quote"],
             properties=dict(source_id=dict(type="string", minLength=1),
                             quote=dict(type="string", minLength=1),
-                            start=dict(type="integer", minimum=0),
-                            end=dict(type="integer", minimum=0)))
+                            start=dict(type="integer", minimum=0,
+                                       description="quote的字符起点；不要提供end，程序自动核验。")))
         return Tool(
             name="adjudicate_checkpoint",
             description=("裁决一个MANAGEMENT_REASSESSMENT候选CP。RETAIN比较时必须给新增患者证据；"
