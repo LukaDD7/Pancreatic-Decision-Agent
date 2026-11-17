@@ -507,8 +507,8 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
             candidates = [other for other in diagnostic_drafts
                           if other["checkpoint"]["kind"] == BEFORE
                           and clock and _value(other["checkpoint"]["clock"]) >= clock
-                          and signatures & {_action_signature(action)
-                                            for action in other["checkpoint"]["candidate_actions"]}]
+                          and signatures <= {_action_signature(action)
+                                             for action in other["checkpoint"]["candidate_actions"]}]
             if candidates:
                 destination = min(candidates, key=lambda other: (
                     _value(other["checkpoint"]["clock"]), other["checkpoint"]["checkpoint_id"]))
@@ -519,8 +519,8 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
             candidates = [other for other in diagnostic_drafts
                           if other["checkpoint"]["kind"] == AFTER
                           and clock and clock >= _value(other["checkpoint"]["clock"])
-                          and signatures & {_action_signature(action)
-                                            for action in other["checkpoint"]["candidate_actions"]}
+                          and signatures <= {_action_signature(action)
+                                             for action in other["checkpoint"]["candidate_actions"]}
                           and (not draft["has_state_increment"] or (
                               input_evidence_ids
                               and input_evidence_ids <= set(other["diagnostic_event_ids"])

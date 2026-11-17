@@ -198,6 +198,30 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertTrue(all(not episode["checkpoint_ids"]
                             for episode in material["management_episodes"]))
 
+    def test_before_with_only_wholly_masked_target_has_no_answerable_task(self):
+        self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-14 13:00:00")
+        material = self.material()
+        self.assertFalse(any(packet["kind"] == "pre_exam_evaluation"
+                             for packet in material["packets"]))
+        self.assertEqual(material["summary"]["material_no_visible_context_count"], 2)
+        migration = next(item for item in material["migrations"]
+                         if item.get("event_id") == "EA-D"
+                         and item.get("node_kind") == "pre_exam_evaluation")
+        self.assertEqual(migration["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(migration["reason"], "NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF")
+
+    def test_before_ct_alias_does_not_leak_target_modality(self):
+        self.sources[1]["title"] = "胰腺CT增强"
+        self.sources.append(dict(
+            source_id="S-CT-CONTEXT", title="既往病史", kind="document",
+            clock=clock("2022-12-13 10:00:00"), clock_basis="body_record_time",
+            clocks={}, text="外院CT提示胰头占位，具体报告暂未调取。"))
+        packet = self.packet("pre_exam_evaluation")
+        context = next(source for source in packet["included_sources"]
+                       if source["source_id"] == "S-CT-CONTEXT")
+        self.assertNotIn("CT", context["text"])
+        self.assertEqual(context["text"], "[目标管理判断已遮蔽]")
+
     def test_candidate_relations_and_episodes_replace_temporary_containers(self):
         base = self.material()["packets"]
         management = next(packet for packet in base if packet["kind"] == "management_decision")

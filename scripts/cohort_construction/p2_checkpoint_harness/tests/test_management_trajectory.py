@@ -433,6 +433,26 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(set(composite["member_event_ids"]), {"EV-A", "EV-C"})
         self.assertEqual(len(composite["candidate_actions"]), 2)
 
+    def test_partial_after_match_does_not_absorb_other_composite_actions(self):
+        text = "拟行胰十二指肠切除术。拟开始新辅助化疗。"
+        items = [
+            candidate("EV-SURGERY", "S-SAME", text, "拟行胰十二指肠切除术。"),
+            candidate("EV-NAT", "S-SAME", text, "拟开始新辅助化疗。",
+                      action_type="START_NAT", target="新辅助化疗"),
+        ]
+        result = self.project(
+            candidates=items, sources=[source("PATH-1", "病理报告。"),
+                                      source("S-SAME", text)],
+            events=[diagnostic("DE-PATH", "PATH-1")],
+            reviews=[review("DE-PATH", AFTER, target="新辅助化疗",
+                            action_type="START_NAT")])
+        self.assertEqual(len(result["candidate_checkpoints"]), 2)
+        management = next(cp for cp in result["candidate_checkpoints"]
+                          if cp["kind"] == REASSESSMENT)
+        self.assertEqual({action["action_type"] for action in management["candidate_actions"]},
+                         {"ADVANCE_RESECTION", "START_NAT"})
+        self.assertEqual(set(management["member_event_ids"]), {"EV-SURGERY", "EV-NAT"})
+
     def test_same_source_pure_repeat_ignores_record_question_id(self):
         text = "拟行胰十二指肠切除术。"
         items = [

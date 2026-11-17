@@ -89,7 +89,7 @@ def _diagnostic_aliases(event, source_by_id):
     if any(term in titles.upper() for term in ("MR", "MRI")) or "磁共振" in titles:
         aliases.update(("MR", "MRI", "磁共振"))
     if "CT" in titles.upper():
-        aliases.update(("增强CT", "CT增强", "CT增强造影"))
+        aliases.update(("CT", "增强CT", "CT增强", "CT增强造影"))
     for source_id in event.get("source_ids", []):
         title = (source_by_id.get(source_id) or {}).get("title")
         if title:
@@ -509,8 +509,11 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             not_doctor_release=True)
         packet["content_sha256"] = digest(packet)
         packets.append(packet)
-    no_context_ids = {packet["checkpoint_id"] for packet in packets
-                      if not packet["included_sources"]}
+    no_context_ids = {
+        packet["checkpoint_id"] for packet in packets
+        if not any(source["source_id"] not in set(
+            packet["masked_projection"]["whole_source_ids"]) and source["text"].strip()
+                   for source in packet["included_sources"])}
     if no_context_ids:
         packets = [packet for packet in packets
                    if packet["checkpoint_id"] not in no_context_ids]
