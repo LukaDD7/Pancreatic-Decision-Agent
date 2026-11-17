@@ -50,11 +50,18 @@ def review(event_id, kind, *, target="根治性切除", action_type="ADVANCE_RES
 
 
 class ManagementTrajectoryTests(unittest.TestCase):
-    def project(self, *, candidates=(), sources=(), events=(), reviews=(), bounds=None):
+    def project(self, *, candidates=(), sources=(), events=(), reviews=(), bounds=None,
+                adjudications=None):
         return project_management_trajectory(
             case_id="SYN-TRAJECTORY", candidates=candidates, sources=sources,
             diagnostic_events=events, diagnostic_reviews=reviews,
-            task_time_bounds=bounds or dict(operation_start=dict(value=None)))
+            task_time_bounds=bounds or dict(operation_start=dict(value=None)),
+            checkpoint_adjudications=adjudications)
+
+    def provisional_management_id(self, candidates, sources):
+        result = self.project(candidates=candidates, sources=sources)
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        return result["candidate_checkpoints"][0]["checkpoint_id"]
 
     def test_same_ct_has_two_cutoffs_and_before_question_does_not_leak_target(self):
         event = diagnostic("DE-CT", "CT-1")
@@ -619,6 +626,237 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual([cp["phase"] for cp in result["candidate_checkpoints"]],
                          ["NAT_OR_CONVERSION", "NAT_OR_CONVERSION",
                           "POST_TREATMENT_REASSESSMENT"])
+
+    def test_global_support_only_moves_composite_members_to_diagnostic_cp(self):
+        event = diagnostic("DE-CT", "CT-1")
+        text = "转入后拟行EUS+FNA，评估后拟行胰十二指肠切除术。"
+        items = [
+            candidate("EV-EUS", "S-TRANSFER", text, "拟行EUS+FNA",
+                      clock="2026-03-03", action_type="ORDER_EUS", target="EUS+FNA"),
+            candidate("EV-SURGERY", "S-TRANSFER", text, "拟行胰十二指肠切除术。",
+                      clock="2026-03-03"),
+        ]
+        sources = [source("CT-1", "CT报告。"),
+                   source("S-TRANSFER", text, clock="2026-03-03")]
+        reviews = [review("DE-CT", AFTER)]
+        management_id = self.provisional_management_id(items, sources)
+        diagnostic_id = self.project(
+            sources=sources, events=[event], reviews=reviews
+        )["candidate_checkpoints"][0]["checkpoint_id"]
+        result = self.project(
+            candidates=items, sources=sources, events=[event], reviews=reviews,
+            adjudications={"items": [dict(
+                checkpoint_id=management_id, disposition="SUPPORT_ONLY",
+                evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id=diagnostic_id,
+                evidence_supports=["DE-CT"], rationale="合成全局裁决")]})
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["kind"], AFTER)
+        self.assertEqual(set(checkpoint["supporting_event_ids"]), {"EV-EUS", "EV-SURGERY"})
+        self.assertEqual(checkpoint["support_source_ids"], ["CT-1", "S-TRANSFER"])
+        transfer_spans = [span for span in checkpoint["masked_spans"]
+                          if span["source_id"] == "S-TRANSFER"]
+        self.assertEqual(len(transfer_spans), 2)
+        migrations = {row["event_id"]: row for row in result["migrations"]
+                      if row["migration_type"] == "candidate_span"}
+        self.assertEqual(set(migrations), {"EV-EUS", "EV-SURGERY"})
+        for migration in migrations.values():
+            self.assertEqual(migration["migration_status"], "SUPPORT_ONLY")
+            self.assertEqual(migration["reason"], "GLOBAL_ADJUDICATION_SAME_ROUND_SUPPORT")
+            self.assertEqual(migration["to_checkpoint_id"], diagnostic_id)
+        self.assertEqual({row["event_id"] for row in result["support_records"]},
+                         {"EV-EUS", "EV-SURGERY"})
+        self.assertTrue(all(row["to_checkpoint_id"] == diagnostic_id
+                            for row in result["support_records"]))
+
+    def test_global_retain_new_evidence_round_skips_legacy_signature_merge(self):
+        event = diagnostic("DE-CT", "CT-1")
+        text = "再次讨论拟行胰十二指肠切除术。"
+        item = candidate("EV-SURGERY", "S-PLAN", text, text, clock="2026-03-03")
+        sources = [source("CT-1", "CT报告。"),
+                   source("S-PLAN", text, clock="2026-03-03")]
+        reviews = [review("DE-CT", AFTER, target="胰十二指肠切除术")]
+        management_id = self.provisional_management_id([item], sources)
+        legacy = self.project(candidates=[item], sources=sources,
+                              events=[event], reviews=reviews)
+        self.assertEqual(len(legacy["candidate_checkpoints"]), 1)
+        result = self.project(
+            candidates=[item], sources=sources, events=[event], reviews=reviews,
+            adjudications=[dict(
+                checkpoint_id=management_id, disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=None,
+                evidence_supports=["DE-CT"], rationale="新证据轮次保留独立CP")])
+        self.assertCountEqual([cp["kind"] for cp in result["candidate_checkpoints"]],
+                              [AFTER, REASSESSMENT])
+        management = next(cp for cp in result["candidate_checkpoints"]
+                          if cp["kind"] == REASSESSMENT)
+        self.assertEqual(management["checkpoint_id"], management_id)
+        self.assertEqual(management["member_event_ids"], ["EV-SURGERY"])
+        migration = next(row for row in result["migrations"]
+                         if row["event_id"] == "EV-SURGERY")
+        self.assertEqual(migration["migration_status"], "RETAINED")
+        self.assertEqual(migration["to_checkpoint_id"], management_id)
+
+    def test_global_support_only_merges_different_action_without_new_evidence(self):
+        event = diagnostic("DE-CT", "CT-1")
+        text = "拟行胰十二指肠切除术。"
+        item = candidate("EV-SURGERY", "S-PLAN", text, text, clock="2026-03-03")
+        sources = [source("CT-1", "CT报告。"),
+                   source("S-PLAN", text, clock="2026-03-03")]
+        reviews = [review("DE-CT", AFTER, target="新辅助化疗", action_type="START_NAT")]
+        management_id = self.provisional_management_id([item], sources)
+        diagnostic_id = self.project(
+            sources=sources, events=[event], reviews=reviews
+        )["candidate_checkpoints"][0]["checkpoint_id"]
+        result = self.project(
+            candidates=[item], sources=sources, events=[event], reviews=reviews,
+            adjudications=[dict(
+                checkpoint_id=management_id, disposition="SUPPORT_ONLY",
+                evolution="DIFFERENT_TASK", comparator_checkpoint_id=diagnostic_id,
+                evidence_supports=[], rationale="无新增证据，不保留不同动作CP")])
+        self.assertEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
+                         [diagnostic_id])
+        self.assertEqual(result["candidate_checkpoints"][0]["supporting_event_ids"],
+                         ["EV-SURGERY"])
+        migration = next(row for row in result["migrations"]
+                         if row["event_id"] == "EV-SURGERY")
+        self.assertEqual(migration["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(migration["reason"], "GLOBAL_ADJUDICATION_DIFFERENT_TASK")
+
+    def test_global_review_required_keeps_event_as_review_attachment(self):
+        event = diagnostic("DE-CT", "CT-1")
+        text = "拟行胰十二指肠切除术。"
+        item = candidate("EV-SURGERY", "S-PLAN", text, text, clock="2026-03-03")
+        sources = [source("CT-1", "CT报告。"),
+                   source("S-PLAN", text, clock="2026-03-03")]
+        reviews = [review("DE-CT", AFTER)]
+        management_id = self.provisional_management_id([item], sources)
+        diagnostic_id = self.project(
+            sources=sources, events=[event], reviews=reviews
+        )["candidate_checkpoints"][0]["checkpoint_id"]
+        result = self.project(
+            candidates=[item], sources=sources, events=[event], reviews=reviews,
+            adjudications=[dict(
+                checkpoint_id=management_id, disposition="REVIEW_REQUIRED",
+                evolution="UNCERTAIN", comparator_checkpoint_id=diagnostic_id,
+                evidence_supports=[], rationale="全局裁决不确定")])
+        self.assertEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
+                         [diagnostic_id])
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["supporting_event_ids"], ["EV-SURGERY"])
+        self.assertIn("S-PLAN", checkpoint["support_source_ids"])
+        self.assertTrue(any(span["source_id"] == "S-PLAN"
+                            for span in checkpoint["masked_spans"]))
+        migration = next(row for row in result["migrations"]
+                         if row["event_id"] == "EV-SURGERY")
+        self.assertEqual(migration["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(migration["reason"], "GLOBAL_ADJUDICATION_UNCERTAIN")
+        self.assertEqual(migration["to_checkpoint_id"], diagnostic_id)
+        self.assertEqual(migration["span"]["quote"], text)
+        self.assertEqual(result["support_records"], [])
+
+    def test_global_support_only_can_attach_to_earlier_management_cp(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "拟开始新辅助化疗。"
+        items = [
+            candidate("EV-FIRST", "S-FIRST", first_text, first_text),
+            candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                      clock="2026-03-03", action_type="START_NAT", target="新辅助化疗"),
+        ]
+        sources = [source("S-FIRST", first_text),
+                   source("S-SECOND", second_text, clock="2026-03-03")]
+        provisional = self.project(candidates=items, sources=sources)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"]}
+        result = self.project(candidates=items, sources=sources, adjudications=[
+            dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="保留首个CP"),
+            dict(checkpoint_id=ids["EV-SECOND"], disposition="SUPPORT_ONLY",
+                 evolution="REPEATED_PLAN", comparator_checkpoint_id=ids["EV-FIRST"],
+                 evidence_supports=[], rationale="归入既有management CP")])
+        self.assertEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
+                         [ids["EV-FIRST"]])
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["member_event_ids"], ["EV-FIRST"])
+        self.assertEqual(checkpoint["supporting_event_ids"], ["EV-SECOND"])
+        self.assertEqual(checkpoint["support_source_ids"], ["S-FIRST", "S-SECOND"])
+        migration = next(row for row in result["migrations"]
+                         if row["event_id"] == "EV-SECOND")
+        self.assertEqual(migration["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(migration["to_checkpoint_id"], ids["EV-FIRST"])
+        self.assertEqual(result["support_records"][0]["to_checkpoint_id"], ids["EV-FIRST"])
+
+    def test_global_adjudication_rejects_unknown_checkpoint_and_comparator(self):
+        text = "拟行胰十二指肠切除术。"
+        item = candidate("EV-SURGERY", "S-PLAN", text, text)
+        sources = [source("S-PLAN", text)]
+        management_id = self.provisional_management_id([item], sources)
+        with self.assertRaisesRegex(ValueError, "unknown adjudicated management checkpoint"):
+            self.project(candidates=[item], sources=sources, adjudications=[dict(
+                checkpoint_id="CP-M-UNKNOWN", disposition="RETAIN_CP",
+                evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                evidence_supports=[], rationale="未知CP")])
+        with self.assertRaisesRegex(ValueError, "unknown comparator checkpoint"):
+            self.project(candidates=[item], sources=sources, adjudications=[dict(
+                checkpoint_id=management_id, disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN", comparator_checkpoint_id="CP-M-UNKNOWN",
+                evidence_supports=[], rationale="未知comparator")])
+
+    def test_global_adjudication_rejects_same_clock_or_later_comparator(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "拟开始新辅助化疗。"
+        items = [
+            candidate("EV-FIRST", "S-FIRST", first_text, first_text),
+            candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                      clock="2026-03-03", action_type="START_NAT", target="新辅助化疗"),
+        ]
+        sources = [source("S-FIRST", first_text),
+                   source("S-SECOND", second_text, clock="2026-03-03")]
+        provisional = self.project(candidates=items, sources=sources)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"]}
+        with self.assertRaisesRegex(ValueError, "strictly earlier"):
+            self.project(candidates=items, sources=sources, adjudications=[dict(
+                checkpoint_id=ids["EV-FIRST"], disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN", comparator_checkpoint_id=ids["EV-SECOND"],
+                evidence_supports=[], rationale="晚于当前CP")])
+
+        same_clock = candidate("EV-SAME", "S-SAME", second_text, second_text,
+                               action_type="START_NAT", target="新辅助化疗")
+        same_sources = [source("S-FIRST", first_text), source("S-SAME", second_text)]
+        same_items = [items[0], same_clock]
+        provisional = self.project(candidates=same_items, sources=same_sources)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"]}
+        with self.assertRaisesRegex(ValueError, "strictly earlier"):
+            self.project(candidates=same_items, sources=same_sources, adjudications=[dict(
+                checkpoint_id=ids["EV-SAME"], disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN", comparator_checkpoint_id=ids["EV-FIRST"],
+                evidence_supports=[], rationale="同钟comparator")])
+
+    def test_global_adjudication_rejects_comparator_cycle(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "拟开始新辅助化疗。"
+        items = [
+            candidate("EV-FIRST", "S-FIRST", first_text, first_text),
+            candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                      clock="2026-03-03", action_type="START_NAT", target="新辅助化疗"),
+        ]
+        sources = [source("S-FIRST", first_text),
+                   source("S-SECOND", second_text, clock="2026-03-03")]
+        provisional = self.project(candidates=items, sources=sources)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"]}
+        adjudications = []
+        for checkpoint_id, comparator_id in ((ids["EV-FIRST"], ids["EV-SECOND"]),
+                                             (ids["EV-SECOND"], ids["EV-FIRST"])):
+            adjudications.append(dict(
+                checkpoint_id=checkpoint_id, disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN", comparator_checkpoint_id=comparator_id,
+                evidence_supports=[], rationale="循环comparator"))
+        with self.assertRaisesRegex(ValueError, "cyclic"):
+            self.project(candidates=items, sources=sources, adjudications=adjudications)
 
     def test_inputs_are_not_modified_and_ids_are_stable_under_reordering(self):
         text = "拟行胰十二指肠切除术。"

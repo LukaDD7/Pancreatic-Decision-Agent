@@ -67,6 +67,44 @@ class StubTransport:
         return (dict(tool_calls=[dict(id="f1", name="finish", arguments={})]),
                 dict(usage=dict(prompt_tokens=7, completion_tokens=3)))
 
+class TrajectoryStubTransport(StubTransport):
+    def __init__(self, cache, settings, *, config=None):
+        super().__init__(cache, settings, config=config)
+        self._listed = False
+        self._adjudicated = False
+
+    def complete(self, messages, *, tools=None, task="agent_step", purpose=None):
+        if not any(isinstance(tool, dict) and tool.get("name") == "adjudicate_checkpoint"
+                   for tool in tools or ()):
+            return super().complete(messages, tools=tools, task=task, purpose=purpose)
+        self.receipts.append(dict(task=task, usage=dict(prompt_tokens=7, completion_tokens=3)))
+        usage = dict(usage=dict(prompt_tokens=7, completion_tokens=3))
+        if not self._listed:
+            self._listed = True
+            return dict(tool_calls=[dict(id="list-cp", name="list_candidate_checkpoints",
+                                         arguments=dict(limit=200))]), usage
+        if not self._adjudicated:
+            self._adjudicated = True
+            checkpoint_id = None
+            for message in reversed(messages):
+                if message.get("role") != "tool":
+                    continue
+                try:
+                    result = json.loads(message.get("content") or "{}")
+                except ValueError:
+                    continue
+                management = [item for item in result.get("checkpoints") or []
+                              if item.get("kind") == "MANAGEMENT_REASSESSMENT"]
+                if management:
+                    checkpoint_id = management[0]["checkpoint_id"]
+                    break
+            assert checkpoint_id is not None
+            return dict(tool_calls=[dict(
+                id="adjudicate-cp", name="adjudicate_checkpoint",
+                arguments=dict(checkpoint_id=checkpoint_id, disposition="RETAIN_CP",
+                               evolution="FIRST_VISIBLE", rationale="合成首见锚点。"))]), usage
+        return dict(tool_calls=[dict(id="finish-cp", name="finish", arguments={})]), usage
+
 
 class ExecutedRunTests(unittest.TestCase):
     def setUp(self):
@@ -128,6 +166,55 @@ class ExecutedRunTests(unittest.TestCase):
         self.assertGreater(summary["budget"]["requests"], 0)
         self.assertLessEqual(summary["budget"]["requests"],
                              summary["budget"]["max_requests"])
+
+    def test_trajectory_run_invokes_global_adjudication_after_discovery(self):
+        self._authorize("trajectory")
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   TrajectoryStubTransport):
+            code = self._run("trajectory")
+
+        self.assertEqual(code, 0)
+        summary = json.loads((self.output / "summary.json").read_text())
+        self.assertEqual(list(summary["stages"]), ["discovery", "checkpoint_adjudication"])
+        self.assertEqual(summary["status"], "COMPLETE")
+        self.assertTrue(summary["stages"]["checkpoint_adjudication"]["complete"])
+        result = json.loads((self.output / "case_result.json").read_text())
+        self.assertEqual(len(result["checkpoint_adjudication"]["items"]), 1)
+        self.assertEqual(result["checkpoint_adjudication"]["items"][0]["evolution"],
+                         "FIRST_VISIBLE")
+
+    def test_trajectory_incomplete_adjudication_cannot_be_complete_or_rendered(self):
+        self._authorize("trajectory")
+
+        def adjudicate(runner):
+            runner.checkpoint_adjudication = dict(
+                format="p2-checkpoint-adjudication-0.1.0", case_id=runner.case_id,
+                items=[], summary=dict(stop="answered", complete=False,
+                                       missing_checkpoint_ids=["CP-M-MISSING"]))
+            runner.stage_stops.append(dict(stage="checkpoint_adjudication", stop="answered"))
+            return dict(stop="answered", complete=False)
+
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   StubTransport), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.pipeline.CaseRunner."
+                   "run_checkpoint_adjudication", adjudicate):
+            self.assertEqual(self._run("trajectory"), 1)
+
+        summary = json.loads((self.output / "summary.json").read_text())
+        self.assertEqual(summary["status"], "INCOMPLETE")
+        self.assertEqual(summary["unfinished"][0]["kind"],
+                         "checkpoint_adjudication_incomplete")
+        from scripts.cohort_construction.p2_checkpoint_harness.render_candidate_materials import (
+            render_candidate_materials,
+        )
+        with self.assertRaisesRegex(ValueError, "CHECKPOINT_ADJUDICATION_INCOMPLETE_OR_INVALID"):
+            render_candidate_materials(
+                case_result=self.output / "case_result.json", source_bundle=self.sources,
+                output=self.dir / "materials")
 
     def _run_with(self, patch_transport, stages="legacy"):
         with patch("scripts.cohort_construction.model_api.load_boyu_settings",

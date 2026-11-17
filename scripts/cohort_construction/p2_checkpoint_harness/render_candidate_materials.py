@@ -67,10 +67,17 @@ def render_candidate_materials(*, case_result, source_bundle, output,
                  else None)
     if projector is None:
         raise ValueError("UNKNOWN_CANDIDATE_PROJECTION_VERSION:" + projection_version)
-    projection = projector(
+    projection_kwargs = dict(
         case_id=raw["case_id"], candidates=raw["candidate_spans"], sources=sources,
         diagnostic_events=diagnostic_events,
         diagnostic_reviews=raw.get("diagnostic_candidate_reviews") or [])
+    if projection_version == "trajectory-v0.1":
+        adjudication = raw.get("checkpoint_adjudication")
+        if not isinstance(adjudication, dict) \
+                or (adjudication.get("summary") or {}).get("complete") is not True:
+            raise ValueError("CHECKPOINT_ADJUDICATION_INCOMPLETE_OR_INVALID")
+        projection_kwargs["checkpoint_adjudications"] = adjudication
+    projection = projector(**projection_kwargs)
     cp_relations = cp_episodes = None
     if projection_version == "trajectory-v0.1":
         cp_relations, cp_episodes = [], projection["management_episodes"]

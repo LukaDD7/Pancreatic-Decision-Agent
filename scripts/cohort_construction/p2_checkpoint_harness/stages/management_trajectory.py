@@ -52,6 +52,11 @@ ROUTINE_POSTOPERATIVE_TERMS = (
     "术后常规", "伤口", "引流管护理", "生命体征观察",
 )
 CURATIVE_ACTION_TERMS = ("根治", "切除", "resect", "explor", "探查")
+ADJUDICATION_DISPOSITIONS = {"RETAIN_CP", "SUPPORT_ONLY", "REVIEW_REQUIRED"}
+ADJUDICATION_EVOLUTIONS = {
+    "FIRST_VISIBLE", "NEW_EVIDENCE_ROUND", "SAME_ROUND_SUPPORT", "REPEATED_PLAN",
+    "EXECUTION", "DIFFERENT_TASK", "UNCERTAIN",
+}
 
 
 def _provenance(**values):
@@ -297,6 +302,129 @@ def _group_management(case_id, prepared, migration_by_event, evidence_arrivals):
     return drafts
 
 
+def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
+                                    migration_by_event, checkpoint_adjudications):
+    if checkpoint_adjudications is None:
+        return management_drafts
+    raw_items = (checkpoint_adjudications.get("items")
+                 if isinstance(checkpoint_adjudications, dict)
+                 else checkpoint_adjudications)
+    if not isinstance(raw_items, list):
+        raise ValueError("checkpoint_adjudications must be an item list or a dict with items")
+
+    management_by_id = {
+        draft["checkpoint"]["checkpoint_id"]: draft for draft in management_drafts}
+    diagnostic_by_id = {
+        draft["checkpoint"]["checkpoint_id"]: draft for draft in diagnostic_drafts}
+    adjudications = {}
+    comparators = {}
+    for original in raw_items:
+        if not isinstance(original, dict):
+            raise ValueError("checkpoint adjudication items must be dicts")
+        item = deepcopy(original)
+        checkpoint_id = item.get("checkpoint_id")
+        if checkpoint_id not in management_by_id:
+            raise ValueError("unknown adjudicated management checkpoint: %s" % checkpoint_id)
+        if checkpoint_id in adjudications:
+            raise ValueError("duplicate checkpoint adjudication: %s" % checkpoint_id)
+        disposition = item.get("disposition")
+        evolution = item.get("evolution")
+        if disposition not in ADJUDICATION_DISPOSITIONS:
+            raise ValueError("unknown checkpoint adjudication disposition: %s" % disposition)
+        if evolution not in ADJUDICATION_EVOLUTIONS:
+            raise ValueError("unknown checkpoint adjudication evolution: %s" % evolution)
+        comparator_id = item.get("comparator_checkpoint_id")
+        if disposition == "SUPPORT_ONLY" and not comparator_id:
+            raise ValueError("SUPPORT_ONLY requires comparator_checkpoint_id: %s" % checkpoint_id)
+        if comparator_id:
+            comparator = management_by_id.get(comparator_id) or diagnostic_by_id.get(comparator_id)
+            if comparator is None:
+                raise ValueError("unknown comparator checkpoint: %s" % comparator_id)
+            if comparator["checkpoint"]["kind"] not in {BEFORE, AFTER, REASSESSMENT}:
+                raise ValueError("comparator must be a management or diagnostic CP: %s"
+                                 % comparator_id)
+            comparators[checkpoint_id] = comparator_id
+        adjudications[checkpoint_id] = item
+
+    visiting, visited = set(), set()
+
+    def check_cycle(checkpoint_id):
+        if checkpoint_id in visiting:
+            raise ValueError("cyclic checkpoint adjudication comparator chain: %s" % checkpoint_id)
+        if checkpoint_id in visited:
+            return
+        visiting.add(checkpoint_id)
+        comparator_id = comparators.get(checkpoint_id)
+        if comparator_id in comparators:
+            check_cycle(comparator_id)
+        visiting.remove(checkpoint_id)
+        visited.add(checkpoint_id)
+
+    for checkpoint_id in comparators:
+        check_cycle(checkpoint_id)
+        if adjudications[checkpoint_id]["disposition"] == "REVIEW_REQUIRED":
+            continue
+        checkpoint = management_by_id[checkpoint_id]["checkpoint"]
+        comparator = (management_by_id.get(comparators[checkpoint_id])
+                      or diagnostic_by_id[comparators[checkpoint_id]])["checkpoint"]
+        clock = _value(checkpoint["clock"])
+        comparator_clock = _value(comparator["clock"])
+        if not clock or not comparator_clock:
+            raise ValueError("comparator clocks must be known: %s -> %s"
+                             % (checkpoint_id, comparators[checkpoint_id]))
+        if comparator_clock >= clock:
+            raise ValueError("comparator must be strictly earlier than adjudicated CP: %s -> %s"
+                             % (checkpoint_id, comparators[checkpoint_id]))
+
+    missing = sorted(set(management_by_id) - set(adjudications))
+    if missing:
+        raise ValueError("incomplete checkpoint adjudication coverage: %s" % ",".join(missing))
+
+    def final_destination(checkpoint_id):
+        diagnostic = diagnostic_by_id.get(checkpoint_id)
+        if diagnostic is not None:
+            return diagnostic
+        draft = management_by_id[checkpoint_id]
+        adjudication = adjudications.get(checkpoint_id)
+        if adjudication is None or adjudication["disposition"] == "RETAIN_CP":
+            return draft
+        comparator_id = comparators.get(checkpoint_id)
+        return final_destination(comparator_id) if comparator_id else None
+
+    retained = []
+    for draft in management_drafts:
+        checkpoint_id = draft["checkpoint"]["checkpoint_id"]
+        adjudication = adjudications.get(checkpoint_id)
+        if adjudication is None:
+            retained.append(draft)
+            continue
+        disposition = adjudication["disposition"]
+        if disposition == "RETAIN_CP":
+            draft["global_adjudication_retain"] = True
+            retained.append(draft)
+            continue
+        comparator_id = adjudication.get("comparator_checkpoint_id")
+        destination = final_destination(checkpoint_id)
+        if disposition == "SUPPORT_ONLY" and destination is None:
+            raise ValueError("SUPPORT_ONLY comparator chain has no retained destination: %s"
+                             % checkpoint_id)
+        status = "SUPPORT_ONLY" if disposition == "SUPPORT_ONLY" else "REVIEW_REQUIRED"
+        reason = ("GLOBAL_ADJUDICATION_" + adjudication["evolution"]
+                  if disposition == "SUPPORT_ONLY" else "GLOBAL_ADJUDICATION_UNCERTAIN")
+        destination_id = (destination["checkpoint"]["checkpoint_id"]
+                          if destination is not None else comparator_id)
+        for item in draft["items"]:
+            item["migration_status"] = status
+            item["global_adjudication"] = True
+            item["attached_to"] = destination_id
+            migration_by_event[item["event_id"]].update(
+                migration_status=status, status=status, reason=reason,
+                to_checkpoint_id=comparator_id)
+            if destination is not None and item not in destination["attached_items"]:
+                destination["attached_items"].append(item)
+    return retained
+
+
 def _review_map(diagnostic_reviews):
     result = {}
     for original in diagnostic_reviews or []:
@@ -519,6 +647,9 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
                                       migration_by_event):
     retained = []
     for draft in management_drafts:
+        if draft.get("global_adjudication_retain"):
+            retained.append(draft)
+            continue
         checkpoint = draft["checkpoint"]
         actions = checkpoint["candidate_actions"]
         clock = _value(checkpoint["clock"])
@@ -564,6 +695,10 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
                              reason=reason,
                              to_checkpoint_id=destination["checkpoint"]["checkpoint_id"])
         destination["attached_items"].extend(draft["items"])
+        for attached_item in draft["attached_items"]:
+            attached_item["attached_to"] = destination["checkpoint"]["checkpoint_id"]
+            if attached_item not in destination["attached_items"]:
+                destination["attached_items"].append(attached_item)
     return retained
 
 
@@ -592,7 +727,8 @@ def _attach_support(prepared, drafts, migration_by_event):
             if item not in destination["attached_items"]:
                 destination["attached_items"].append(item)
             checkpoint_id = destination["checkpoint"]["checkpoint_id"]
-            migration_by_event[item["event_id"]]["to_checkpoint_id"] = checkpoint_id
+            if not item.get("global_adjudication"):
+                migration_by_event[item["event_id"]]["to_checkpoint_id"] = checkpoint_id
         support_records.append(dict(
             support_id="SUP-" + _digest([item["event_id"]]),
             event_id=item["event_id"],
@@ -734,7 +870,8 @@ def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
 
 
 def project_management_trajectory(*, case_id, candidates, sources, diagnostic_events,
-                                  diagnostic_reviews=None, task_time_bounds=None):
+                                  diagnostic_reviews=None, task_time_bounds=None,
+                                  checkpoint_adjudications=None):
     """Project one continuous curative goal into reviewable state/action cycles."""
     if task_time_bounds is None:
         from .diagnostic_events import derive_preoperative_task_bounds
@@ -785,6 +922,9 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
                                 if draft["checkpoint"]["kind"] == AFTER} - {None})
     management_drafts = _group_management(
         case_id, prepared, migration_by_event, evidence_arrivals)
+    management_drafts = _apply_checkpoint_adjudications(
+        management_drafts, diagnostic_drafts, migration_by_event,
+        checkpoint_adjudications)
     management_drafts = _attach_management_to_diagnostics(
         management_drafts, diagnostic_drafts, migration_by_event)
     all_drafts = management_drafts + diagnostic_drafts

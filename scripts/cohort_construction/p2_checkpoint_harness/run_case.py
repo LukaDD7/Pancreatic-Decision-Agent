@@ -25,6 +25,7 @@ RUN_SUMMARY_FORMAT = "p2-harness-run-summary-0.1.0"
 EXECUTION_SCOPES = {
     "legacy": "SOURCE_DISCOVERY_ORDERING_EPISODE_CANDIDATE_RECONSTRUCTION",
     "discovery": "SOURCE_DISCOVERY_ONLY_CANDIDATE_SPANS_AND_PROGRAM_EVIDENCE_INDEX",
+    "trajectory": "SOURCE_DISCOVERY_GLOBAL_EVIDENCE_EVOLUTION_CHECKPOINT_ADJUDICATION",
     "case": "SOURCE_DISCOVERY_CASE_ORGANIZATION_CANDIDATE_RECONSTRUCTION",
 }
 EXECUTION_SCOPE = EXECUTION_SCOPES["legacy"]
@@ -190,10 +191,11 @@ def main(argv=None):
     parser.add_argument("--cache", required=True, help="new cache directory")
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--config", default=None)
-    parser.add_argument("--stages", choices=("legacy", "discovery", "case"),
+    parser.add_argument("--stages", choices=("legacy", "discovery", "trajectory", "case"),
                         default="legacy", dest="stages",
                         help=("legacy: discovery+ordering+episodes; discovery: stop before "
-                              "organization; case: discovery+single case-level organization"))
+                              "organization; trajectory: discovery+global evidence-evolution "
+                              "adjudication; case: discovery+single case-level organization"))
     parser.add_argument("--authorization", default=None,
                         help="read-only exact-run authorization; required to execute")
     parser.add_argument("--execute", action="store_true",
@@ -256,6 +258,11 @@ def _execute(args, contract, limits, plan):
         stages["discovery"] = runner.run_discovery()
     except Exception as exc:  # noqa: BLE001 - a failed stage is recorded, not hidden
         failure = _failure("discovery", exc)
+    if args.stages == "trajectory" and failure is None:
+        try:
+            stages["checkpoint_adjudication"] = runner.run_checkpoint_adjudication()
+        except Exception as exc:  # noqa: BLE001
+            failure = _failure("checkpoint_adjudication", exc)
     if args.stages == "legacy" and failure is None:
         try:
             stages["ordering"] = runner.run_ordering()
@@ -292,6 +299,8 @@ def _execute(args, contract, limits, plan):
         evidence_inventory=artifacts["evidence_inventory"],
         rejected_mentions=artifacts["rejected_mentions"],
         summary=stages.get("discovery")))
+    _write_new(output / "checkpoint_adjudication.json",
+               artifacts["checkpoint_adjudication"] or {})
     _write_new(output / "relations.json", artifacts["relations"])
     _write_new(output / "episodes.json", artifacts["episodes"] or {})
     _write_new(output / "audit.json", artifacts["audit"] or {})
@@ -356,11 +365,27 @@ def _unfinished(artifacts):
             reasons.append(dict(
                 kind="diagnostic_review_incomplete", unit_id=unit_id,
                 missing_candidate_kinds=summary.get("diagnostic_missing_candidate_kinds") or []))
+    adjudication = artifacts.get("checkpoint_adjudication")
+    if adjudication is not None \
+            and (adjudication.get("summary") or {}).get("complete") is not True:
+        reasons.append(dict(
+            kind="checkpoint_adjudication_incomplete",
+            stop=(adjudication.get("summary") or {}).get("stop"),
+            missing_checkpoint_ids=(adjudication.get("summary") or {}).get(
+                "missing_checkpoint_ids") or []))
     coverage = artifacts.get("coverage") or {}
     if coverage.get("units_not_run"):
         reasons.append(dict(kind="units_not_run",
                             count=coverage["units_not_run"],
                             unit_ids=coverage.get("units_not_run_ids")))
+    adjudication = artifacts.get("checkpoint_adjudication")
+    if adjudication is not None \
+            and (adjudication.get("summary") or {}).get("complete") is not True:
+        reasons.append(dict(
+            kind="checkpoint_adjudication_incomplete",
+            stop=(adjudication.get("summary") or {}).get("stop"),
+            missing_checkpoint_ids=(adjudication.get("summary") or {}).get(
+                "missing_checkpoint_ids") or []))
     return reasons
 
 

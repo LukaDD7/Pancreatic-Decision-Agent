@@ -49,6 +49,7 @@ class CaseRunner:
         self.evidence_inventory = []
         self.diagnostic_reviews = []
         self.diagnostic_review_revisions = []
+        self.checkpoint_adjudication = None
         self.episodes = None
         self.audit = None
         self.stage_stops = []
@@ -155,9 +156,27 @@ class CaseRunner:
                 if entry["record"].get("scope") != "no":
                     self.events.append(_event(unit, entry))
             self.rejected.extend(_event(unit, entry) for entry in store.rejected())
+        unique_events = {}
+        duplicate_discovery_candidates = 0
+        identity_fields = ("origin_source_ids", "span", "scope", "record_function",
+                           "candidate_action", "clock", "status")
+        for event in self.events:
+            previous = unique_events.get(event["event_id"])
+            if previous is None:
+                unique_events[event["event_id"]] = event
+                continue
+            if any(previous.get(field) != event.get(field) for field in identity_fields):
+                raise ValueError("CANDIDATE_EVENT_ID_COLLISION:" + event["event_id"])
+            duplicate_discovery_candidates += 1
+            previous.setdefault("duplicate_discovery_provenance", []).append(dict(
+                discovery_unit_id=event.get("discovery_unit_id"),
+                record_id=event.get("record_id"), local_id=event.get("local_id"),
+                rationale=event.get("rationale")))
+        self.events = list(unique_events.values())
         self.events.sort(key=lambda event: event["event_id"])
         return dict(units=len(self.discovery),
                     events=len(self.events),
+                    duplicate_discovery_candidates=duplicate_discovery_candidates,
                     zero_event_units=sum(1 for record in self.discovery.values()
                                          if record["summary"]["proposals"] == 0),
                     units_with_stop=dict(Counter(record["stop"]
@@ -481,6 +500,26 @@ class CaseRunner:
                     unresolved=len(result["unresolved_relations"]), stop=stop,
                     failure=failure, recovery=recovery)
 
+    # -- case-level checkpoint adjudication ----------------------------
+    def run_checkpoint_adjudication(self):
+        from .stages.checkpoint_adjudication import run_checkpoint_adjudication
+        from .stages.diagnostic_events import build_diagnostic_events
+        from .stages.management_trajectory import project_management_trajectory
+
+        diagnostic_events = build_diagnostic_events(self.sources, self.evidence_inventory)
+        provisional = project_management_trajectory(
+            case_id=self.case_id, candidates=self.events, sources=self.sources,
+            diagnostic_events=diagnostic_events, diagnostic_reviews=self.diagnostic_reviews)
+        requests_before = self.harness.spend()["requests"]
+        result = run_checkpoint_adjudication(
+            self.harness, case_id=self.case_id, sources=self.sources,
+            candidates=self.events, projection=provisional)
+        self.checkpoint_adjudication = result
+        stop = result["summary"].get("stop") or "not_finished"
+        self.stage_stops.append(dict(stage="checkpoint_adjudication", stop=stop))
+        return dict(result["summary"],
+                    requests=self.harness.spend()["requests"] - requests_before)
+
     # -- output --------------------------------------------------------
     def case_dir(self):
         return digest([self.case_id, sorted(event["event_id"]
@@ -502,6 +541,7 @@ class CaseRunner:
             events=self.events,
             out_of_scope_candidates=self.rejected,
             evidence_inventory=self.evidence_inventory,
+            checkpoint_adjudication=self.checkpoint_adjudication,
             rejected_mentions=self.rejected,
             relations=dict(
                 recorded=self.relations,
@@ -516,6 +556,8 @@ class CaseRunner:
                 events=len(self.events),
                 diagnostic_candidate_reviews=len(self.diagnostic_reviews),
                 diagnostic_candidate_review_revisions=len(self.diagnostic_review_revisions),
+                checkpoint_adjudications=len(
+                    (self.checkpoint_adjudication or {}).get("items") or []),
                 diagnostic_yes=sum(1 for review in self.diagnostic_reviews
                                    if review["disposition"] == "yes"),
                 diagnostic_no=sum(1 for review in self.diagnostic_reviews
