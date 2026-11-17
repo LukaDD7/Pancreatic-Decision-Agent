@@ -175,7 +175,31 @@ class CandidateMaterialTests(unittest.TestCase):
             clock=clock("2022-12-13 10:00:00"), clocks={}, text="既往可见资料。"))
         self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-14 10:01:00")
         packet = self.packet("management_decision", projection)
-        self.assertEqual(packet["target"]["created_after_cutoff_source_ids"], ["S-M"])
+        self.assertIn("S-M", {item["source_id"] for item in packet["included_sources"]})
+        self.assertEqual(packet["target"]["created_after_cutoff_source_ids"], [])
+        self.assertEqual(packet["target"]["body_creation_time_conflicts"][0]["source_id"], "S-M")
+
+    def test_body_clock_target_survives_later_creation_but_context_does_not(self):
+        self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-15 09:00:00")
+        self.sources.append(dict(
+            source_id="S-CONTEXT", title="同时点其他病程", kind="document",
+            clock=clock("2022-12-14 10:00:00"), clock_basis="body_record_time",
+            clocks=dict(source_create_time=clock("2022-12-15 09:00:00")),
+            text="该上下文仍应排除。"))
+
+        packet = self.packet("management_decision")
+
+        target = next(source for source in packet["included_sources"]
+                      if source["source_id"] == "S-M")
+        self.assertIn("评估病情", target["text"])
+        self.assertNotIn("拟行胰十二指肠切除术", target["text"])
+        self.assertEqual(packet["target"]["body_creation_time_conflicts"], [dict(
+            source_id="S-M", body_record_time="2022-12-14 10:00:00",
+            source_create_time="2022-12-15 09:00:00",
+            disposition="RETAIN_MASKED_TARGET_AT_BODY_RECORD_TIME")])
+        excluded = next(item for item in packet["excluded_sources"]
+                        if item["source_id"] == "S-CONTEXT")
+        self.assertEqual(excluded["reason"], "SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF")
 
     def test_same_day_coarse_creation_clock_is_not_treated_as_exactly_after_cutoff(self):
         self.sources.append(dict(
@@ -199,32 +223,27 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertEqual(self.sources[1]["clocks"]["source_create_time"]["value"],
                          "2022-12-15 10:00:00")
 
-    def test_checkpoint_without_visible_context_becomes_review_migration_not_task(self):
+    def test_body_clock_target_keeps_task_answerable_despite_later_creation(self):
         self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-15 10:00:00")
         material = self.material(self.diagnostic_projection("no", "no"))
-        self.assertEqual(material["packets"], [])
-        self.assertEqual(material["summary"]["material_no_visible_context_count"], 1)
-        self.assertEqual(material["summary"]["material_action_cycle_count"], 0)
-        self.assertEqual(material["summary"]["material_evidence_state_count"], 0)
+        self.assertEqual(len(material["packets"]), 1)
+        self.assertEqual(material["summary"]["material_no_visible_context_count"], 0)
         self.assertEqual(material["summary"]["migration_reason_counts"], {
             "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE": 2,
-            "NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF": 1})
+            "ACTIONABLE_CANDIDATE_PENDING_REVIEW": 1})
         migration = next(item for item in material["migrations"]
                          if item.get("event_id") == "EV-M")
-        self.assertEqual(migration["migration_status"], "REVIEW_REQUIRED")
-        self.assertEqual(migration["reason"], "NO_VISIBLE_SOURCE_AT_CANDIDATE_CUTOFF")
-        self.assertIsNone(migration["to_checkpoint_id"])
-        self.assertTrue(all(not episode["checkpoint_ids"]
-                            for episode in material["management_episodes"]))
-        self.assertTrue(all(not episode["phase_transitions"]
-                            for episode in material["management_episodes"]))
+        self.assertEqual(migration["migration_status"], "RETAINED")
+        self.assertEqual(migration["reason"], "ACTIONABLE_CANDIDATE_PENDING_REVIEW")
+        self.assertEqual(migration["to_checkpoint_id"],
+                         material["packets"][0]["checkpoint_id"])
 
     def test_before_with_only_wholly_masked_target_has_no_answerable_task(self):
         self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-14 13:00:00")
         material = self.material()
         self.assertFalse(any(packet["kind"] == "pre_exam_evaluation"
                              for packet in material["packets"]))
-        self.assertEqual(material["summary"]["material_no_visible_context_count"], 2)
+        self.assertEqual(material["summary"]["material_no_visible_context_count"], 1)
         migration = next(item for item in material["migrations"]
                          if item.get("event_id") == "EA-D"
                          and item.get("node_kind") == "pre_exam_evaluation")

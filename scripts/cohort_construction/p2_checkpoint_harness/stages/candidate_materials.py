@@ -326,6 +326,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                          key=len, reverse=True) if pre_exam else []
         included, excluded, mask_metadata = [], [], []
         whole_masked = []
+        body_creation_time_conflicts = []
         for source in sources:
             source_id = source["source_id"]
             visible_clock = effective_clocks[source_id]
@@ -336,7 +337,20 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 _created_after_cutoff(creation_clocks.get(key), checkpoint["clock"])
                 for key in ("source_create_time", "create_time", "record_create_time",
                             "created_time", "creation_time", "document_create_time"))
-            if created_after_cutoff:
+            retain_body_time_target = (
+                created_after_cutoff and checkpoint["kind"] in MANAGEMENT_KINDS
+                and source_id in target_ids and checkpoint.get("time_basis") == "body_record_time"
+                and visible_value == cutoff)
+            if retain_body_time_target:
+                body_creation_time_conflicts.append(dict(
+                    source_id=source_id, body_record_time=cutoff,
+                    source_create_time=next(
+                        _clock_value(creation_clocks.get(key))
+                        for key in ("source_create_time", "create_time", "record_create_time",
+                                    "created_time", "creation_time", "document_create_time")
+                        if _created_after_cutoff(creation_clocks.get(key), checkpoint["clock"])),
+                    disposition="RETAIN_MASKED_TARGET_AT_BODY_RECORD_TIME"))
+            elif created_after_cutoff:
                 excluded.append(dict(
                     source_id=source_id, disposition="EXCLUDED_BY_CANDIDATE_TIMELINE",
                     reason="SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF"))
@@ -486,7 +500,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                         created_after_cutoff_source_ids=[
                             item["source_id"] for item in excluded
                             if item["source_id"] in target_ids
-                            and item.get("reason") == "SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF"]),
+                            and item.get("reason") == "SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF"],
+                        body_creation_time_conflicts=body_creation_time_conflicts),
             episode_id=episode_id, episode_basis=episode_basis,
             candidate_organization_applied=organized,
             origin_episode_ids=origin_episode_ids,
