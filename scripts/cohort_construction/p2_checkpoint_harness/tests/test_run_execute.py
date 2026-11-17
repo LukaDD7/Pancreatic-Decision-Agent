@@ -132,13 +132,13 @@ class ExecutedRunTests(unittest.TestCase):
                              limits=dict(max_requests=40, max_total_tokens=100000))
         self.authorization.write_text(json.dumps(authorization), encoding="utf-8")
 
-    def _run(self, stages="legacy"):
-        return run_case.main(["--sources", str(self.sources),
-                              "--output", str(self.output),
-                              "--cache", str(self.cache),
-                              "--case-id", "SYN-01", "--stages", stages,
-                              "--authorization", str(self.authorization),
-                              "--execute"])
+    def _run(self, stages="legacy", discovery_result=None):
+        argv = ["--sources", str(self.sources), "--output", str(self.output),
+                "--cache", str(self.cache), "--case-id", "SYN-01",
+                "--stages", stages, "--authorization", str(self.authorization), "--execute"]
+        if discovery_result is not None:
+            argv += ["--discovery-result", str(discovery_result)]
+        return run_case.main(argv)
 
     def test_HRN001_executed_run_writes_new_files_and_keeps_events(self):
         self._authorize()
@@ -184,6 +184,46 @@ class ExecutedRunTests(unittest.TestCase):
         self.assertEqual(len(result["checkpoint_adjudication"]["items"]), 1)
         self.assertEqual(result["checkpoint_adjudication"]["items"][0]["evolution"],
                          "FIRST_VISIBLE")
+
+    def test_adjudication_only_reuses_bound_discovery_without_rerunning_it(self):
+        quote = "临床团队决定完善增强CT后评估手术"
+        frozen = self.dir / "fresh-discovery.json"
+        frozen.write_text(json.dumps(dict(
+            candidate_spans=[dict(
+                event_id="EV-FROZEN", status="ACCEPTED", scope="yes", demoted=False,
+                record_function="new_decision", clock=dict(value="2026-03-01"),
+                candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST", target="增强CT"),
+                span=dict(source_id="SYN-1", quote=quote, start=0, end=len(quote)))],
+            out_of_scope_candidates=[], evidence_inventory=[],
+            diagnostic_candidate_reviews=[], diagnostic_candidate_review_revisions=[],
+            discovery=dict(units={})), ensure_ascii=False))
+        args = type("A", (), dict(
+            sources=self.sources, case_id="SYN-01", config=None,
+            stages="adjudication", discovery_result=frozen))()
+        contract = run_case.run_contract(args, run_case.build_plan(self.sources))
+        self.authorization.write_text(json.dumps(dict(
+            run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
+            case_id="SYN-01", sources_sha256=contract["sources_sha256"],
+            config_sha256=contract["config_sha256"],
+            discovery_result_sha256=contract["discovery_result_sha256"],
+            code_sha256=run_case._code_digest(contract["code_hashes"]),
+            limits=dict(max_requests=40, max_total_tokens=100000))))
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   TrajectoryStubTransport):
+            self.assertEqual(self._run("adjudication", frozen), 0)
+        summary = json.loads((self.output / "summary.json").read_text())
+        self.assertEqual(list(summary["stages"]), ["discovery_input", "checkpoint_adjudication"])
+        self.assertEqual(summary["status"], "COMPLETE")
+        sessions = {path.name for path in (self.output / "session" / "sessions").iterdir()}
+        self.assertEqual(sessions, {"checkpoint_adjudication.jsonl"})
+
+    def test_discovery_clock_preserves_raw_precision_evidence(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.pipeline import _clock_of
+        clock = _clock_of(dict(clock=dict(
+            value="2026-03-01 10:00:00", precision="minute", raw="2026-03-01 10:00")))
+        self.assertEqual(clock["raw"], "2026-03-01 10:00")
 
     def test_trajectory_incomplete_adjudication_cannot_be_complete_or_rendered(self):
         self._authorize("trajectory")

@@ -26,6 +26,7 @@ Concretely:
 from __future__ import annotations
 
 from collections import Counter
+from copy import deepcopy
 
 from .tools.proposals import ProposalStore
 from .tools.sources import SourceIndex
@@ -675,7 +676,10 @@ def _clock_of(unit):
     """Normalise whatever shape the unit carries into ``{value, precision}``."""
     raw = unit.get("clock")
     if isinstance(raw, dict):
-        return dict(value=raw.get("value"), precision=raw.get("precision") or "unknown")
+        clock = dict(value=raw.get("value"), precision=raw.get("precision") or "unknown")
+        if "raw" in raw:
+            clock["raw"] = deepcopy(raw["raw"])
+        return clock
     if isinstance(raw, str) and raw:
         precision = "minute" if len(raw) == 16 else (
             "second" if len(raw) >= 19 else "date")

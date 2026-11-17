@@ -26,6 +26,7 @@ EXECUTION_SCOPES = {
     "legacy": "SOURCE_DISCOVERY_ORDERING_EPISODE_CANDIDATE_RECONSTRUCTION",
     "discovery": "SOURCE_DISCOVERY_ONLY_CANDIDATE_SPANS_AND_PROGRAM_EVIDENCE_INDEX",
     "trajectory": "SOURCE_DISCOVERY_GLOBAL_EVIDENCE_EVOLUTION_CHECKPOINT_ADJUDICATION",
+    "adjudication": "FROZEN_DISCOVERY_GLOBAL_EVIDENCE_EVOLUTION_CHECKPOINT_ADJUDICATION_ONLY",
     "case": "SOURCE_DISCOVERY_CASE_ORGANIZATION_CANDIDATE_RECONSTRUCTION",
 }
 EXECUTION_SCOPE = EXECUTION_SCOPES["legacy"]
@@ -112,7 +113,7 @@ def _count_by(values):
 
 def run_contract(args, plan):
     """The exact thing an authorization must bind."""
-    return dict(
+    contract = dict(
         format=CONTRACT_FORMAT, case_id=args.case_id,
         sources_sha256=file_hash(args.sources),
         config_sha256=file_hash(args.config) if args.config else None,
@@ -120,6 +121,12 @@ def run_contract(args, plan):
         execution_scope=EXECUTION_SCOPES[args.stages],
         clinical_validation=False, clinical_reference_created=False,
         reference_read_by_pipeline=False, doctor_packet_release=False)
+    if args.stages == "adjudication":
+        frozen = getattr(args, "discovery_result", None)
+        if frozen is None:
+            raise SystemExit("ADJUDICATION_DISCOVERY_RESULT_REQUIRED")
+        contract["discovery_result_sha256"] = file_hash(frozen)
+    return contract
 
 
 def validate_authorization(authorization, contract):
@@ -136,6 +143,9 @@ def validate_authorization(authorization, contract):
             raise SystemExit("EXECUTION_AUTHORIZATION_BINDING_MISMATCH:" + field)
     if authorization.get("code_sha256") != _code_digest(contract["code_hashes"]):
         raise SystemExit("EXECUTION_AUTHORIZATION_CODE_MISMATCH")
+    if "discovery_result_sha256" in contract and authorization.get(
+            "discovery_result_sha256") != contract["discovery_result_sha256"]:
+        raise SystemExit("EXECUTION_AUTHORIZATION_BINDING_MISMATCH:discovery_result_sha256")
     limits = authorization.get("limits")
     if not isinstance(limits, dict):
         raise SystemExit("EXECUTION_AUTHORIZATION_LIMITS_REQUIRED")
@@ -191,11 +201,14 @@ def main(argv=None):
     parser.add_argument("--cache", required=True, help="new cache directory")
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--config", default=None)
-    parser.add_argument("--stages", choices=("legacy", "discovery", "trajectory", "case"),
+    parser.add_argument("--stages", choices=("legacy", "discovery", "trajectory", "adjudication", "case"),
                         default="legacy", dest="stages",
                         help=("legacy: discovery+ordering+episodes; discovery: stop before "
                               "organization; trajectory: discovery+global evidence-evolution "
-                              "adjudication; case: discovery+single case-level organization"))
+                              "adjudication; adjudication: only adjudication from --discovery-result; "
+                              "case: discovery+single case-level organization"))
+    parser.add_argument("--discovery-result", default=None,
+                        help="existing case_result.json for adjudication-only execution")
     parser.add_argument("--authorization", default=None,
                         help="read-only exact-run authorization; required to execute")
     parser.add_argument("--execute", action="store_true",
@@ -254,11 +267,29 @@ def _execute(args, contract, limits, plan):
                         case_id=args.case_id)
     stages = {}
     failure = None
-    try:
-        stages["discovery"] = runner.run_discovery()
-    except Exception as exc:  # noqa: BLE001 - a failed stage is recorded, not hidden
-        failure = _failure("discovery", exc)
-    if args.stages == "trajectory" and failure is None:
+    if args.stages == "adjudication":
+        frozen = _read(args.discovery_result)
+        for field in ("candidate_spans", "out_of_scope_candidates",
+                      "evidence_inventory", "discovery"):
+            if field not in frozen:
+                raise SystemExit("DISCOVERY_RESULT_FIELD_MISSING:" + field)
+        runner.events = list(frozen["candidate_spans"])
+        runner.rejected = list(frozen["out_of_scope_candidates"])
+        runner.evidence_inventory = list(frozen["evidence_inventory"])
+        runner.diagnostic_reviews = list(frozen.get("diagnostic_candidate_reviews") or [])
+        runner.diagnostic_review_revisions = list(
+            frozen.get("diagnostic_candidate_review_revisions") or [])
+        runner.discovery = dict(frozen["discovery"]["units"])
+        stages["discovery_input"] = dict(
+            source="existing_discovery_result", sha256=contract["discovery_result_sha256"],
+            candidates=len(runner.events), evidence_artifacts=len(runner.evidence_inventory),
+            discovery_rerun=False)
+    else:
+        try:
+            stages["discovery"] = runner.run_discovery()
+        except Exception as exc:  # noqa: BLE001 - a failed stage is recorded, not hidden
+            failure = _failure("discovery", exc)
+    if args.stages in ("trajectory", "adjudication") and failure is None:
         try:
             stages["checkpoint_adjudication"] = runner.run_checkpoint_adjudication()
         except Exception as exc:  # noqa: BLE001
@@ -279,6 +310,12 @@ def _execute(args, contract, limits, plan):
         except Exception as exc:  # noqa: BLE001
             failure = _failure("case_organization", exc)
     artifacts = runner.artifacts()
+    if args.stages == "adjudication":
+        artifacts["coverage"]["units_not_run"] = 0
+        artifacts["coverage"]["units_not_run_ids"] = []
+        artifacts["coverage"]["note"] = (
+            "本运行只读取指定的既有Discovery结果执行全病例证据演化裁决；没有重新运行discovery，"
+            "未重新核验原discovery的未完成状态。")
     # Recovery failures are historical attempts, not an unfinished unit once
     # the final unit record has answered. Keep them in a separate audit list.
     historical_stops = artifacts["stage_stops"]

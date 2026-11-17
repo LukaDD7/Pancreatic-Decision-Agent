@@ -181,6 +181,8 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据到达后状态",
             text="合成新病理报告。", original="合成新病理报告。", index=2)
+        post["included_sources"].append(source(
+            "S-PATH", "合成病理", "检查所见：未见远处转移，新病理。"))
         post.update(
             global_adjudication=dict(
                 checkpoint_id="CP-POST", disposition="RETAIN_CP",
@@ -196,14 +198,36 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         )
         packet_page = rendered_packet_html(
             render_html(material([post]), "manifest-sha"), "CP-POST")
+        header = packet_page.split('id="workflow-original"', 1)[0]
+        research = packet_page.split('id="workflow-research"', 1)[1]
         self.assertIn("比较的最近保留 CP：CP-PRE", packet_page)
         self.assertIn("NEW_EVIDENCE_ROUND", packet_page)
-        self.assertIn("病理结果改变了可见证据状态", packet_page)
+        self.assertNotIn("病理结果改变了可见证据状态", header)
+        self.assertIn("病理结果改变了可见证据状态", research)
         self.assertIn("来源 S-PATH", packet_page)
-        self.assertIn("未见远处转移，新病理", packet_page)
+        self.assertIn("未见远处转移，新病理", header)
         self.assertIn("归并到本 CP 的支持记录：CP-REPEATED", packet_page)
-        self.assertIn("只是复述EUS+FNA和择期手术", packet_page)
+        self.assertNotIn("只是复述EUS+FNA和择期手术", header)
+        self.assertIn("只是复述EUS+FNA和择期手术", research)
         self.assertIn("SAME_ROUND_SUPPORT", packet_page)
+
+    def test_adjudication_rationale_and_masked_quote_stay_researcher_only(self):
+        pre = packet(
+            "CP-PRE", "BEFORE_ACQUISITION", title="证据获取前状态",
+            text="[目标检查已遮蔽]", original="研究目标检查原文")
+        pre["global_adjudication"] = dict(
+            checkpoint_id="CP-PRE", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-EARLIER",
+            rationale="未来MRI未见远处转移，不得进入当前任务头。",
+            evidence_supports=[dict(source_id="CP-PRE-SOURCE", start=0, end=9,
+                                    quote="未来MRI未见远处转移")])
+        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        header = packet_page.split('id="workflow-original"', 1)[0]
+        research = packet_page.split('id="workflow-research"', 1)[1]
+        self.assertNotIn("未来MRI未见远处转移", header)
+        self.assertIn("引文未进入本 CP 遮蔽后可见资料", header)
+        self.assertIn("未来MRI未见远处转移", research)
+        self.assertIn("不得进入当前任务头", research)
 
     def test_before_acquisition_candidate_action_is_researcher_only_not_default_header(self):
         pre = packet(

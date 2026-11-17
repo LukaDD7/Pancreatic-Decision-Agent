@@ -74,6 +74,14 @@ episodes 或 case-organization 会话。三种 scope 分别绑定到运行契约
 Reference；渲染仍使用新目录，旧结果不改写。`HCP-LIVE-029` 登记本轮对抗审计发现的旧证据、
 远跳比较、同刻首见、跨文书动作及 Store/投影器合同反例。
 
+`--stages adjudication --discovery-result <既有case_result.json>` 只重新运行全病例裁决，contract 和
+authorization 同时绑定 Discovery 结果 hash，不重跑发现。`HCP-LIVE-030` 登记分钟值已规范化为秒但
+`raw` 在 Discovery 接缝丢失、导致全部时钟不可比较的反例；新运行保留 `raw`，投影器只在值和精度与
+来源完全一致时恢复该来源证据。`HCP-LIVE-031` 登记裁决理由/引文绕过 MASK 的反例：默认页只显示
+裁决结构和遮蔽后仍可见的引文，自由文本理由及完整引文仅在研究原文页展示。`HCP-LIVE-032` 登记
+无 comparator 的待审核 CP 丢失及链式归并落点不一致反例；无法归并的待审核 CP 保留，迁移记录指向
+最终承接 CP，原 comparator 仍保留在裁决对象中。
+
 `stages/case_organization.py` 同时把管理候选与程序 evidence artifact 送入一次病例级 Agent：
 - **Agent 只做关系记录**：为候选/证据节点连边，写关系类型、置信度、理由和必要的原文引文。
   `evidence_used` 为既往证据对象→后续管理候选；时间可比时拒绝反向，未知或同刻不推定临床选择时刻。

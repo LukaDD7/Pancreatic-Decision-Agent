@@ -197,8 +197,13 @@ def _management_checkpoint(case_id, group):
     first = items[0]
     candidate = first["candidate"]
     clock = _clock(candidate.get("clock"))
+    source_clock = _clock((first["source"] or {}).get("clock"))
+    if clock.get("raw") is None and source_clock.get("raw") is not None \
+            and clock.get("value") == source_clock.get("value") \
+            and clock.get("precision") == source_clock.get("precision"):
+        clock["raw"] = deepcopy(source_clock["raw"])
     if not _has_clock(clock):
-        clock = _clock((first["source"] or {}).get("clock"))
+        clock = source_clock
     checkpoint_id = "CP-M-" + _digest([case_id, event_ids])
     return dict(
         checkpoint_id=checkpoint_id,
@@ -414,6 +419,17 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
                   if disposition == "SUPPORT_ONLY" else "GLOBAL_ADJUDICATION_UNCERTAIN")
         destination_id = (destination["checkpoint"]["checkpoint_id"]
                           if destination is not None else comparator_id)
+        if disposition == "REVIEW_REQUIRED" and destination is None:
+            draft["global_adjudication_retain"] = True
+            draft["checkpoint"]["global_adjudication"] = deepcopy(adjudication)
+            for item in draft["items"]:
+                item["migration_status"] = "REVIEW_REQUIRED"
+                item["global_adjudication"] = True
+                migration_by_event[item["event_id"]].update(
+                    migration_status="REVIEW_REQUIRED", status="REVIEW_REQUIRED",
+                    reason=reason, to_checkpoint_id=None)
+            retained.append(draft)
+            continue
         if destination is not None:
             destination["checkpoint"].setdefault(
                 "supporting_adjudications", []).append(deepcopy(adjudication))
@@ -423,7 +439,7 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
             item["attached_to"] = destination_id
             migration_by_event[item["event_id"]].update(
                 migration_status=status, status=status, reason=reason,
-                to_checkpoint_id=comparator_id)
+                to_checkpoint_id=destination_id)
             if destination is not None and item not in destination["attached_items"]:
                 destination["attached_items"].append(item)
     return retained

@@ -146,6 +146,10 @@ def _researcher_originals(packet):
                     _node("strong", {}, "研究审核，不是医生投影"),
                     _node("p", {}, "以下原文仅供研究者核对；不得把本页作为医生盲评材料分发。")),
               *(cards or [_node("p", {"class": "empty"}, "未提供研究审核原文。")]),
+              *([_adjudication_card(packet["global_adjudication"], researcher=True)]
+                if packet.get("global_adjudication") else []),
+              *[_adjudication_card(item, supporting=True, researcher=True)
+                for item in packet.get("supporting_adjudications") or []],
               *([_candidate_actions(packet)]
                 if packet.get("kind") == "BEFORE_ACQUISITION" else [])),
     )
@@ -364,8 +368,29 @@ def _navigation(packet):
     )
 
 
-def _adjudication_card(item, *, supporting=False):
+def _adjudication_card(item, *, supporting=False, researcher=False, included_sources=()):
     evidence = item.get("evidence_supports") or []
+    comparator_label = ("比较的最近保留 CP" if item.get("evolution") == "NEW_EVIDENCE_ROUND"
+                        else "Agent 指定的比较 CP")
+    evidence_label = ("Agent 指定的新增患者证据（逐字引文）"
+                      if item.get("evolution") == "NEW_EVIDENCE_ROUND" else
+                      "Agent 随裁决提交的依据（不必然是新增患者证据）")
+    citation_cards = []
+    for citation in evidence:
+        source_id = citation.get("source_id") or "未标来源"
+        quote = citation.get("quote") or ""
+        visible = any(source.get("source_id") == source_id and quote
+                      and quote in (source.get("text") or "")
+                      for source in included_sources)
+        if researcher:
+            content = (f"来源 {source_id} · 字符 {citation.get('start', '?')}–"
+                       f"{citation.get('end', '?')}：{quote or '未提供'}")
+        elif visible:
+            content = f"来源 {source_id} · 本 CP 遮蔽后仍可见：{quote}"
+        else:
+            content = (f"来源 {source_id} · 引文未进入本 CP 遮蔽后可见资料；"
+                       "逐字内容仅在研究原文页展示。")
+        citation_cards.append(_node("p", {}, _h(content)))
     return _node(
         "article", {"class": "adjudication"},
         _node("h4", {}, _h(
@@ -374,15 +399,12 @@ def _adjudication_card(item, *, supporting=False):
         _node("p", {"class": "small"}, _h(
             f"裁决：{item.get('disposition') or '未提供'} · "
             f"证据演化：{item.get('evolution') or '未提供'} · "
-            f"比较的最近保留 CP：{item.get('comparator_checkpoint_id') or '无（首见锚点或待审核）'}")),
-        _node("p", {}, _h("Agent 裁决理由：" + (item.get("rationale") or "未提供"))),
+            f"{comparator_label}：{item.get('comparator_checkpoint_id') or '无（首见锚点或待审核）'}")),
+        _node("p", {}, _h(
+            "Agent 裁决理由：" + (item.get("rationale") or "未提供") if researcher else
+            "完整 Agent 裁决理由见研究原文页；默认页不回填可能含未来或目标动作的自由文本。")),
         *([_node("div", {"class": "evidence-supports"},
-                 _node("strong", {}, "Agent 指定的新增患者证据（逐字引文）"),
-                 *[_node("p", {}, _h(
-                     f"来源 {citation.get('source_id') or '未标来源'} · "
-                     f"字符 {citation.get('start', '?')}–{citation.get('end', '?')}："
-                     f"{citation.get('quote') or '未提供'}")) for citation in evidence])]
-          if evidence else []),
+                 _node("strong", {}, evidence_label), *citation_cards)] if evidence else []),
     )
 
 
@@ -400,8 +422,11 @@ def _state_delta(packet):
         "div", {"class": "state-delta"},
         _node("strong", {}, "本状态相对前一状态的新增内容"),
         _node("p", {}, _h(description)),
-        *([_adjudication_card(adjudication)] if adjudication else []),
-        *[_adjudication_card(item, supporting=True) for item in supporting],
+        *([_adjudication_card(adjudication, included_sources=packet.get("included_sources") or [])]
+          if adjudication else []),
+        *[_adjudication_card(item, supporting=True,
+                             included_sources=packet.get("included_sources") or [])
+          for item in supporting],
         _node("p", {"class": "small"}, _h(
             "action_cycle_id：" + str(packet.get("action_cycle_id") or "旧版未提供")
             + " · evidence_state_id：" + str(packet.get("evidence_state_id") or "旧版未提供")
