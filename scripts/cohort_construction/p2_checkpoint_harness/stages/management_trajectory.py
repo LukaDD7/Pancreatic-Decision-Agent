@@ -16,6 +16,7 @@ from .candidate_checkpoints import (
     _clock,
     _digest,
     _has_clock,
+    _is_admission_intent,
     _masked_spans,
     _normalized_action_target,
     _profile,
@@ -74,6 +75,27 @@ def _action_signature(action):
         re.sub(r"\s+", " ", str(condition).strip()).lower()
         for condition in action.get("conditions") or []))
     return action_type, _normalized_action_target(action.get("target")), timing, conditions
+
+
+def _question_signature(action):
+    _, target, timing, conditions = _action_signature(action)
+    return target, timing, conditions
+
+
+def _unique_candidate_actions(actions):
+    unique = {}
+    for action in actions:
+        if not action:
+            continue
+        signature = _action_signature(action)
+        if signature not in unique:
+            unique[signature] = deepcopy(action)
+            unique[signature]["merged_event_ids"] = sorted({
+                action.get("event_id")} - {None})
+        else:
+            unique[signature]["merged_event_ids"] = sorted(set(
+                unique[signature]["merged_event_ids"] + [action.get("event_id")]) - {None})
+    return list(unique.values())
 
 
 def _is_diagnostic_action(action):
@@ -198,9 +220,9 @@ def _management_checkpoint(case_id, group):
         actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
-        candidate_actions=[action for action in (
+        candidate_actions=_unique_candidate_actions(
             _candidate_action(item["candidate"], event_id=item["event_id"])
-            for item in items) if action],
+            for item in items),
         action_space=_action_space(),
         task_scope=_task_scope(),
         provenance=_provenance(
@@ -210,20 +232,17 @@ def _management_checkpoint(case_id, group):
     )
 
 
-def _group_management(case_id, prepared, migration_by_event, diagnostic_events):
+def _group_management(case_id, prepared, migration_by_event, evidence_arrivals):
     retained = sorted((item for item in prepared
                        if item["migration_status"] == "RETAINED"),
                       key=lambda item: (_candidate_clock(item) or "", item["event_id"]))
-    evidence_arrivals = sorted({_value(event.get("visibility_clock"))
-                                or _value(event.get("report_time"))
-                                or _value(event.get("verified_time"))
-                                for event in diagnostic_events} - {None})
     groups = []
     source_clock_groups = {}
     current = None
     for item in retained:
         candidate = item["candidate"]
         signature = _action_signature(candidate.get("candidate_action") or {})
+        question_signature = _question_signature(candidate.get("candidate_action") or {})
         state_token = _state_token(candidate)
         increment = _has_state_increment(candidate)
         projection_key = (item["source_id"], _candidate_clock(item))
@@ -240,9 +259,12 @@ def _group_management(case_id, prepared, migration_by_event, diagnostic_events):
                             <= _candidate_clock(item) for arrival in evidence_arrivals))
         adjacent_same_question = bool(
             current and not increment and not evidence_arrived
-            and current["signature"] == signature and current["state_token"] == state_token)
+            and question_signature[0]
+            and current["question_signature"] == question_signature
+            and current["state_token"] == state_token)
         if current is None or not adjacent_same_question:
-            current = dict(signature=signature, state_token=state_token,
+            current = dict(signature=signature, question_signature=question_signature,
+                           state_token=state_token,
                            has_state_increment=increment, items=[item])
             groups.append(current)
             if item["source_id"] and projection_key[1]:
@@ -353,8 +375,9 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases):
                          for source_id in event.get("source_ids") or []})
     before = kind == BEFORE
     checkpoint_id = "CP-D-" + _digest([case_id, event_ids, kind])
-    actions = [_candidate_action(review, event_id=event["event_id"])
-               for event, review in zip(event_group, reviews)]
+    actions = _unique_candidate_actions(
+        _candidate_action(review, event_id=event["event_id"])
+        for event, review in zip(event_group, reviews))
     question = ("在目标证据获取前，针对PDAC根治性切除路径，下一步应推进、暂缓补证还是调整管理方向？"
                 if before else "该批新证据可见后，下一步管理应如何安排？")
     basis = bases[0] if len(set(bases)) == 1 else "joint_projection_with_distinct_source_clocks"
@@ -585,15 +608,18 @@ def _attach_support(prepared, drafts, migration_by_event):
     return support_records
 
 
-def _phase(checkpoint, seen_nat):
+def _phase(checkpoint, seen_nat, source_text=""):
     actions = checkpoint.get("candidate_actions") or []
+    if seen_nat and re.search(
+            r"已[^。；\n]{0,24}化疗|化疗后|第[一二三四五六七八九十0-9]+次化疗", source_text):
+        return "POST_TREATMENT_REASSESSMENT"
     explicit = [action.get("phase") for action in actions if action.get("phase") in PHASES]
     if explicit:
         return explicit[0]
     text = " ".join(value for action in actions for value in (
         action.get("action_type") or "", action.get("target") or "")).lower()
     if any(term in text for term in ("neoadjuvant", "conversion", "chemotherap",
-                                     "radiotherap", "新辅助", "转化治疗", "化疗", "放疗")):
+                                     "radiotherap", "新辅助", "转化治疗", "化疗", "化学治疗", "放疗")):
         return "NAT_OR_CONVERSION"
     if any(term in text for term in ("drainage", "nutrition", "optimization", "减黄",
                                      "引流", "营养支持", "术前优化")):
@@ -646,7 +672,9 @@ def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
         else:
             input_evidence = sorted({evidence_id for item in own_items
                                      for evidence_id in item["candidate"].get("input_evidence_ids") or []})
-        phase = _phase(checkpoint, seen_nat)
+        source_text = "\n".join((item["candidate"].get("span") or {}).get("quote") or ""
+                                for item in all_items)
+        phase = _phase(checkpoint, seen_nat, source_text)
         seen_nat = seen_nat or phase == "NAT_OR_CONVERSION"
         state_id = "ES-" + _digest([case_id, checkpoint["checkpoint_id"], available, input_evidence])
         cycle_id = "AC-" + _digest([case_id, checkpoint["checkpoint_id"]])
@@ -721,6 +749,20 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
         source_id = _source_id(candidate)
         source = source_by_id.get(source_id)
         status, reason = _classify(candidate, source)
+        action = candidate.get("candidate_action") or {}
+        action_text = " ".join((action.get("action_type") or "", action.get("target") or ""))
+        quote = (candidate.get("span") or {}).get("quote") or ""
+        if status == "RETAINED" and (
+                _is_admission_intent(quote + " " + action_text)
+                or "入院常规及特殊检查" in action_text):
+            status, reason = "SUPPORT_ONLY", "ADMISSION_OR_GENERIC_WORKUP_NOT_INDEPENDENT_DECISION"
+        candidate_time = _candidate_clock(dict(candidate=candidate, source=source))
+        if status == "RETAINED" and operation_start and candidate_time:
+            if _operation_day_order_unknown(candidate.get("clock") or source.get("clock"), operation_start):
+                status, reason = "REVIEW_REQUIRED", "OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"
+            elif candidate_time >= operation_start and not _routine_postoperative(
+                    dict(candidate=candidate, source=source), operation_start):
+                status, reason = "TASK_OUT_OF_SCOPE", "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE"
         if status == "SUPPORT_ONLY" and candidate.get("record_function") == "repeat" \
                 and _has_state_increment(candidate) and _valid_span(candidate) \
                 and _candidate_action(candidate) is not None \
@@ -736,10 +778,13 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
     migrations = [_migration(case_id, item, item["migration_status"], item["reason"])
                   for item in prepared]
     migration_by_event = {migration["event_id"]: migration for migration in migrations}
-    management_drafts = _group_management(
-        case_id, prepared, migration_by_event, diagnostic_events)
     projected_diagnostics, diagnostic_drafts, diagnostic_migrations = _project_diagnostics(
         case_id, diagnostic_events, _review_map(diagnostic_reviews), sources, operation_start)
+    evidence_arrivals = sorted({_value(draft["checkpoint"]["clock"])
+                                for draft in diagnostic_drafts
+                                if draft["checkpoint"]["kind"] == AFTER} - {None})
+    management_drafts = _group_management(
+        case_id, prepared, migration_by_event, evidence_arrivals)
     management_drafts = _attach_management_to_diagnostics(
         management_drafts, diagnostic_drafts, migration_by_event)
     all_drafts = management_drafts + diagnostic_drafts

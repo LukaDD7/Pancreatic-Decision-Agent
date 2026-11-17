@@ -539,6 +539,87 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(result["migrations"][0]["reason"],
                          "POSTOPERATIVE_ROUTINE_MANAGEMENT_OUT_OF_MAIN_TASK")
 
+    def test_duplicate_actions_keep_event_provenance_without_duplicate_answers(self):
+        text = "拟行胰十二指肠切除术。"
+        items = [candidate("EV-1", "S-SAME", text, text),
+                 candidate("EV-2", "S-SAME", text, text, function="reassessment")]
+        result = self.project(candidates=items, sources=[source("S-SAME", text)])
+        actions = result["candidate_checkpoints"][0]["candidate_actions"]
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["merged_event_ids"], ["EV-1", "EV-2"])
+
+    def test_same_target_and_cutoff_across_record_types_is_one_question(self):
+        text = "拟行胰十二指肠切除术。"
+        first = candidate("EV-1", "S-1", text, text)
+        second = candidate("EV-2", "S-2", text, text, function="reassessment",
+                           action_type="PREOPERATIVE_ASSESSMENT")
+        result = self.project(candidates=[first, second], sources=[
+            source("S-1", text, profile="preoperative_discussion"),
+            source("S-2", text, profile="preoperative_summary")])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(len(result["candidate_checkpoints"][0]["candidate_actions"]), 2)
+
+    def test_rejected_report_does_not_split_unchanged_management_question(self):
+        first_text = "拟行EUS+FNA。"
+        second_text = "再次记录拟行EUS+FNA。"
+        items = [candidate("EV-1", "S-1", first_text, first_text,
+                           action_type="ORDER_EUS", target="EUS+FNA"),
+                 candidate("EV-2", "S-2", second_text, second_text,
+                           clock="2026-03-03", function="reassessment",
+                           action_type="EUS_EVALUATION", target="EUS+FNA")]
+        result = self.project(
+            candidates=items, sources=[source("S-1", first_text),
+                                      source("S-2", second_text, clock="2026-03-03"),
+                                      source("CT-1", "CT报告。")],
+            events=[diagnostic("DE-CT", "CT-1")],
+            reviews=[review("DE-CT", AFTER, disposition="no")])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(set(result["candidate_checkpoints"][0]["member_event_ids"]),
+                         {"EV-1", "EV-2"})
+
+    def test_admission_and_generic_workup_are_support_not_checkpoint(self):
+        for text, target in (("收入院进一步诊治。", "收入院进一步诊治"),
+                             ("入院常规及特殊检查。", "入院常规及特殊检查")):
+            with self.subTest(target=target):
+                item = candidate("EV-ADMIT", "S-ADMIT", text, text,
+                                 action_type="ADMISSION", target=target)
+                result = self.project(candidates=[item], sources=[source("S-ADMIT", text)])
+                self.assertEqual(result["candidate_checkpoints"], [])
+                self.assertEqual(result["migrations"][0]["migration_status"], "SUPPORT_ONLY")
+                self.assertIn(result["migrations"][0]["reason"], {
+                    "ADMISSION_INTENT_NOT_INDEPENDENT_DECISION",
+                    "ADMISSION_OR_GENERIC_WORKUP_NOT_INDEPENDENT_DECISION"})
+
+    def test_postoperative_resection_or_surveillance_candidate_is_out_of_task(self):
+        text = "术后随访，既往已行胰十二指肠切除术。"
+        item = candidate("EV-POST", "S-POST", text, text,
+                         clock="2026-03-03 08:00", action_type="SURGERY",
+                         target="胰十二指肠切除术")
+        result = self.project(
+            candidates=[item], sources=[source("S-POST", text, profile="clinical_other",
+                                              clock="2026-03-03 08:00")],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][0]["migration_status"], "TASK_OUT_OF_SCOPE")
+        self.assertEqual(result["migrations"][0]["reason"],
+                         "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE")
+
+    def test_completed_nat_moves_to_post_treatment_not_back_to_nat(self):
+        records = [
+            ("EV-NAT", "S-NAT", "拟开始新辅助化疗。", "START_NAT", "新辅助化疗", "2026-03-01"),
+            ("EV-SUGGEST", "S-SUGGEST", "建议行化学治疗。", "START_NAT", "化学治疗", "2026-03-02"),
+            ("EV-COMPLETE", "S-COMPLETE", "昨日行AG方案第一次化疗，今日出院。", "DISCHARGE", "出院", "2026-03-03"),
+        ]
+        items = [candidate(event_id, source_id, text, text, clock=clock,
+                           action_type=action_type, target=target)
+                 for event_id, source_id, text, action_type, target, clock in records]
+        result = self.project(candidates=items, sources=[
+            source(source_id, text, clock=clock)
+            for _, source_id, text, _, _, clock in records])
+        self.assertEqual([cp["phase"] for cp in result["candidate_checkpoints"]],
+                         ["NAT_OR_CONVERSION", "NAT_OR_CONVERSION",
+                          "POST_TREATMENT_REASSESSMENT"])
+
     def test_inputs_are_not_modified_and_ids_are_stable_under_reordering(self):
         text = "拟行胰十二指肠切除术。"
         candidates = [candidate("EV-1", "S-1", text, text)]

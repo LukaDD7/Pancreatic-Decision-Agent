@@ -197,6 +197,8 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertIsNone(migration["to_checkpoint_id"])
         self.assertTrue(all(not episode["checkpoint_ids"]
                             for episode in material["management_episodes"]))
+        self.assertTrue(all(not episode["phase_transitions"]
+                            for episode in material["management_episodes"]))
 
     def test_before_with_only_wholly_masked_target_has_no_answerable_task(self):
         self.sources[0]["clocks"]["source_create_time"] = clock("2022-12-14 13:00:00")

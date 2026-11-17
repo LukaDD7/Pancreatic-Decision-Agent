@@ -163,7 +163,7 @@ def _profile(candidate, source):
 def _is_admission_intent(quote):
     admission = any(term in quote for term in (
         "收入我科", "收入本科", "收入院", "收治入院", "收住入院", "住院治疗"))
-    intent = any(term in quote for term in ("为求", "为行", "欲行", "希望", "要求"))
+    intent = any(term in quote for term in ("为求", "为行", "欲行", "希望", "要求", "进一步诊治"))
     management = any(term in quote for term in ("手术", "治疗", "诊治"))
     return admission and intent and management
 

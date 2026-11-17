@@ -532,6 +532,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                             for checkpoint in projection["candidate_checkpoints"]
                             if checkpoint["checkpoint_id"] in no_context_ids}
     material_episodes = []
+    projection_by_id = {checkpoint["checkpoint_id"]: checkpoint
+                        for checkpoint in projection["candidate_checkpoints"]}
     for episode in deepcopy(projection.get("management_episodes") or []):
         episode["checkpoint_ids"] = [checkpoint_id for checkpoint_id
                                      in episode.get("checkpoint_ids") or []
@@ -539,6 +541,17 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         episode["action_cycle_ids"] = [cycle_id for cycle_id
                                        in episode.get("action_cycle_ids") or []
                                        if cycle_id not in no_context_cycle_ids]
+        episode["phase_transitions"] = []
+        previous_phase = None
+        for checkpoint_id in episode["checkpoint_ids"]:
+            checkpoint = projection_by_id[checkpoint_id]
+            phase = checkpoint.get("phase")
+            if phase != previous_phase:
+                episode["phase_transitions"].append(dict(
+                    from_phase=previous_phase, to_phase=phase,
+                    checkpoint_id=checkpoint_id,
+                    clock=deepcopy(checkpoint.get("clock"))))
+                previous_phase = phase
         if episode["checkpoint_ids"]:
             material_episodes.append(episode)
     material_cycles = [deepcopy(cycle) for cycle in projection.get("action_cycles") or []
