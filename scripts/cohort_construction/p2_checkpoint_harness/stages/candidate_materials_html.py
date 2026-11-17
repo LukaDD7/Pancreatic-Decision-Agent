@@ -368,20 +368,28 @@ def _navigation(packet):
     )
 
 
-def _adjudication_card(item, *, supporting=False, researcher=False, included_sources=()):
+def _adjudication_card(item, *, supporting=False, researcher=False, included_sources=(),
+                       masked_spans=()):
     evidence = item.get("evidence_supports") or []
-    comparator_label = ("比较的最近保留 CP" if item.get("evolution") == "NEW_EVIDENCE_ROUND"
-                        else "Agent 指定的比较 CP")
-    evidence_label = ("Agent 指定的新增患者证据（逐字引文）"
-                      if item.get("evolution") == "NEW_EVIDENCE_ROUND" else
+    confirmed_new = (item.get("disposition") == "RETAIN_CP"
+                     and item.get("evolution") == "NEW_EVIDENCE_ROUND")
+    comparator_label = "比较的最近保留 CP" if confirmed_new else "Agent 指定的比较 CP"
+    evidence_label = ("Agent 指定的新增患者证据（逐字引文）" if confirmed_new else
                       "Agent 随裁决提交的依据（不必然是新增患者证据）")
     citation_cards = []
     for citation in evidence:
         source_id = citation.get("source_id") or "未标来源"
         quote = citation.get("quote") or ""
-        visible = any(source.get("source_id") == source_id and quote
-                      and quote in (source.get("text") or "")
-                      for source in included_sources)
+        start, end = citation.get("start"), citation.get("end")
+        overlaps_mask = any(
+            span.get("source_id") == source_id
+            and type(start) is int and type(end) is int
+            and type(span.get("start")) is int and type(span.get("end")) is int
+            and max(start, span["start"]) < min(end, span["end"])
+            for span in masked_spans)
+        visible = not overlaps_mask and any(
+            source.get("source_id") == source_id and quote
+            and quote in (source.get("text") or "") for source in included_sources)
         if researcher:
             content = (f"来源 {source_id} · 字符 {citation.get('start', '?')}–"
                        f"{citation.get('end', '?')}：{quote or '未提供'}")
@@ -422,10 +430,13 @@ def _state_delta(packet):
         "div", {"class": "state-delta"},
         _node("strong", {}, "本状态相对前一状态的新增内容"),
         _node("p", {}, _h(description)),
-        *([_adjudication_card(adjudication, included_sources=packet.get("included_sources") or [])]
+        *([_adjudication_card(
+            adjudication, included_sources=packet.get("included_sources") or [],
+            masked_spans=(packet.get("masked_projection") or {}).get("masked_spans") or [])]
           if adjudication else []),
-        *[_adjudication_card(item, supporting=True,
-                             included_sources=packet.get("included_sources") or [])
+        *[_adjudication_card(
+            item, supporting=True, included_sources=packet.get("included_sources") or [],
+            masked_spans=(packet.get("masked_projection") or {}).get("masked_spans") or [])
           for item in supporting],
         _node("p", {"class": "small"}, _h(
             "action_cycle_id：" + str(packet.get("action_cycle_id") or "旧版未提供")

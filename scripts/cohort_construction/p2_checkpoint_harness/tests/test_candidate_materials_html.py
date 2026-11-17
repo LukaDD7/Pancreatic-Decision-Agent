@@ -216,7 +216,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
             "CP-PRE", "BEFORE_ACQUISITION", title="证据获取前状态",
             text="[目标检查已遮蔽]", original="研究目标检查原文")
         pre["global_adjudication"] = dict(
-            checkpoint_id="CP-PRE", disposition="RETAIN_CP",
+            checkpoint_id="CP-PRE", disposition="REVIEW_REQUIRED",
             evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-EARLIER",
             rationale="未来MRI未见远处转移，不得进入当前任务头。",
             evidence_supports=[dict(source_id="CP-PRE-SOURCE", start=0, end=9,
@@ -226,8 +226,32 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         research = packet_page.split('id="workflow-research"', 1)[1]
         self.assertNotIn("未来MRI未见远处转移", header)
         self.assertIn("引文未进入本 CP 遮蔽后可见资料", header)
+        self.assertIn("Agent 指定的比较 CP：CP-EARLIER", header)
+        self.assertNotIn("比较的最近保留 CP：CP-EARLIER", header)
+        self.assertNotIn("Agent 指定的新增患者证据（逐字引文）", header)
         self.assertIn("未来MRI未见远处转移", research)
         self.assertIn("不得进入当前任务头", research)
+
+    def test_masked_citation_span_stays_hidden_when_quote_repeats_elsewhere(self):
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据到达后状态",
+            text="[目标管理判断已遮蔽]\n复查MRI示未见远处转移。", original="合成原文")
+        post["included_sources"].append(source(
+            "S-DUPLICATE", "重复文本来源",
+            "[目标管理判断已遮蔽]\n复查MRI示未见远处转移。"))
+        post["masked_projection"]["masked_spans"].append(dict(
+            source_id="S-DUPLICATE", start=0, end=13, mask_reason="TARGET"))
+        post["global_adjudication"] = dict(
+            checkpoint_id="CP-POST", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-PRE",
+            rationale="重复引文反例", evidence_supports=[dict(
+                source_id="S-DUPLICATE", start=2, end=8, quote="未见远处转移")])
+        packet_page = rendered_packet_html(
+            render_html(material([post]), "manifest-sha"), "CP-POST")
+        header = packet_page.split('id="workflow-original"', 1)[0]
+        adjudication = header.split('class="adjudication"', 1)[1]
+        self.assertNotIn("未见远处转移", adjudication)
+        self.assertIn("引文未进入本 CP 遮蔽后可见资料", adjudication)
 
     def test_before_acquisition_candidate_action_is_researcher_only_not_default_header(self):
         pre = packet(
