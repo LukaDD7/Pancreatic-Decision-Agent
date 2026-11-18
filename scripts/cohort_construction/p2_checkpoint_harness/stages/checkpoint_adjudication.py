@@ -39,7 +39,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 
 先用list_candidate_checkpoints逐页查看全部candidate_checkpoints；用read_candidate_checkpoint查看candidate_actions、member_event_ids、来源、成员span和clock，用read_source/search_sources核对原文。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。提交RETAIN或SUPPORT前，必须读取当前CP详情及至少一份当前来源原文；带comparator时还必须read_candidate_checkpoint读取该comparator。若comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取当前来源、比较对象或目标报告的提交，不能用其他管理文书代替。
 
-每次带comparator的RETAIN或SUPPORT裁决前，必须调用list_checkpoint_interval_sources逐页查看两个CP可见时间之间的新增资料索引及时间未知资料，再用review_checkpoint_interval_sources批量逐项处置：READ_AND_USED（读取并作为新增证据）、READ_NOT_NEW（读取后确认不是新增）、SKIPPED_FROM_INDEX（仅凭索引即可排除）、UNCERTAIN。READ_AND_USED/READ_NOT_NEW必须实际read_source；影像、病理及EUS/超声内镜、腹腔镜、穿刺、活检相关资料不得只凭索引跳过。SUPPORT_ONLY也必须完成区间核查，不能只看两个CP就声称无新增证据；区间有新增证据或不确定项时不能提交SUPPORT。时间未知资料单列，不得静默忽略。
+每次带comparator的RETAIN或SUPPORT裁决前，必须调用list_checkpoint_interval_sources逐页查看两个CP可见时间之间的新增资料索引及时间未知资料，再用review_checkpoint_interval_sources批量逐项处置：READ_AND_USED（读取并作为新增证据）、READ_NOT_NEW（读取后确认不是新增）、SKIPPED_FROM_INDEX（仅凭索引即可排除）、UNCERTAIN。READ_AND_USED/READ_NOT_NEW必须实际read_source；影像、病理及EUS/超声内镜、腹腔镜、穿刺、活检相关资料不得只凭索引跳过。SUPPORT_ONLY也必须完成区间核查，不能只看两个CP就声称无新增证据；区间有新增证据或不确定项时不能提交SUPPORT。时间未知资料单列，不得静默忽略。若后续判断改变，可对同一来源重新提交处置以修订最终状态并记录revision；若提示引文未标READ_AND_USED，只修订对应来源，不要整批重复或反复重列索引。
 
 裁决规则：
 1. RETAIN_CP+FIRST_VISIBLE仅用于全病例没有任何其他可见候选状态的首见锚点，不给comparator_checkpoint_id；同刻候选也不能被忽略。
@@ -244,6 +244,7 @@ class CheckpointAdjudicationStore:
         self.attempt_problems = []
         self.interval_listed = {}
         self.interval_reviews = {}
+        self.interval_review_revisions = 0
         self.finished = False
 
     def _remember_problem(self, code, checkpoint_id):
@@ -434,8 +435,6 @@ class CheckpointAdjudicationStore:
                 raise ToolError("INTERVAL_SOURCE_NOT_IN_PAIR:" + str(source_id))
             if source_id not in listed:
                 raise ToolError("INTERVAL_SOURCE_NOT_LISTED:" + source_id)
-            if source_id in stored:
-                raise ToolError("INTERVAL_SOURCE_REVIEW_DUPLICATE:" + source_id)
             if status not in INTERVAL_STATUSES:
                 raise ToolError("INTERVAL_REVIEW_STATUS_INVALID:" + str(status))
             if not isinstance(reason, str) or not reason.strip():
@@ -446,13 +445,21 @@ class CheckpointAdjudicationStore:
             if status == "SKIPPED_FROM_INDEX" \
                     and expected[source_id]["original_read_required"]:
                 raise ToolError("INTERVAL_HIGH_RISK_SOURCE_REQUIRES_READ:" + source_id)
+            previous = stored.get(source_id)
+            revision = (previous or {}).get("revision", 0) + 1
+            if previous and revision > 1:
+                self.interval_review_revisions += 1
             stored[source_id] = dict(
                 source_id=source_id, status=status, reason=reason.strip(),
-                interval_relation=expected[source_id]["interval_relation"])
+                interval_relation=expected[source_id]["interval_relation"],
+                revision=revision)
         missing = sorted(set(expected) - set(stored))
         return dict(recorded=len(reviews), total=len(expected),
                     reviewed=len(stored), complete=not missing,
-                    missing_source_ids=missing)
+                    missing_source_count=len(missing),
+                    missing_source_ids=missing[:20],
+                    missing_source_ids_truncated=len(missing) > 20,
+                    revision_count=self.interval_review_revisions)
 
     def interval_tools(self):
         review_schema = dict(
@@ -476,8 +483,8 @@ class CheckpointAdjudicationStore:
                                      limit=dict(type="integer", minimum=1, maximum=200))),
                  run=self.list_interval_sources),
             Tool(name="review_checkpoint_interval_sources",
-                 description=("批量记录区间资料处置。READ状态须先读原文；高风险检查不得仅凭索引跳过；"
-                              "SUPPORT前不得保留USED或UNCERTAIN项。"),
+                 description=("批量记录或修订区间资料处置；同一来源重复提交会更新最终状态并记录revision。"
+                              "READ状态须先读原文；高风险检查不得仅凭索引跳过；SUPPORT前不得保留USED或UNCERTAIN项。"),
                  input_schema=dict(
                      type="object", additionalProperties=False,
                      required=["checkpoint_id", "comparator_checkpoint_id", "reviews"],
@@ -508,12 +515,14 @@ class CheckpointAdjudicationStore:
         if not expected <= listed:
             raise ToolError(
                 "INTERVAL_INDEX_NOT_LISTED: 必须逐页查看两个CP之间的全部资料索引，"
-                "缺失：" + ",".join(sorted(expected - listed)))
+                "缺失%d项（最多显示20项）：" % len(expected - listed)
+                + ",".join(sorted(expected - listed)[:20]))
         reviews = self.interval_reviews.get(key, {})
         missing = sorted(expected - set(reviews))
         if missing:
             raise ToolError(
-                "INTERVAL_REVIEW_INCOMPLETE: 区间资料尚未逐项处置：" + ",".join(missing))
+                "INTERVAL_REVIEW_INCOMPLETE: 区间资料尚未逐项处置，缺失%d项"
+                "（最多显示20项）：" % len(missing) + ",".join(missing[:20]))
         uncertain = sorted(source_id for source_id, review in reviews.items()
                            if review["status"] == "UNCERTAIN")
         if uncertain:
@@ -735,7 +744,8 @@ class CheckpointAdjudicationStore:
                     item.get("interval_evidence_review") is not None for item in items),
                 reviewed_source_assignments=sum(
                     (item.get("interval_evidence_review") or {}).get("source_count", 0)
-                    for item in items)),
+                    for item in items),
+                review_revisions=self.interval_review_revisions),
             attempt_problems=deepcopy(self.attempt_problems),
             candidate_checkpoint_list_coverage=dict(
                 required_checkpoint_count=len(expected),

@@ -372,10 +372,21 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST")
         registry.get("review_checkpoint_interval_sources").run(
             checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST",
+            reviews=[dict(source_id="S-CT", status="READ_NOT_NEW",
+                          reason="初次判断偏保守。")])
+        revised = registry.get("review_checkpoint_interval_sources").run(
+            checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST",
             reviews=[dict(source_id="S-CT", status="READ_AND_USED",
-                          reason="新CT显示新发病灶。")])
+                          reason="复核后确认新CT显示新发病灶。")])
+        self.assertEqual(revised["revision_count"], 1)
         with self.assertRaisesRegex(ToolError, "INTERVAL_NEW_EVIDENCE_REQUIRES_RETAIN_OR_REVIEW"):
             store.adjudicate(**call)
+        retained = store.adjudicate(
+            checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
+            evidence_supports=[dict(source_id="S-CT", quote="新发病灶")],
+            rationale="区间CT提供新发病灶证据。")["item"]
+        self.assertEqual(retained["interval_evidence_review"]["reviews"][0]["revision"], 2)
 
     def test_same_action_with_new_patient_evidence_is_retained(self):
         first_text = "讨论后拟行胰十二指肠切除术。"
