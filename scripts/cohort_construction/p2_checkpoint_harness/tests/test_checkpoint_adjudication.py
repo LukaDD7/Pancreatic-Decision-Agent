@@ -54,6 +54,47 @@ def citation(source_id, text, quote):
                 end=start + len(quote))
 
 
+def prepare_call(registry, call):
+    current = registry.get("read_candidate_checkpoint").run(call["checkpoint_id"])
+    if current.get("source_ids"):
+        registry.get("read_source").run(current["source_ids"][0])
+    comparator_id = call.get("comparator_checkpoint_id")
+    if not comparator_id:
+        return
+    comparator = registry.get("read_candidate_checkpoint").run(comparator_id)
+    target_ids = comparator.get("diagnostic_target_source_ids") or []
+    if target_ids:
+        registry.get("read_source").run(target_ids[0])
+    if call.get("disposition") == "REVIEW_REQUIRED" \
+            or adjudication.compare(comparator, current)["relation"] != "before":
+        return
+    cited = {item.get("source_id") for item in call.get("evidence_supports") or ()}
+    offset = 0
+    while True:
+        page = registry.get("list_checkpoint_interval_sources").run(
+            checkpoint_id=call["checkpoint_id"],
+            comparator_checkpoint_id=comparator_id, offset=offset)
+        reviews = []
+        for row in page["sources"]:
+            if row["source_id"] in cited:
+                status = "READ_AND_USED"
+            elif row["original_read_required"]:
+                status = "READ_NOT_NEW"
+            else:
+                status = "SKIPPED_FROM_INDEX"
+            if status in {"READ_AND_USED", "READ_NOT_NEW"}:
+                registry.get("read_source").run(row["source_id"])
+            reviews.append(dict(source_id=row["source_id"], status=status,
+                                reason="合成测试按索引及所需原文完成处置。"))
+        if reviews:
+            registry.get("review_checkpoint_interval_sources").run(
+                checkpoint_id=call["checkpoint_id"],
+                comparator_checkpoint_id=comparator_id, reviews=reviews)
+        if not page["truncated"]:
+            break
+        offset += page["returned"]
+
+
 def make_store(checkpoints, candidates, sources, *, autoread=True):
     source_index = SourceIndex(sources)
     checkpoint_index = adjudication.AdjudicationCheckpointIndex(checkpoints, candidates)
@@ -64,11 +105,15 @@ def make_store(checkpoints, candidates, sources, *, autoread=True):
     store = adjudication.checkpoint_adjudication_tools(
         registry, checkpoint_index=checkpoint_index, source_index=source_index)
     if autoread:
-        for checkpoint in checkpoints:
-            registry.get("read_candidate_checkpoint").run(checkpoint["checkpoint_id"])
-            target_ids = checkpoint_index.diagnostic_target_source_ids(checkpoint)
-            if checkpoint.get("kind") != MANAGEMENT and target_ids:
-                registry.get("read_source").run(target_ids[0])
+        original = store.adjudicate
+
+        def prepared_adjudicate(**call):
+            if call.get("checkpoint_id") in store.checkpoints.by_id \
+                    and call.get("checkpoint_id") not in store.items:
+                prepare_call(registry, call)
+            return original(**call)
+
+        store.adjudicate = prepared_adjudicate
     return store, registry
 
 
@@ -80,12 +125,7 @@ class FakeAgent:
     def act(self, prompt, *, final_tool):
         self.registry.get("list_candidate_checkpoints").run(limit=200)
         for call in self.calls:
-            comparator_id = call.get("comparator_checkpoint_id")
-            if comparator_id:
-                comparator = self.registry.get("read_candidate_checkpoint").run(comparator_id)
-                target_ids = comparator.get("diagnostic_target_source_ids") or []
-                if target_ids:
-                    self.registry.get("read_source").run(target_ids[0])
+            prepare_call(self.registry, call)
             self.registry.get("adjudicate_checkpoint").run(**call)
         final = final_tool.run(note="合成裁决完成")
         return SimpleNamespace(stop="answered", final=final)
@@ -199,6 +239,8 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             ct_checkpoint, checkpoint("CP-TRANSFER", [member], clock="2026-03-03")],
             [member], [source("S-CT", ct_text, "2026-03-02"),
                        source("S-TRANSFER", transfer_text, "2026-03-03")], autoread=False)
+        registry.get("read_candidate_checkpoint").run("CP-TRANSFER")
+        registry.get("read_source").run("S-TRANSFER")
         call = dict(checkpoint_id="CP-TRANSFER", disposition="SUPPORT_ONLY",
                     evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id="CP-CT-AFTER",
                     rationale="转入记录延续CT后计划。")
@@ -213,9 +255,10 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ"):
             store.adjudicate(**call)
         registry.get("read_source").run("S-CT")
+        prepare_call(registry, call)
         self.assertEqual(store.adjudicate(**call)["item"]["disposition"], "SUPPORT_ONLY")
 
-    def test_management_comparator_requires_detail_read(self):
+    def test_management_comparator_reuses_prior_current_detail_read(self):
         first_text = "拟行手术。"
         second_text = "MRI后拟行手术。"
         evidence_text = "MRI未见远处转移。"
@@ -228,17 +271,111 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             [first, second], [source("S-FIRST", first_text, "2026-03-01"),
                               source("S-SECOND", second_text, "2026-03-03"),
                               source("S-MRI", evidence_text, "2026-03-02")], autoread=False)
+        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        registry.get("read_source").run("S-FIRST")
         store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
                          evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        registry.get("read_candidate_checkpoint").run("CP-SECOND")
+        registry.get("read_source").run("S-SECOND")
         call = dict(checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
                     evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
                     evidence_supports=[dict(source_id="S-MRI", quote="未见远处转移")],
                     rationale="MRI是新增患者证据。")
-        with self.assertRaisesRegex(ToolError, "COMPARATOR_NOT_READ"):
-            store.adjudicate(**call)
-        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        prepare_call(registry, call)
         self.assertEqual(store.adjudicate(**call)["item"]["evolution"],
                          "NEW_EVIDENCE_ROUND")
+
+    def test_support_requires_complete_interval_review_and_selective_reads(self):
+        first_text = "拟行手术。"
+        second_text = "再次讨论拟行手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        ct = source("S-CT", "增强CT未见远处转移。", "2026-03-02")
+        ct["kind"] = "imaging"
+        lab = source("S-LAB", "血红蛋白120g/L。", "2026-03-02")
+        lab["kind"] = "lab"
+        unknown = source("S-UNKNOWN", "时间未知的病程记录。", None)
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03"),
+                              ct, lab, unknown], autoread=False)
+        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        registry.get("read_source").run("S-FIRST")
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        registry.get("read_candidate_checkpoint").run("CP-SECOND")
+        registry.get("read_source").run("S-SECOND")
+        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        call = dict(checkpoint_id="CP-SECOND", disposition="SUPPORT_ONLY",
+                    evolution="REPEATED_PLAN", comparator_checkpoint_id="CP-FIRST",
+                    rationale="复述既定计划。")
+        with self.assertRaisesRegex(ToolError, "INTERVAL_INDEX_NOT_LISTED"):
+            store.adjudicate(**call)
+        page = registry.get("list_checkpoint_interval_sources").run(
+            checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST")
+        self.assertEqual(page["total"], 3)
+        self.assertEqual(page["unresolved_clock_count"], 1)
+        self.assertNotIn("text", page["sources"][0])
+        with self.assertRaisesRegex(ToolError, "INTERVAL_REVIEW_INCOMPLETE"):
+            store.adjudicate(**call)
+        with self.assertRaisesRegex(ToolError, "INTERVAL_HIGH_RISK_SOURCE_REQUIRES_READ"):
+            registry.get("review_checkpoint_interval_sources").run(
+                checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST",
+                reviews=[dict(source_id="S-CT", status="SKIPPED_FROM_INDEX",
+                              reason="试图不看CT就跳过。")])
+        registry.get("read_source").run("S-CT")
+        registry.get("review_checkpoint_interval_sources").run(
+            checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST",
+            reviews=[dict(source_id="S-CT", status="READ_NOT_NEW", reason="CT内容已读。"),
+                     dict(source_id="S-LAB", status="SKIPPED_FROM_INDEX",
+                          reason="常规检验索引，不影响当前判断。"),
+                     dict(source_id="S-UNKNOWN", status="SKIPPED_FROM_INDEX",
+                          reason="索引显示为无关时间未知记录。")])
+        item = store.adjudicate(**call)["item"]
+        self.assertEqual(item["interval_evidence_review"]["source_count"], 3)
+        self.assertEqual(item["interval_evidence_review"]["status_counts"]["READ_NOT_NEW"], 1)
+
+    def test_interval_used_evidence_blocks_support_and_current_source_is_required(self):
+        first_text = "拟行手术。"
+        second_text = "再次讨论拟行手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        ct = source("S-CT", "增强CT显示新发病灶。", "2026-03-02")
+        ct["kind"] = "imaging"
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03"), ct], autoread=False)
+        with self.assertRaisesRegex(ToolError, "CURRENT_CHECKPOINT_NOT_READ"):
+            store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                             evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        with self.assertRaisesRegex(ToolError, "CURRENT_CHECKPOINT_SOURCE_NOT_READ"):
+            store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                             evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        registry.get("read_source").run("S-FIRST")
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        call = dict(checkpoint_id="CP-SECOND", disposition="SUPPORT_ONLY",
+                    evolution="REPEATED_PLAN", comparator_checkpoint_id="CP-FIRST",
+                    rationale="错误忽略区间CT。")
+        registry.get("read_candidate_checkpoint").run("CP-SECOND")
+        registry.get("read_source").run("S-SECOND")
+        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        registry.get("read_source").run("S-CT")
+        registry.get("list_checkpoint_interval_sources").run(
+            checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST")
+        registry.get("review_checkpoint_interval_sources").run(
+            checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST",
+            reviews=[dict(source_id="S-CT", status="READ_AND_USED",
+                          reason="新CT显示新发病灶。")])
+        with self.assertRaisesRegex(ToolError, "INTERVAL_NEW_EVIDENCE_REQUIRES_RETAIN_OR_REVIEW"):
+            store.adjudicate(**call)
 
     def test_same_action_with_new_patient_evidence_is_retained(self):
         first_text = "讨论后拟行胰十二指肠切除术。"

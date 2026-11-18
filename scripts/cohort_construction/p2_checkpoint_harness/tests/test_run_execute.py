@@ -67,11 +67,16 @@ class StubTransport:
         return (dict(tool_calls=[dict(id="f1", name="finish", arguments={})]),
                 dict(usage=dict(prompt_tokens=7, completion_tokens=3)))
 
+
 class TrajectoryStubTransport(StubTransport):
     def __init__(self, cache, settings, *, config=None):
         super().__init__(cache, settings, config=config)
         self._listed = False
+        self._current_read = False
+        self._source_read = False
         self._adjudicated = False
+        self._checkpoint_id = None
+        self._source_id = None
 
     def complete(self, messages, *, tools=None, task="agent_step", purpose=None):
         if not any(isinstance(tool, dict) and tool.get("name") == "adjudicate_checkpoint"
@@ -83,9 +88,7 @@ class TrajectoryStubTransport(StubTransport):
             self._listed = True
             return dict(tool_calls=[dict(id="list-cp", name="list_candidate_checkpoints",
                                          arguments=dict(limit=200))]), usage
-        if not self._adjudicated:
-            self._adjudicated = True
-            checkpoint_id = None
+        if self._checkpoint_id is None:
             for message in reversed(messages):
                 if message.get("role") != "tool":
                     continue
@@ -96,12 +99,25 @@ class TrajectoryStubTransport(StubTransport):
                 management = [item for item in result.get("checkpoints") or []
                               if item.get("kind") == "MANAGEMENT_REASSESSMENT"]
                 if management:
-                    checkpoint_id = management[0]["checkpoint_id"]
+                    self._checkpoint_id = management[0]["checkpoint_id"]
+                    self._source_id = management[0]["source_ids"][0]
                     break
-            assert checkpoint_id is not None
+        assert self._checkpoint_id is not None
+        if not self._current_read:
+            self._current_read = True
+            return dict(tool_calls=[dict(
+                id="read-current-cp", name="read_candidate_checkpoint",
+                arguments=dict(checkpoint_id=self._checkpoint_id))]), usage
+        if not self._source_read:
+            self._source_read = True
+            return dict(tool_calls=[dict(
+                id="read-current-source", name="read_source",
+                arguments=dict(source_id=self._source_id))]), usage
+        if not self._adjudicated:
+            self._adjudicated = True
             return dict(tool_calls=[dict(
                 id="adjudicate-cp", name="adjudicate_checkpoint",
-                arguments=dict(checkpoint_id=checkpoint_id, disposition="RETAIN_CP",
+                arguments=dict(checkpoint_id=self._checkpoint_id, disposition="RETAIN_CP",
                                evolution="FIRST_VISIBLE", rationale="合成首见锚点。"))]), usage
         return dict(tool_calls=[dict(id="finish-cp", name="finish", arguments={})]), usage
 
@@ -123,7 +139,7 @@ class ExecutedRunTests(unittest.TestCase):
     def _authorize(self, stages="legacy"):
         args = type("A", (), dict(sources=self.sources, case_id="SYN-01",
                                   config=None, stages=stages))()
-        contract = run_case.run_contract(args, run_case.build_plan(self.sources))
+        contract, _ = run_case.run_contract(args, run_case.build_plan(self.sources))
         authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
                              case_id="SYN-01",
                              sources_sha256=contract["sources_sha256"],
@@ -132,12 +148,14 @@ class ExecutedRunTests(unittest.TestCase):
                              limits=dict(max_requests=40, max_total_tokens=100000))
         self.authorization.write_text(json.dumps(authorization), encoding="utf-8")
 
-    def _run(self, stages="legacy", discovery_result=None):
+    def _run(self, stages="legacy", discovery_result=None, resume=False):
         argv = ["--sources", str(self.sources), "--output", str(self.output),
                 "--cache", str(self.cache), "--case-id", "SYN-01",
                 "--stages", stages, "--authorization", str(self.authorization), "--execute"]
         if discovery_result is not None:
             argv += ["--discovery-result", str(discovery_result)]
+        if resume:
+            argv += ["--resume"]
         return run_case.main(argv)
 
     def test_HRN001_executed_run_writes_new_files_and_keeps_events(self):
@@ -150,7 +168,7 @@ class ExecutedRunTests(unittest.TestCase):
         self.assertEqual(code, 0)
         written = {path.name for path in self.output.iterdir()}
         for name in ("run_contract.json", "case_result.json", "discovery.json",
-                     "relations.json", "episodes.json", "audit.json",
+                     "relations.json", "candidate_containers.json", "audit.json",
                      "model_receipts.json", "summary.json"):
             self.assertIn(name, written)
         result = json.loads((self.output / "case_result.json").read_text(encoding="utf-8"))
@@ -200,7 +218,8 @@ class ExecutedRunTests(unittest.TestCase):
         args = type("A", (), dict(
             sources=self.sources, case_id="SYN-01", config=None,
             stages="adjudication", discovery_result=frozen))()
-        contract = run_case.run_contract(args, run_case.build_plan(self.sources))
+        contract, binding = run_case.run_contract(args, run_case.build_plan(self.sources))
+        self.assertIn("discovery_result_sha256", binding)
         self.authorization.write_text(json.dumps(dict(
             run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
             case_id="SYN-01", sources_sha256=contract["sources_sha256"],
@@ -285,6 +304,74 @@ class ExecutedRunTests(unittest.TestCase):
         sessions = {path.name for path in (self.output / "session" / "sessions").iterdir()}
         self.assertEqual(sum(name.startswith("case_organization") for name in sessions), 1)
         self.assertFalse(any("ordering" in name or name.startswith("episodes") for name in sessions))
+
+    def test_HRN006_organization_only_reuses_frozen_discovery_without_provider_discovery(self):
+        discovery = self.dir / "frozen.json"
+        discovery.write_text(json.dumps(dict(
+            candidate_spans=[], out_of_scope_candidates=[], evidence_inventory=[],
+            diagnostic_candidate_reviews=[dict(review_id="DR-1", disposition="no")],
+            diagnostic_candidate_review_revisions=[dict(review_id="DR-1", revision=1)],
+            discovery=dict(units={}))))
+        args = type("A", (), dict(sources=self.sources, case_id="SYN-01", config=None,
+                                  stages="organization", discovery_result=discovery))()
+        contract, binding = run_case.run_contract(args, run_case.build_plan(self.sources))
+        authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
+                             case_id="SYN-01", sources_sha256=contract["sources_sha256"],
+                             config_sha256=contract["config_sha256"],
+                             code_sha256=run_case._code_digest(contract["code_hashes"]),
+                             discovery_result_sha256=contract["discovery_result_sha256"],
+                             limits=dict(max_requests=40, max_total_tokens=100000))
+        self.authorization.write_text(json.dumps(authorization), encoding="utf-8")
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   StubTransport):
+            self.assertEqual(self._run("organization", discovery), 0)
+        summary = json.loads((self.output / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(summary["stages"]), ["discovery_input", "case_organization"])
+        self.assertFalse(summary["stages"]["discovery_input"]["discovery_rerun"])
+        restored = json.loads((self.output / "case_result.json").read_text(encoding="utf-8"))
+        self.assertEqual(restored["diagnostic_candidate_reviews"][0]["review_id"], "DR-1")
+        self.assertEqual(restored["diagnostic_candidate_review_revisions"][0]["revision"], 1)
+        sessions = {path.name for path in (self.output / "session" / "sessions").iterdir()}
+        self.assertEqual(sessions, {"case_organization.jsonl"})
+
+    def test_HRN007_interrupted_run_resume_preserves_history_and_writes_new_attempt(self):
+        discovery = self.dir / "frozen.json"
+        discovery.write_text(json.dumps(dict(
+            candidate_spans=[], out_of_scope_candidates=[], evidence_inventory=[],
+            discovery=dict(units={}))))
+        args = type("A", (), dict(sources=self.sources, case_id="SYN-01", config=None,
+                                  stages="organization", discovery_result=discovery))()
+        contract, binding = run_case.run_contract(args, run_case.build_plan(self.sources))
+        authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
+                             case_id="SYN-01", sources_sha256=contract["sources_sha256"],
+                             config_sha256=contract["config_sha256"],
+                             code_sha256=run_case._code_digest(contract["code_hashes"]),
+                             discovery_result_sha256=contract["discovery_result_sha256"],
+                             limits=dict(max_requests=40, max_total_tokens=100000))
+        self.authorization.write_text(json.dumps(authorization), encoding="utf-8")
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   StubTransport):
+            self.assertEqual(self._run("organization", discovery), 0)
+        original_summary = self.output / "summary.json"
+        original = json.loads(original_summary.read_text())
+        original["status"] = "INCOMPLETE"
+        original_summary.write_text(json.dumps(original), encoding="utf-8")
+        original_bytes = original_summary.read_bytes()
+        (self.output / "case_result.json").unlink()
+        with patch("scripts.cohort_construction.model_api.load_boyu_settings",
+                   lambda *a, **k: object()), \
+             patch("scripts.cohort_construction.p2_checkpoint_harness.transport.Transport",
+                   StubTransport):
+            self.assertEqual(self._run("organization", discovery, resume=True), 0)
+        resumed = self.output.with_name(self.output.name + "-resumed-01")
+        self.assertTrue((resumed / "summary.json").is_file())
+        self.assertEqual(original_summary.read_bytes(), original_bytes)
+        self.assertTrue((resumed / "resume_audit.json").is_file())
+
 
     def test_HRN003_a_case_that_ran_out_of_budget_is_not_complete(self):
         # The dangerous direction: three stages ran, so a status of COMPLETE

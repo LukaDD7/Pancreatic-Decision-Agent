@@ -28,12 +28,18 @@ EVOLUTIONS = {
     "REPEATED_PLAN", "EXECUTION", "DIFFERENT_TASK", "UNCERTAIN",
 }
 SUPPORT_EVOLUTIONS = {"SAME_ROUND_SUPPORT", "REPEATED_PLAN", "EXECUTION"}
+INTERVAL_STATUSES = {
+    "READ_AND_USED", "READ_NOT_NEW", "SKIPPED_FROM_INDEX", "UNCERTAIN",
+}
+INTERVAL_READ_STATUSES = {"READ_AND_USED", "READ_NOT_NEW"}
 ACTOR = "case_level_adjudication_llm"
 
 ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
-先用list_candidate_checkpoints逐页查看全部candidate_checkpoints；用read_candidate_checkpoint查看candidate_actions、member_event_ids、来源、成员span和clock，用read_source/search_sources核对原文。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。每次提交带comparator的裁决前，必须read_candidate_checkpoint读取该comparator；若comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取比较对象或目标报告的提交，不能用当前管理文书代替。
+先用list_candidate_checkpoints逐页查看全部candidate_checkpoints；用read_candidate_checkpoint查看candidate_actions、member_event_ids、来源、成员span和clock，用read_source/search_sources核对原文。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。提交RETAIN或SUPPORT前，必须读取当前CP详情及至少一份当前来源原文；带comparator时还必须read_candidate_checkpoint读取该comparator。若comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取当前来源、比较对象或目标报告的提交，不能用其他管理文书代替。
+
+每次带comparator的RETAIN或SUPPORT裁决前，必须调用list_checkpoint_interval_sources逐页查看两个CP可见时间之间的新增资料索引及时间未知资料，再用review_checkpoint_interval_sources批量逐项处置：READ_AND_USED（读取并作为新增证据）、READ_NOT_NEW（读取后确认不是新增）、SKIPPED_FROM_INDEX（仅凭索引即可排除）、UNCERTAIN。READ_AND_USED/READ_NOT_NEW必须实际read_source；影像、病理及EUS/超声内镜、腹腔镜、穿刺、活检相关资料不得只凭索引跳过。SUPPORT_ONLY也必须完成区间核查，不能只看两个CP就声称无新增证据；区间有新增证据或不确定项时不能提交SUPPORT。时间未知资料单列，不得静默忽略。
 
 裁决规则：
 1. RETAIN_CP+FIRST_VISIBLE仅用于全病例没有任何其他可见候选状态的首见锚点，不给comparator_checkpoint_id；同刻候选也不能被忽略。
@@ -236,6 +242,8 @@ class CheckpointAdjudicationStore:
             checkpoint_id for checkpoint_id, checkpoint in self.checkpoints.by_id.items()
             if checkpoint.get("kind") != MANAGEMENT_KIND}
         self.attempt_problems = []
+        self.interval_listed = {}
+        self.interval_reviews = {}
         self.finished = False
 
     def _remember_problem(self, code, checkpoint_id):
@@ -331,6 +339,207 @@ class CheckpointAdjudicationStore:
             normalized.append(span)
         return normalized
 
+    @staticmethod
+    def _pair_key(checkpoint_id, comparator_checkpoint_id):
+        return checkpoint_id, comparator_checkpoint_id
+
+    def _interval_pair(self, checkpoint_id, comparator_checkpoint_id):
+        checkpoint = self.checkpoints.require(checkpoint_id)
+        comparator = self.checkpoints.require(comparator_checkpoint_id)
+        if checkpoint.get("kind") != MANAGEMENT_KIND:
+            raise ToolError("INTERVAL_REQUIRES_MANAGEMENT_CHECKPOINT")
+        if comparator_checkpoint_id == checkpoint_id:
+            raise ToolError("COMPARATOR_MUST_DIFFER_FROM_CHECKPOINT")
+        if compare(comparator, checkpoint)["relation"] != "before":
+            raise ToolError("INTERVAL_REQUIRES_STRICTLY_EARLIER_COMPARATOR")
+        return checkpoint, comparator
+
+    @staticmethod
+    def _interval_original_read_required(source):
+        title = source.get("title") or ""
+        high_risk_title = any(term in title for term in (
+            "EUS", "超声内镜", "腹腔镜", "穿刺", "活检"))
+        return source.get("kind") in {"imaging", "pathology"} or high_risk_title
+
+    def _interval_rows(self, checkpoint, comparator):
+        current_source_ids = set(checkpoint.get("source_ids") or ())
+        rows = []
+        for source in self.source_index.sources:
+            source_id = source["source_id"]
+            if source_id in current_source_ids:
+                continue
+            clock = source.get("clock") or {}
+            if not clock.get("value"):
+                interval_relation = "UNRESOLVED_CLOCK"
+            elif compare(comparator, source)["relation"] == "before" \
+                    and compare(source, checkpoint)["relation"] != "after":
+                interval_relation = "IN_INTERVAL"
+            else:
+                continue
+            rows.append(dict(
+                source_id=source_id, kind=source.get("kind"),
+                title=source.get("title"), clock=deepcopy(clock),
+                clock_basis=source.get("clock_basis"),
+                characters=len(source.get("text") or ""),
+                interval_relation=interval_relation,
+                original_read_required=self._interval_original_read_required(source)))
+        rows.sort(key=lambda row: (
+            row["interval_relation"] == "UNRESOLVED_CLOCK",
+            (row["clock"] or {}).get("value") or "9999", row["source_id"]))
+        return rows
+
+    def list_interval_sources(self, checkpoint_id, comparator_checkpoint_id,
+                              offset=0, limit=200):
+        checkpoint, comparator = self._interval_pair(
+            checkpoint_id, comparator_checkpoint_id)
+        rows = self._interval_rows(checkpoint, comparator)
+        offset = max(0, int(offset))
+        limit = max(1, min(200, int(limit)))
+        page = rows[offset:offset + limit]
+        key = self._pair_key(checkpoint_id, comparator_checkpoint_id)
+        self.interval_listed.setdefault(key, set()).update(
+            row["source_id"] for row in page)
+        return dict(
+            checkpoint_id=checkpoint_id,
+            comparator_checkpoint_id=comparator_checkpoint_id,
+            total=len(rows), offset=offset, returned=len(page),
+            truncated=offset + len(page) < len(rows),
+            in_interval_count=sum(
+                row["interval_relation"] == "IN_INTERVAL" for row in rows),
+            unresolved_clock_count=sum(
+                row["interval_relation"] == "UNRESOLVED_CLOCK" for row in rows),
+            original_read_required_count=sum(
+                row["original_read_required"] for row in rows),
+            sources=page,
+            note=("只返回区间资料和时间未知资料的索引，不返回正文。逐项处置后才能声称无新增证据；"
+                  "当前CP自身来源不列为区间新增资料，时间未知资料不得静默排除。"))
+
+    def review_interval_sources(self, checkpoint_id, comparator_checkpoint_id, reviews):
+        checkpoint, comparator = self._interval_pair(
+            checkpoint_id, comparator_checkpoint_id)
+        if not isinstance(reviews, list) or not reviews:
+            raise ToolError("INTERVAL_REVIEWS_REQUIRED")
+        expected = {row["source_id"]: row
+                    for row in self._interval_rows(checkpoint, comparator)}
+        key = self._pair_key(checkpoint_id, comparator_checkpoint_id)
+        listed = self.interval_listed.get(key, set())
+        stored = self.interval_reviews.setdefault(key, {})
+        for review in reviews:
+            if not isinstance(review, dict):
+                raise ToolError("INTERVAL_REVIEW_NOT_OBJECT")
+            source_id = review.get("source_id")
+            status = review.get("status")
+            reason = review.get("reason")
+            if source_id not in expected:
+                raise ToolError("INTERVAL_SOURCE_NOT_IN_PAIR:" + str(source_id))
+            if source_id not in listed:
+                raise ToolError("INTERVAL_SOURCE_NOT_LISTED:" + source_id)
+            if source_id in stored:
+                raise ToolError("INTERVAL_SOURCE_REVIEW_DUPLICATE:" + source_id)
+            if status not in INTERVAL_STATUSES:
+                raise ToolError("INTERVAL_REVIEW_STATUS_INVALID:" + str(status))
+            if not isinstance(reason, str) or not reason.strip():
+                raise ToolError("INTERVAL_REVIEW_REASON_REQUIRED:" + source_id)
+            if status in INTERVAL_READ_STATUSES \
+                    and source_id not in self.source_index.read_source_ids:
+                raise ToolError("INTERVAL_SOURCE_NOT_READ:" + source_id)
+            if status == "SKIPPED_FROM_INDEX" \
+                    and expected[source_id]["original_read_required"]:
+                raise ToolError("INTERVAL_HIGH_RISK_SOURCE_REQUIRES_READ:" + source_id)
+            stored[source_id] = dict(
+                source_id=source_id, status=status, reason=reason.strip(),
+                interval_relation=expected[source_id]["interval_relation"])
+        missing = sorted(set(expected) - set(stored))
+        return dict(recorded=len(reviews), total=len(expected),
+                    reviewed=len(stored), complete=not missing,
+                    missing_source_ids=missing)
+
+    def interval_tools(self):
+        review_schema = dict(
+            type="object", additionalProperties=False,
+            required=["source_id", "status", "reason"],
+            properties=dict(
+                source_id=dict(type="string", minLength=1),
+                status=dict(type="string", enum=sorted(INTERVAL_STATUSES)),
+                reason=dict(type="string", minLength=1)))
+        pair_properties = dict(
+            checkpoint_id=dict(type="string", minLength=1),
+            comparator_checkpoint_id=dict(type="string", minLength=1))
+        return [
+            Tool(name="list_checkpoint_interval_sources",
+                 description=("列出当前CP与comparator之间及时间未知的资料索引；不返回正文。"
+                              "SUPPORT和RETAIN均须逐页查看并逐项处置。"),
+                 input_schema=dict(
+                     type="object", additionalProperties=False,
+                     required=["checkpoint_id", "comparator_checkpoint_id"],
+                     properties=dict(**pair_properties, offset=dict(type="integer", minimum=0),
+                                     limit=dict(type="integer", minimum=1, maximum=200))),
+                 run=self.list_interval_sources),
+            Tool(name="review_checkpoint_interval_sources",
+                 description=("批量记录区间资料处置。READ状态须先读原文；高风险检查不得仅凭索引跳过；"
+                              "SUPPORT前不得保留USED或UNCERTAIN项。"),
+                 input_schema=dict(
+                     type="object", additionalProperties=False,
+                     required=["checkpoint_id", "comparator_checkpoint_id", "reviews"],
+                     properties=dict(**pair_properties, reviews=dict(
+                         type="array", minItems=1, items=review_schema))),
+                 run=self.review_interval_sources, writes=True),
+        ]
+
+    def _require_current_source_read(self, checkpoint):
+        checkpoint_id = checkpoint["checkpoint_id"]
+        if checkpoint_id not in self.checkpoints.read_checkpoint_ids:
+            raise ToolError(
+                "CURRENT_CHECKPOINT_NOT_READ: 提交前必须读取当前CP详情：" + checkpoint_id)
+        source_ids = set(checkpoint.get("source_ids") or ())
+        if not source_ids or not self.source_index.read_source_ids.intersection(source_ids):
+            raise ToolError(
+                "CURRENT_CHECKPOINT_SOURCE_NOT_READ: 提交前必须read_source读取当前CP的"
+                "至少一份来源原文：" + ",".join(sorted(source_ids)))
+
+    def _require_interval_review(self, checkpoint, comparator, disposition,
+                                 evolution, evidence_supports):
+        if disposition not in {RETAIN, SUPPORT}:
+            return
+        key = self._pair_key(checkpoint["checkpoint_id"],
+                             comparator["checkpoint_id"])
+        expected = {row["source_id"] for row in self._interval_rows(checkpoint, comparator)}
+        listed = self.interval_listed.get(key, set())
+        if not expected <= listed:
+            raise ToolError(
+                "INTERVAL_INDEX_NOT_LISTED: 必须逐页查看两个CP之间的全部资料索引，"
+                "缺失：" + ",".join(sorted(expected - listed)))
+        reviews = self.interval_reviews.get(key, {})
+        missing = sorted(expected - set(reviews))
+        if missing:
+            raise ToolError(
+                "INTERVAL_REVIEW_INCOMPLETE: 区间资料尚未逐项处置：" + ",".join(missing))
+        uncertain = sorted(source_id for source_id, review in reviews.items()
+                           if review["status"] == "UNCERTAIN")
+        if uncertain:
+            raise ToolError(
+                "INTERVAL_UNCERTAIN_REQUIRES_REVIEW: 区间资料关系不确定时不能提交"
+                "RETAIN或SUPPORT：" + ",".join(uncertain))
+        used = sorted(source_id for source_id, review in reviews.items()
+                      if review["status"] == "READ_AND_USED")
+        if disposition == SUPPORT and used:
+            raise ToolError(
+                "INTERVAL_NEW_EVIDENCE_REQUIRES_RETAIN_OR_REVIEW: 已标记新增证据，"
+                "不能再声称无新增证据并SUPPORT_ONLY：" + ",".join(used))
+        cited = {citation.get("source_id") for citation in evidence_supports or ()}
+        if disposition == RETAIN and evolution == "NEW_EVIDENCE_ROUND":
+            not_cited = sorted(set(used) - cited)
+            if not_cited:
+                raise ToolError(
+                    "INTERVAL_USED_EVIDENCE_NOT_CITED: 标记为使用的证据必须进入"
+                    "evidence_supports：" + ",".join(not_cited))
+            not_used = sorted(source_id for source_id in cited
+                              if source_id in expected and source_id not in used)
+            if not_used:
+                raise ToolError(
+                    "INTERVAL_EVIDENCE_NOT_MARKED_USED: 作为新增证据引用的区间资料"
+                    "必须标记READ_AND_USED：" + ",".join(not_used))
+
     def _require_comparator_read(self, comparator):
         checkpoint_id = comparator["checkpoint_id"]
         if checkpoint_id not in self.checkpoints.read_checkpoint_ids:
@@ -424,13 +633,29 @@ class CheckpointAdjudicationStore:
                     "FIRST_VISIBLE_REQUIRES_NO_PRIOR_RETAINED_STATE: 已有诊断或管理CP时，"
                     "必须比较最近保留状态，不能重新声明首见锚点。")
 
+        if disposition != REVIEW:
+            self._require_current_source_read(checkpoint)
+        if comparator is not None:
+            self._require_interval_review(
+                checkpoint, comparator, disposition, evolution, evidence_supports)
         evidence = self._evidence(
             checkpoint, evidence_supports, disposition=disposition, evolution=evolution,
             comparator=comparator)
+        interval_reviews = []
+        if comparator is not None and disposition != REVIEW:
+            interval_reviews = [deepcopy(review) for _, review in sorted(
+                self.interval_reviews.get(self._pair_key(
+                    checkpoint_id, comparator_checkpoint_id), {}).items())]
         item = dict(
             checkpoint_id=checkpoint_id, disposition=disposition, evolution=evolution,
             comparator_checkpoint_id=comparator_checkpoint_id,
-            evidence_supports=evidence, rationale=rationale.strip(), actor=ACTOR,
+            evidence_supports=evidence,
+            interval_evidence_review=dict(
+                source_count=len(interval_reviews),
+                status_counts=dict(sorted(Counter(
+                    review["status"] for review in interval_reviews).items())),
+                reviews=interval_reviews) if comparator is not None and disposition != REVIEW else None,
+            rationale=rationale.strip(), actor=ACTOR,
             review_status=("REVIEW_REQUIRED" if disposition == REVIEW
                            else "CANDIDATE_ADJUDICATED"))
         self.items[checkpoint_id] = item
@@ -505,6 +730,12 @@ class CheckpointAdjudicationStore:
                 item["disposition"] for item in items).items())),
             evolution_counts=dict(sorted(Counter(
                 item["evolution"] for item in items).items())),
+            interval_evidence_review=dict(
+                adjudications_with_interval_index=sum(
+                    item.get("interval_evidence_review") is not None for item in items),
+                reviewed_source_assignments=sum(
+                    (item.get("interval_evidence_review") or {}).get("source_count", 0)
+                    for item in items)),
             attempt_problems=deepcopy(self.attempt_problems),
             candidate_checkpoint_list_coverage=dict(
                 required_checkpoint_count=len(expected),
@@ -524,6 +755,8 @@ class CheckpointAdjudicationStore:
 def checkpoint_adjudication_tools(registry, *, checkpoint_index, source_index):
     store = CheckpointAdjudicationStore(
         checkpoint_index=checkpoint_index, source_index=source_index)
+    for tool in store.interval_tools():
+        registry.register(tool)
     registry.register(store.adjudication_tool())
     registry.register(store.finish_tool())
     return store
@@ -535,6 +768,7 @@ def build_prompt(checkpoints, *, case_id):
 
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
 按clock从早到晚，核对相对最近已保留CP是否已有新的相关患者证据，不得跳过中间CP。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
+每次RETAIN或SUPPORT前读取当前CP及来源；有comparator时逐页list_checkpoint_interval_sources，并批量review_checkpoint_interval_sources覆盖全部区间及时间未知资料。关键检查按需read_source，普通重复资料可按索引跳过；SUPPORT也必须完成区间核查。
 RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且证据严格晚于comparator、不晚于当前CP。比较CP已有的旧证据及未来证据不可用；时间不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count)
