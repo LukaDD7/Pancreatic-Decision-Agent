@@ -37,7 +37,7 @@ ACTOR = "case_level_adjudication_llm"
 ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
-先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。每个管理CP先调用read_checkpoint_adjudication_context：程序一次返回当前CP详情、唯一最近保留comparator及其详情，不需要也不允许Agent自行选择comparator。提交RETAIN或SUPPORT前，必须read_source读取至少一份当前来源原文；若程序返回的comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取当前CP、比较对象或目标报告的提交，不能用其他管理文书代替。
+先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。每个管理CP先调用read_checkpoint_adjudication_context：程序一次返回当前CP详情、唯一最近保留comparator及其详情，不需要也不允许Agent自行选择comparator。提交任何裁决前，必须read_source读取至少一份当前来源原文；若程序返回的comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取当前CP、比较对象或目标报告的提交，不能用其他管理文书代替。
 
 list_checkpoint_interval_sources只作为可选诊断工具：仅当两个CP之间是否出现新检查、病理或其他患者证据仍不清楚时，才查看区间索引并按需read_source；不要求逐页查看或逐项处置全部区间资料。不要因为索引中有一个管理动作或检查名称就认定证据演化，仍需核对相关原文。
 
@@ -132,11 +132,7 @@ class AdjudicationCheckpointIndex:
             self.management_member_spans[checkpoint_id] = spans
 
     def diagnostic_target_source_ids(self, checkpoint):
-        management_sources = {
-            span["source_id"] for spans in self.management_member_spans.values()
-            for span in spans}
-        return [source_id for source_id in checkpoint.get("source_ids") or ()
-                if source_id not in management_sources]
+        return list(checkpoint.get("source_ids") or ())
 
     def _member_candidate(self, event_id):
         candidate = self.candidates_by_id[event_id]
@@ -259,11 +255,13 @@ class CheckpointAdjudicationStore:
             candidate = self.checkpoints.by_id[checkpoint_id]
             if compare(candidate, checkpoint)["relation"] == "before":
                 earlier.append(candidate)
-        if not earlier:
-            return set()
-        latest = max(_clock_value(candidate) for candidate in earlier)
-        return {candidate["checkpoint_id"] for candidate in earlier
-                if _clock_value(candidate) == latest}
+        latest = []
+        for candidate in earlier:
+            if not any(other["checkpoint_id"] != candidate["checkpoint_id"]
+                       and compare(candidate, other)["relation"] == "before"
+                       for other in earlier):
+                latest.append(candidate)
+        return {candidate["checkpoint_id"] for candidate in latest}
 
     def _unordered_states(self, checkpoint):
         problems = []
@@ -271,8 +269,7 @@ class CheckpointAdjudicationStore:
             if candidate["checkpoint_id"] == checkpoint["checkpoint_id"]:
                 continue
             relation = compare(candidate, checkpoint)["relation"]
-            if relation == "same_time_unresolved" or (
-                    relation == "unknown" and _clock_value(candidate) and _clock_value(checkpoint)):
+            if relation in {"same_time_unresolved", "unknown"}:
                 problems.append(dict(checkpoint_id=candidate["checkpoint_id"],
                                      relation=relation,
                                      retained=candidate["checkpoint_id"]
@@ -350,15 +347,14 @@ class CheckpointAdjudicationStore:
         latest = sorted(self._latest_retained(checkpoint))
         comparator_id = latest[0] if len(latest) == 1 else None
         review_comparator_id = comparator_id
-        if review_comparator_id is None:
+        if review_comparator_id is None and not latest:
             unresolved = [
                 candidate for candidate in self.checkpoints.checkpoints
                 if candidate["checkpoint_id"] != checkpoint_id
+                and candidate.get("kind") != MANAGEMENT_KIND
                 and compare(candidate, checkpoint)["relation"] in {
                     "same_time_unresolved", "unknown"}]
-            unresolved.sort(key=lambda item: (
-                _clock_value(item) or "", item["checkpoint_id"]), reverse=True)
-            if unresolved:
+            if len(unresolved) == 1:
                 review_comparator_id = unresolved[0]["checkpoint_id"]
         return dict(
             checkpoint_id=checkpoint_id,
@@ -674,14 +670,14 @@ class CheckpointAdjudicationStore:
         if disposition == RETAIN and evolution == "FIRST_VISIBLE":
             comparator_checkpoint_id = None
         else:
-            comparator_checkpoint_id = next(iter(latest_retained), None)
+            comparator_checkpoint_id = (next(iter(latest_retained))
+                                        if len(latest_retained) == 1 else None)
             if comparator_checkpoint_id is None and disposition == REVIEW \
                     and evolution == "UNCERTAIN":
                 comparator_checkpoint_id = self.read_adjudication_context(
                     checkpoint_id)["review_comparator_checkpoint_id"]
         if comparator_checkpoint_id is not None:
             comparator = self.checkpoints.require(comparator_checkpoint_id)
-            self._require_comparator_read(comparator)
         if disposition == SUPPORT:
             if comparator is None:
                 raise ToolError("SUPPORT_ONLY_REQUIRES_COMPARATOR")
@@ -708,13 +704,16 @@ class CheckpointAdjudicationStore:
                         "不同动作、复述或更具体计划本身不能替代新增患者证据。")
             elif evolution != "FIRST_VISIBLE":
                 raise ToolError("RETAIN_WITHOUT_COMPARATOR_REQUIRES_FIRST_VISIBLE")
-            elif latest_retained:
+            elif any(compare(candidate, checkpoint)["relation"] == "before"
+                     for candidate in self.checkpoints.checkpoints
+                     if candidate["checkpoint_id"] != checkpoint_id):
                 raise ToolError(
-                    "FIRST_VISIBLE_REQUIRES_NO_PRIOR_RETAINED_STATE: 已有诊断或管理CP时，"
-                    "必须比较最近保留状态，不能重新声明首见锚点。")
+                    "FIRST_VISIBLE_REQUIRES_NO_PRIOR_RETAINED_STATE: 已有更早可见候选状态时，"
+                    "无论其保留或待核，都不能重新声明首见锚点。")
 
-        if disposition != REVIEW:
-            self._require_current_source_read(checkpoint)
+        self._require_current_source_read(checkpoint)
+        if comparator is not None:
+            self._require_comparator_read(comparator)
         evidence = self._evidence(
             checkpoint, evidence_supports, disposition=disposition, evolution=evolution,
             comparator=comparator)
@@ -829,7 +828,7 @@ def build_prompt(checkpoints, *, case_id):
 
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
 按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP及唯一最近保留comparator，不得自行选择比较对象。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
-每次RETAIN或SUPPORT前读取当前来源原文；诊断comparator还须读取目标报告原文。区间索引仅在证据关系不清时可选查看，不要求逐项处置全部区间资料。
+每次裁决前读取当前来源原文；诊断comparator还须读取目标报告原文。区间索引仅在证据关系不清时可选查看，不要求逐项处置全部区间资料。
 RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且证据严格晚于comparator、不晚于当前CP。比较CP已有的旧证据及未来证据不可用；时间不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count)

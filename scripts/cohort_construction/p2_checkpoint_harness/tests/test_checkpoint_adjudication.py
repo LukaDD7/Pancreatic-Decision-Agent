@@ -463,7 +463,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                     [first, second], [source("S-FIRST", first_text, "2026-03-01"),
                                       source("S-SECOND", second_text, "2026-03-02")])
                 expected = ("UNORDERED_CANDIDATE_STATE_REQUIRES_REVIEW"
-                            if comparator_clock == "2026-03-02"
+                            if comparator_clock in {"2026-03-02", None}
                             else "SUPPORT_ONLY_REQUIRES_COMPARATOR")
                 with self.assertRaisesRegex(ToolError, expected):
                     store.adjudicate(
@@ -474,8 +474,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                     checkpoint_id="CP-SECOND", disposition="REVIEW_REQUIRED",
                     evolution="UNCERTAIN", comparator_checkpoint_id="CP-SECOND",
                     rationale="没有严格更早状态，保留待核。")["item"]
-                self.assertEqual(item["comparator_checkpoint_id"],
-                                 "CP-FIRST" if comparator_clock != "2026-03-03" else None)
+                self.assertIsNone(item["comparator_checkpoint_id"])
                 self.assertIsNotNone(registry.get("read_checkpoint_adjudication_context"))
 
     def test_finish_rejects_missing_unknown_and_duplicate_adjudications(self):
@@ -634,6 +633,112 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
                 evidence_supports=[citation("S-MIDDLE", middle_text, "改为新辅助化疗")],
                 rationale="错误地以其他文书的动作句作为患者证据。")
+
+    def test_two_same_clock_management_reviews_do_not_form_comparator_cycle(self):
+        first_text = "拟行手术。"
+        second_text = "改为新辅助治疗。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           action_type="START_NAT", target="新辅助治疗")
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]), checkpoint("CP-SECOND", [second])],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-01")])
+        for checkpoint_id in ("CP-FIRST", "CP-SECOND"):
+            item = store.adjudicate(
+                checkpoint_id=checkpoint_id, disposition="REVIEW_REQUIRED",
+                evolution="UNCERTAIN", rationale="同刻管理候选不可定序。")["item"]
+            self.assertIsNone(item["comparator_checkpoint_id"])
+
+    def test_mixed_precision_latest_states_require_review_without_arbitrary_comparator(self):
+        text = "再次评估手术。"
+        member = candidate("EV-CURRENT", "S-CURRENT", text, text, clock="2026-03-03")
+        early = checkpoint("CP-DATE", [], kind=AFTER, clock="2026-03-01",
+                           source_ids=["S-DATE"])
+        late = checkpoint("CP-MINUTE", [], kind=AFTER, clock="2026-03-01 12:00",
+                          source_ids=["S-MINUTE"])
+        late["clock"]["precision"] = "minute"
+        store, registry = make_store([
+            early, late, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+            [member], [source("S-DATE", "CT报告。", "2026-03-01"),
+                       source("S-MINUTE", "MR报告。", "2026-03-01 12:00"),
+                       source("S-CURRENT", text, "2026-03-03")])
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        self.assertIsNone(context["comparator_checkpoint_id"])
+        self.assertEqual(set(context["parallel_latest_checkpoint_ids"]),
+                         {"CP-DATE", "CP-MINUTE"})
+        with self.assertRaisesRegex(ToolError, "PARALLEL_LATEST_STATES_REQUIRE_REVIEW"):
+            store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                             evolution="SAME_ROUND_SUPPORT", rationale="不得任选一个。")
+        item = store.adjudicate(checkpoint_id="CP-CURRENT", disposition="REVIEW_REQUIRED",
+                                evolution="UNCERTAIN", rationale="并列最近状态待核。")["item"]
+        self.assertIsNone(item["comparator_checkpoint_id"])
+
+    def test_unknown_diagnostic_clock_blocks_first_visible(self):
+        text = "拟行手术。"
+        member = candidate("EV-CURRENT", "S-CURRENT", text, text, clock="2026-03-03")
+        diagnostic = checkpoint("CP-UNKNOWN", [], kind=AFTER, clock=None,
+                                source_ids=["S-UNKNOWN"])
+        store, _ = make_store([diagnostic, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+                              [member], [source("S-UNKNOWN", "CT报告。", None),
+                                         source("S-CURRENT", text, "2026-03-03")])
+        with self.assertRaisesRegex(ToolError, "UNORDERED_CANDIDATE_STATE_REQUIRES_REVIEW"):
+            store.adjudicate(checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                             evolution="FIRST_VISIBLE", rationale="不能忽略未知时间状态。")
+
+    def test_review_also_requires_current_detail_source_and_diagnostic_report(self):
+        text = "CT后拟行手术。"
+        member = candidate("EV-CURRENT", "S-CURRENT", text, text)
+        diagnostic = checkpoint("CP-CT", [], kind=AFTER, source_ids=["S-CT"])
+        store, registry = make_store([
+            diagnostic, checkpoint("CP-CURRENT", [member])], [member],
+            [source("S-CT", "增强CT报告。", "2026-03-01"),
+             source("S-CURRENT", text, "2026-03-01")], autoread=False)
+        call = dict(checkpoint_id="CP-CURRENT", disposition="REVIEW_REQUIRED",
+                    evolution="UNCERTAIN", rationale="同刻证据关系待核。")
+        with self.assertRaisesRegex(ToolError, "CURRENT_CHECKPOINT_SOURCE_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        with self.assertRaisesRegex(ToolError, "CURRENT_CHECKPOINT_SOURCE_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_source").run("S-CURRENT")
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_source").run("S-CT")
+        item = store.adjudicate(**call)["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-CT")
+
+    def test_diagnostic_target_is_kept_when_report_contains_management_span(self):
+        text = "增强CT未见转移。CT后拟行手术。"
+        ct_text = "增强CT未见转移。"
+        member = candidate("EV-CURRENT", "S-CT", text, "CT后拟行手术。", clock="2026-03-03")
+        diagnostic = checkpoint("CP-CT", [], kind=AFTER, clock="2026-03-02",
+                                source_ids=["S-CT"])
+        store, registry = make_store([
+            diagnostic, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+            [member], [source("S-CT", text, "2026-03-02")])
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        self.assertEqual(context["comparator"]["diagnostic_target_source_ids"], ["S-CT"])
+        registry.get("read_source").run("S-CT")
+        item = store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                                evolution="SAME_ROUND_SUPPORT", rationale="同报告含管理句。")["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-CT")
+
+    def test_first_visible_cannot_follow_earlier_management_review(self):
+        first_text = "拟行手术。"
+        second_text = "再次评估手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]), checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="REVIEW_REQUIRED",
+                         evolution="UNCERTAIN", rationale="首个候选资料不足，待核。")
+        with self.assertRaisesRegex(ToolError, "FIRST_VISIBLE_REQUIRES_NO_PRIOR_RETAINED_STATE"):
+            store.adjudicate(checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+                             evolution="FIRST_VISIBLE", rationale="不能越过更早待核状态。")
 
     def test_store_before_comparator_result_round_trips_through_projection(self):
         from scripts.cohort_construction.p2_checkpoint_harness.stages.management_trajectory import (
