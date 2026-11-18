@@ -8,7 +8,7 @@
   "max_inline_tool_tokens": 12000,
   "max_inline_unit_tokens": 60000,
   "max_turns": 40,
-  "max_requests": 360,
+  "max_requests": 400,
   "max_total_tokens": 6000000,
   "max_steps_per_turn": 100,
   "max_transport_recovery_attempts": 2,
