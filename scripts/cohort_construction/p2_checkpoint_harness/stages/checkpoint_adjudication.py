@@ -38,19 +38,13 @@ ACTOR = "case_level_adjudication_llm"
 ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
-先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。每个管理CP先调用read_checkpoint_adjudication_context：程序一次返回当前CP详情、唯一最近保留comparator及其详情，不需要也不允许Agent自行选择comparator。提交任何裁决前，必须read_source读取至少一份当前来源原文；若程序返回的comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取当前CP、比较对象或目标报告的提交，不能用其他管理文书代替。
+先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，全部完成后finish。
 
-list_checkpoint_interval_sources只作为可选诊断工具：仅当两个CP之间是否出现新检查、病理或其他患者证据仍不清楚时，才查看区间索引并按需read_source；不要求逐页查看或逐项处置全部区间资料。不要因为索引中有一个管理动作或检查名称就认定证据演化，仍需核对相关原文。
+程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再read_source读取至少一份当前来源原文。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
 
-裁决规则：
-1. RETAIN_CP+FIRST_VISIBLE仅用于全病例没有任何其他可见候选状态的首见锚点；同刻候选也不能被忽略。
-2. 按检索clock从早到晚裁决。除首个可见锚点外，程序自动将唯一最近一个已保留CP状态作为comparator；不能跳过中间CP选择更早的比较对象。诊断CP是已保留状态，后续管理CP不能无视它而自称FIRST_VISIBLE。同刻、未知或并列最近状态不可定序时用REVIEW_REQUIRED+UNCERTAIN。
-3. 相对程序给定的最近保留状态出现了新的相关患者证据，才用RETAIN_CP+NEW_EVIDENCE_ROUND，并至少给一条evidence_support。证据必须严格晚于comparator、且在该CP可见clock之前或当时已经可见，不能只引用当前CP的动作、计划或管理句。诊断CP已经包含的目标报告不得再次作为新增证据；后续文书中的旧报告复述（无论引文是否保留检查日期）仍属于原报告，必须回到原始报告判断时间，不能因复述文书较晚而变成新证据。BEFORE_ACQUISITION comparator的目标报告可能晚于当前CP，强制读取只为识别比较对象，绝不代表报告在当前时点可见。
-4. 动作更具体、新计划、转科、复述、执行本身都不是证据演化。CT后CP已可输出EUS+FNA时，后续转入记录再次写EUS+FNA或择期手术，应SUPPORT_ONLY+SAME_ROUND_SUPPORT挂到CT后CP，而不是另建证据演化轮次。复述用REPEATED_PLAN，执行用EXECUTION。
-5. SUPPORT_ONLY由程序自动挂到最近保留CP，evolution只能是SAME_ROUND_SUPPORT/REPEATED_PLAN/EXECUTION。
-6. 时间缺失、先后无法确定或证据关系无法确定时用REVIEW_REQUIRED+UNCERTAIN，不要为了通过校验猜测时间或编造引文。不同任务但没有新增证据也不能冒充NEW_EVIDENCE_ROUND。
+RETAIN_CP+NEW_EVIDENCE_ROUND必须有严格晚于comparator、且不晚于当前CP的新患者证据。新动作、新计划、转科、复述和执行不是证据演化；comparator已有报告及其副本、后续文书旧复述和未来报告都不能作为新增证据。时间或关系不确定时用REVIEW_REQUIRED+UNCERTAIN，不要猜测。
 
-evidence_supports只提供source_id和逐字、连续来自该来源的quote，不提供start或end；若quote重复，请扩大引用上下文使其唯一。程序会定位quote、核验原文并生成字符半开区间。程序会拒绝非最近比较状态、比较状态以前的旧证据、未来证据、无法定位的引文，以及和当前CP member candidate span重叠的引文。逐项提交后立即继续，不要反复重新列出全部CP；完成全部管理CP后调用finish，未知、重复或漏裁决会在finish报错。"""
+evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、时间、报告身份、引文和span重叠。逐项提交后立即继续，不要反复重新列出全部CP。"""
 
 
 def _event_id(candidate, index):
@@ -160,7 +154,6 @@ class AdjudicationCheckpointIndex:
 
     def detail(self, checkpoint_id):
         checkpoint = self.require(checkpoint_id)
-        self.read_checkpoint_ids.add(checkpoint_id)
         result = self._summary(checkpoint)
         result.update(
             support_source_ids=list(checkpoint.get("support_source_ids") or ()),
@@ -197,7 +190,9 @@ class AdjudicationCheckpointIndex:
                               "管理CP必须逐项裁决。"))
 
         def read_candidate_checkpoint(checkpoint_id):
-            return self.detail(checkpoint_id)
+            detail = self.detail(checkpoint_id)
+            self.read_checkpoint_ids.add(checkpoint_id)
+            return detail
 
         def compare_checkpoint_clocks(left_checkpoint_id, right_checkpoint_id):
             return compare(self.require(left_checkpoint_id),
@@ -467,6 +462,16 @@ class CheckpointAdjudicationStore:
                   "区间资料索引仅在有疑问时可选查看。"))
 
     def adjudication_context_tool(self):
+        def run(checkpoint_id):
+            context = self.read_adjudication_context(checkpoint_id)
+            self.checkpoints.read_checkpoint_ids.add(checkpoint_id)
+            for key in ("comparator", "review_comparator"):
+                comparator = context.get(key)
+                if comparator:
+                    self.checkpoints.read_checkpoint_ids.add(
+                        comparator["checkpoint_id"])
+            return context
+
         return Tool(
             name="read_checkpoint_adjudication_context",
             description=("一次读取当前CP和程序自动确定的最近保留comparator；"
@@ -474,7 +479,105 @@ class CheckpointAdjudicationStore:
             input_schema=dict(type="object", additionalProperties=False,
                               required=["checkpoint_id"],
                               properties=dict(checkpoint_id=dict(type="string", minLength=1))),
-            run=self.read_adjudication_context)
+            run=run)
+
+    def _automatic_pair(self, checkpoint_id):
+        context = self.read_adjudication_context(checkpoint_id)
+        comparator_id = (context["comparator_checkpoint_id"]
+                         or context["review_comparator_checkpoint_id"])
+        if comparator_id is None:
+            raise ToolError("SCOPED_SEARCH_REQUIRES_COMPARATOR")
+        return (self.checkpoints.require(checkpoint_id),
+                self.checkpoints.require(comparator_id))
+
+    @staticmethod
+    def _scoped_source_summary(source, scope):
+        return dict(
+            source_id=source["source_id"], kind=source.get("kind"),
+            title=source.get("title"), clock=deepcopy(source.get("clock") or {}),
+            report_time=deepcopy((source.get("clocks") or {}).get("report_time") or {}),
+            source_sha256=source.get("source_sha256"),
+            characters=len(source.get("text") or ""), scope=scope)
+
+    def search_scoped_sources(self, checkpoint_id, query="", scope="INTERVAL",
+                              context_chars=120, limit=20):
+        checkpoint = self.checkpoints.require(checkpoint_id)
+        context = self.read_adjudication_context(checkpoint_id)
+        if scope not in {"CURRENT", "COMPARATOR", "INTERVAL"}:
+            raise ToolError("CHECKPOINT_SEARCH_SCOPE_INVALID:" + str(scope))
+        comparator_id = (context["comparator_checkpoint_id"]
+                         or context["review_comparator_checkpoint_id"])
+        comparator = self.checkpoints.by_id.get(comparator_id)
+        if scope == "CURRENT":
+            sources = [self.source_index.require(source_id)
+                       for source_id in checkpoint.get("source_ids") or ()]
+        elif scope == "COMPARATOR":
+            if comparator is None:
+                raise ToolError("SCOPED_SEARCH_REQUIRES_COMPARATOR")
+            sources = [self.source_index.require(source_id)
+                       for source_id in comparator.get("source_ids") or ()]
+        else:
+            if comparator is None:
+                raise ToolError("SCOPED_SEARCH_REQUIRES_COMPARATOR")
+            rows = self._interval_rows(checkpoint, comparator)
+            sources = [self.source_index.require(row["source_id"]) for row in rows]
+        summaries = [self._scoped_source_summary(source, scope) for source in sources]
+        if not isinstance(query, str):
+            raise ToolError("CHECKPOINT_SEARCH_QUERY_MUST_BE_STRING")
+        query = query.strip()
+        limit = max(1, min(50, int(limit)))
+        context_chars = max(20, min(400, int(context_chars)))
+        result = dict(
+            checkpoint_id=checkpoint_id,
+            comparator_checkpoint_id=comparator_id,
+            scope=scope, query=query, total_sources=len(summaries),
+            recommended_queries=list(dict.fromkeys(
+                row["title"] for row in summaries if row.get("title")))[:10],
+            sources=summaries,
+            note=("仅检索程序确定的当前CP/comparator范围；索引不展开正文。"
+                  "命中后用read_source精读，检查名称本身不等于证据演化。"))
+        if not query:
+            result.update(hits=[], returned=0, truncated=False)
+            return result
+        hits = []
+        for source in sources:
+            text = source.get("text") or ""
+            start = 0
+            while True:
+                index = text.find(query, start)
+                if index < 0:
+                    break
+                end = index + len(query)
+                hit = self._scoped_source_summary(source, scope)
+                hit.update(start=max(0, index - context_chars),
+                           end=min(len(text), end + context_chars),
+                           text=text[max(0, index - context_chars):
+                                     min(len(text), end + context_chars)])
+                hits.append(hit)
+                if len(hits) > limit:
+                    break
+                start = end
+            if len(hits) > limit:
+                break
+        result.update(hits=hits[:limit], returned=min(len(hits), limit),
+                      truncated=len(hits) > limit)
+        return result
+
+    def scoped_search_tool(self):
+        return Tool(
+            name="search_checkpoint_sources",
+            description=("CP专用渐进检索：默认仅列当前CP与自动comparator之间的资料索引；"
+                         "加query返回局部命中，再用read_source精读。scope=CURRENT/COMPARATOR/INTERVAL。"),
+            input_schema=dict(
+                type="object", additionalProperties=False,
+                required=["checkpoint_id"],
+                properties=dict(
+                    checkpoint_id=dict(type="string", minLength=1),
+                    query=dict(type="string"),
+                    scope=dict(type="string", enum=["CURRENT", "COMPARATOR", "INTERVAL"]),
+                    context_chars=dict(type="integer", minimum=20, maximum=400),
+                    limit=dict(type="integer", minimum=1, maximum=50))),
+            run=self.search_scoped_sources)
 
     @staticmethod
     def _pair_key(checkpoint_id, comparator_checkpoint_id):
@@ -525,10 +628,14 @@ class CheckpointAdjudicationStore:
             (row["clock"] or {}).get("value") or "9999", row["source_id"]))
         return rows
 
-    def list_interval_sources(self, checkpoint_id, comparator_checkpoint_id,
+    def list_interval_sources(self, checkpoint_id, comparator_checkpoint_id=None,
                               offset=0, limit=200):
-        checkpoint, comparator = self._interval_pair(
-            checkpoint_id, comparator_checkpoint_id)
+        checkpoint, comparator = self._automatic_pair(checkpoint_id)
+        if comparator_checkpoint_id is not None \
+                and comparator_checkpoint_id != comparator["checkpoint_id"]:
+            raise ToolError("INTERVAL_COMPARATOR_IS_AUTOMATIC:"
+                            + comparator["checkpoint_id"])
+        comparator_checkpoint_id = comparator["checkpoint_id"]
         rows = self._interval_rows(checkpoint, comparator)
         offset = max(0, int(offset))
         limit = max(1, min(200, int(limit)))
@@ -632,13 +739,15 @@ class CheckpointAdjudicationStore:
             comparator_checkpoint_id=dict(type="string", minLength=1))
         return [
             Tool(name="list_checkpoint_interval_sources",
-                 description=("可选：列出当前CP与comparator之间及时间未知的资料索引；不返回正文。"
+                 description=("可选：列出当前CP与自动comparator之间及时间未知的资料索引；不返回正文。"
                               "仅证据关系不清时使用，按需read_source，不要求逐项处置。"),
                  input_schema=dict(
                      type="object", additionalProperties=False,
-                     required=["checkpoint_id", "comparator_checkpoint_id"],
-                     properties=dict(**pair_properties, offset=dict(type="integer", minimum=0),
-                                     limit=dict(type="integer", minimum=1, maximum=200))),
+                     required=["checkpoint_id"],
+                     properties=dict(
+                         checkpoint_id=dict(type="string", minLength=1),
+                         offset=dict(type="integer", minimum=0),
+                         limit=dict(type="integer", minimum=1, maximum=200))),
                  run=self.list_interval_sources),
             Tool(name="review_checkpoint_interval_sources",
                  description=("批量记录或修订区间资料处置；同一来源重复提交会更新最终状态并记录revision。"
@@ -708,12 +817,14 @@ class CheckpointAdjudicationStore:
                     "INTERVAL_EVIDENCE_NOT_MARKED_USED: 作为新增证据引用的区间资料"
                     "必须标记READ_AND_USED：" + ",".join(not_used))
 
-    def _require_comparator_read(self, checkpoint, comparator):
+    def _require_comparator_read(self, checkpoint, comparator, *,
+                                 require_diagnostic_target):
         checkpoint_id = comparator["checkpoint_id"]
         if checkpoint_id not in self.checkpoints.read_checkpoint_ids:
             raise ToolError(
                 "COMPARATOR_NOT_READ: 提交前必须read_candidate_checkpoint读取比较对象：" + checkpoint_id)
-        if comparator.get("kind") == MANAGEMENT_KIND:
+        if comparator.get("kind") == MANAGEMENT_KIND \
+                or not require_diagnostic_target:
             return
         target_ids = self.checkpoints.diagnostic_target_source_ids(comparator)
         if not target_ids:
@@ -812,7 +923,10 @@ class CheckpointAdjudicationStore:
 
         self._require_current_source_read(checkpoint)
         if comparator is not None:
-            self._require_comparator_read(checkpoint, comparator)
+            self._require_comparator_read(
+                checkpoint, comparator,
+                require_diagnostic_target=(
+                    disposition == RETAIN and evolution == "NEW_EVIDENCE_ROUND"))
         evidence = self._evidence(
             checkpoint, evidence_supports, disposition=disposition, evolution=evolution,
             comparator=comparator)
@@ -850,7 +964,7 @@ class CheckpointAdjudicationStore:
                     evolution=dict(type="string", enum=sorted(EVOLUTIONS)),
                     evidence_supports=dict(type="array", items=citation_schema),
                     rationale=dict(type="string", minLength=1))),
-            run=self.adjudicate, writes=True)
+            run=self.adjudicate, writes=True, requires_prior_tool_results=True)
 
     def finish_tool(self):
         def run(note=""):
@@ -915,6 +1029,7 @@ def checkpoint_adjudication_tools(registry, *, checkpoint_index, source_index):
     store = CheckpointAdjudicationStore(
         checkpoint_index=checkpoint_index, source_index=source_index)
     registry.register(store.interval_tools()[0])
+    registry.register(store.scoped_search_tool())
     registry.register(store.adjudication_context_tool())
     registry.register(store.adjudication_tool())
     registry.register(store.finish_tool())
@@ -927,7 +1042,7 @@ def build_prompt(checkpoints, *, case_id):
 
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
 按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP及唯一最近保留comparator，不得自行选择比较对象。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
-每次裁决前读取当前来源原文；诊断comparator还须读取目标报告原文。区间索引仅在证据关系不清时可选查看，不要求逐项处置全部区间资料。
+每次裁决前读取当前来源原文。SUPPORT_ONLY不强制读取诊断comparator报告；仅NEW_EVIDENCE_ROUND或关系不清时用search_checkpoint_sources按需检索，NEW_EVIDENCE_ROUND须在当前CP/comparator上下文中读取诊断comparator目标报告。区间索引不要求逐项处置。
 RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且原始证据严格晚于comparator、不晚于当前CP。comparator目标报告及其在后续文书中的旧复述均不可用；BEFORE_ACQUISITION comparator的未来目标报告只用于识别比较对象。时间不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count)

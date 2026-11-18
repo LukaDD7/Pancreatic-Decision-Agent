@@ -32,6 +32,7 @@ class Tool:
     writes: bool = False
     deferred: bool = False
     terminal: bool = False
+    requires_prior_tool_results: bool = False
 
     def schema(self):
         return dict(name=self.name, description=self.description,
@@ -92,9 +93,9 @@ class ToolRegistry:
         """Run one batch. Order of returned results matches ``calls``.
 
         Reads are dispatched together; writes are executed afterwards, one at a
-        time, in the order the model emitted them. A write never observes a read
-        from the same batch having been applied, which keeps a batch's effect
-        describable without reasoning about interleaving.
+        time, in the order the model emitted them. Tools marked
+        ``requires_prior_tool_results`` cannot share a batch with reads: their
+        arguments must be chosen after the model has received those results.
         """
         calls = list(calls or ())
         if len(calls) > self.max_batch:
@@ -131,6 +132,14 @@ class ToolRegistry:
                     for future, index in futures.items():
                         results[index] = future.result()
         for index, call, tool in writes:
+            if reads and tool.requires_prior_tool_results:
+                result = ToolCallResult(
+                    call.get("id") or "", call.get("name") or "",
+                    "TOOL_REQUIRES_RESULTS_FROM_PREVIOUS_BATCH: 先取得读取结果，"
+                    "再在后续工具批次单独提交本操作。", is_error=True)
+                self._log(session, call, result, turn=turn, step=step)
+                results[index] = result
+                continue
             results[index] = self._run_one(call, tool, turn=turn, step=step, session=session)
         return results
 
