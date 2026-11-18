@@ -33,6 +33,7 @@ class SourceIndex:
         self.units_by_id = {unit["unit_id"]: unit for unit in self.units}
         self.read_source_ids = set()
         self.adjudication_context = None
+        self.adjudication_source_reads = {}
         # A source may appear in several units only if the unit grouping put it
         # there; keep the mapping explicit rather than guessing.
         self.source_units = {}
@@ -64,6 +65,10 @@ class SourceIndex:
 
     def set_adjudication_context(self, checkpoint, comparator):
         self.adjudication_context = dict(checkpoint=checkpoint, comparator=comparator)
+
+    def adjudication_read_source_ids(self, checkpoint_id, comparator_checkpoint_id):
+        return self.adjudication_source_reads.get(
+            (checkpoint_id, comparator_checkpoint_id), set())
 
     def _adjudication_source_status(self, source):
         if not self.adjudication_context:
@@ -185,6 +190,12 @@ class SourceIndex:
             if end <= start:
                 raise ToolError("READ_RANGE_EMPTY")
             self.read_source_ids.add(source_id)
+            if self.adjudication_context:
+                current = self.adjudication_context["checkpoint"]
+                comparator = self.adjudication_context["comparator"]
+                key = (current["checkpoint_id"],
+                       (comparator or {}).get("checkpoint_id"))
+                self.adjudication_source_reads.setdefault(key, set()).add(source_id)
             return dict(source_id=source_id, title=source.get("title"),
                         kind=source.get("kind"),
                         source_sha256=source.get("source_sha256"),

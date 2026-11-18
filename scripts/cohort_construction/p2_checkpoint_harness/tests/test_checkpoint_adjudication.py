@@ -767,6 +767,164 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                     quote="2026-03-01 MR增强,肿块评估：胰头部可见肿块，大小约23X16mm。")],
                 rationale="错误地把旧MR复述当成新证据。")
 
+    def test_comparator_report_copy_with_same_hash_cannot_bypass_identity_guard(self):
+        report_text = "MR增强示胰头肿块，未见远处转移。"
+        current_text = "再次评估后安排EUS+FNA。"
+        member = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,
+                           clock="2026-03-03")
+        diagnostic = checkpoint("CP-MR", [], kind=AFTER, clock="2026-03-01",
+                                source_ids=["S-MR-A"])
+        original = source("S-MR-A", report_text, "2026-03-01")
+        duplicate = source("S-MR-B", report_text, "2026-03-02")
+        original["source_sha256"] = duplicate["source_sha256"] = "same-report-hash"
+        store, _ = make_store([
+            diagnostic, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+            [member], [original, duplicate,
+                       source("S-CURRENT", current_text, "2026-03-03")])
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-MR-B", quote="未见远处转移")],
+                rationale="换source_id不能绕过同一报告身份封禁。")
+
+    def test_same_hash_with_different_exam_date_can_be_new_evidence(self):
+        report_text = "MR增强示胰头肿块，未见远处转移。"
+        current_text = "再次评估后安排EUS+FNA。"
+        member = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,
+                           clock="2026-03-04")
+        diagnostic = checkpoint("CP-MR", [], kind=AFTER, clock="2026-03-02",
+                                source_ids=["S-MR-OLD"])
+        old_mr = source("S-MR-OLD", report_text, "2026-03-02")
+        new_mr = source("S-MR-NEW", report_text, "2026-03-03")
+        old_mr["clocks"] = dict(exam_time=dict(value="2026-03-01", precision="date"),
+                                report_time=dict(value="2026-03-02", precision="date"))
+        new_mr["clocks"] = dict(exam_time=dict(value="2026-03-02", precision="date"),
+                                report_time=dict(value="2026-03-03", precision="date"))
+        old_mr["source_sha256"] = new_mr["source_sha256"] = "same-text-not-same-exam"
+        store, _ = make_store([
+            diagnostic, checkpoint("CP-CURRENT", [member], clock="2026-03-04")],
+            [member], [old_mr, new_mr,
+                       source("S-CURRENT", current_text, "2026-03-04")])
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-MR-NEW", quote="未见远处转移")],
+            rationale="正文哈希相同但检查日期不同的新报告可以构成新增证据。")["item"]
+        self.assertEqual(item["evidence_supports"][0]["source_id"], "S-MR-NEW")
+
+    def test_unpadded_recitation_date_cannot_bypass_original_report_guard(self):
+        first_text = "拟完善检查。"
+        current_text = "查房记录。影像回顾：2026-3-1 MR增强,肿块评估：胰头部可见肿块，大小约23X16mm。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text,
+                          clock="2026-03-02")
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, "查房记录。",
+                            clock="2026-03-03")
+        old_mr = source("S-MR-OLD", "肿块评估：胰头部可见肿块，大小约23X16mm。",
+                        "2026-03-01")
+        old_mr["kind"] = "imaging"
+        current_source = source("S-CURRENT", current_text, "2026-03-03")
+        current_source["kind"] = "document"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first], clock="2026-03-02"),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-02"),
+                               old_mr, current_source])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        with self.assertRaisesRegex(ToolError, "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(
+                    source_id="S-CURRENT",
+                    quote="影像回顾：2026-3-1 MR增强,肿块评估：胰头部可见肿块，大小约23X16mm。")],
+                rationale="未补零日期不能把旧报告重新定时。")
+
+    def test_dated_report_restatement_is_detected_after_a_text_prefix(self):
+        first_text = "拟完善检查。"
+        current_text = "查房记录。影像回顾：2026-03-01 MR增强,肿块评估：胰头部可见肿块，大小约23X16mm。"
+        mr_text = "[original_findings]\n肿块评估：胰头部可见肿块，大小约23X16mm。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, "查房记录。",
+                            clock="2026-03-03")
+        mr = source("S-MR", mr_text, "2026-03-01")
+        mr["kind"] = "imaging"
+        current_source = source("S-CURRENT", current_text, "2026-03-03")
+        current_source["kind"] = "document"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               mr, current_source])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        with self.assertRaisesRegex(ToolError, "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(
+                    source_id="S-CURRENT",
+                    quote="影像回顾：2026-03-01 MR增强,肿块评估：胰头部可见肿块，大小约23X16mm。")],
+                rationale="日期不在引文开头也不能绕过旧复述识别。")
+
+    def test_same_report_text_on_a_different_exam_date_is_not_matched_to_old_report(self):
+        first_text = "拟完善检查。"
+        findings = "肿块评估：胰头部可见肿块，大小约23X16mm。"
+        current_text = "查房记录。影像回顾：2026-03-02 MR增强," + findings
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, "查房记录。",
+                            clock="2026-03-03")
+        old_mr = source("S-MR-OLD", findings, "2026-03-01")
+        new_mr = source("S-MR-NEW", findings, "2026-03-02")
+        old_mr["kind"] = new_mr["kind"] = "imaging"
+        current_source = source("S-CURRENT", current_text, "2026-03-03")
+        current_source["kind"] = "document"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               old_mr, new_mr, current_source])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        with self.assertRaises(ToolError) as caught:
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(
+                    source_id="S-CURRENT", quote="影像回顾：2026-03-02 MR增强," + findings)],
+                rationale="相同结论的新检查只能匹配同日原始报告。")
+        self.assertIn("S-MR-NEW", str(caught.exception))
+        self.assertNotIn("S-MR-OLD", str(caught.exception))
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-MR-NEW", quote=findings)],
+            rationale="引用同日新MR原始报告可以形成新证据轮次。")["item"]
+        self.assertEqual(item["evidence_supports"][0]["source_id"], "S-MR-NEW")
+
+    def test_diagnostic_report_read_before_current_context_does_not_satisfy_gate(self):
+        current_text = "会诊后建议手术。"
+        member = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,
+                           clock="2026-03-03")
+        comparator = checkpoint("CP-CT", [], kind=AFTER, clock="2026-03-02",
+                                source_ids=["S-CT"])
+        ct = source("S-CT", "增强CT报告。", "2026-03-02")
+        store, registry = make_store([
+            comparator, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+            [member], [ct, source("S-CURRENT", current_text, "2026-03-03")], autoread=False)
+        registry.get("read_source").run("S-CT")
+        registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        registry.get("read_source").run("S-CURRENT")
+        call = dict(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                    evolution="SAME_ROUND_SUPPORT", rationale="同轮管理复述。")
+        with self.assertRaisesRegex(
+                ToolError, "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ_IN_CURRENT_CONTEXT"):
+            store.adjudicate(**call)
+        report = registry.get("read_source").run("S-CT")
+        self.assertEqual(report["adjudication_visibility"]["checkpoint_id"], "CP-CURRENT")
+        self.assertEqual(store.adjudicate(**call)["item"]["disposition"], "SUPPORT_ONLY")
+
     def test_future_comparator_report_is_explicitly_identity_only(self):
         current_text = "会诊后建议手术。"
         member = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,

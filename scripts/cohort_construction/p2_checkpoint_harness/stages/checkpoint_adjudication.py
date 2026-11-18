@@ -288,30 +288,63 @@ class CheckpointAdjudicationStore:
 
     @staticmethod
     def _dated_recitation_payload(quote):
-        match = re.match(
-            r"^\s*\d{4}[-年]\d{1,2}[-月]\d{1,2}日?[^,，:：]*[,，:：]\s*(.+)$",
+        match = re.search(
+            r"(?P<date>\d{4}[-年]\d{1,2}[-月]\d{1,2})日?"
+            r"[^,，:：\n]*[,，:：]\s*(?P<payload>.+)$",
             quote or "", flags=re.DOTALL)
         if not match:
             return None
-        payload = re.sub(r"\s+", "", match.group(1))
-        return payload if len(payload) >= 12 else None
+        payload = re.sub(r"\s+", "", match.group("payload"))
+        if len(payload) < 12:
+            return None
+        return match.group("date"), payload
+
+    @staticmethod
+    def _normalize_evidence_date(value):
+        match = re.match(r"^(\d{4})[-年](\d{1,2})[-月](\d{1,2})", value or "")
+        if not match:
+            return None
+        return "%04d-%02d-%02d" % tuple(int(part) for part in match.groups())
+
+    @classmethod
+    def _source_exam_dates(cls, source):
+        value = ((source.get("clocks") or {}).get("exam_time") or {}).get("value")
+        date = cls._normalize_evidence_date(value)
+        return {date} if date else set()
+
+    @classmethod
+    def _source_evidence_dates(cls, source):
+        dates = set()
+        clocks = dict(source.get("clocks") or {})
+        clocks["clock"] = source.get("clock") or {}
+        for role in ("exam_time", "report_time", "clock"):
+            value = (clocks.get(role) or {}).get("value")
+            date = cls._normalize_evidence_date(value)
+            if date:
+                dates.add(date)
+        return dates
 
     def _require_original_for_dated_recitation(self, source, quote):
         if source.get("kind") != "document":
             return
-        payload = self._dated_recitation_payload(quote)
-        if not payload:
+        recitation = self._dated_recitation_payload(quote)
+        if not recitation:
             return
+        recited_date, payload = recitation
+        recited_date = self._normalize_evidence_date(recited_date)
         for original in self.source_index.sources:
             if original["source_id"] == source["source_id"] \
                     or original.get("kind") == "document":
+                continue
+            evidence_dates = self._source_evidence_dates(original)
+            if not evidence_dates or recited_date not in evidence_dates:
                 continue
             original_text = re.sub(r"\s+", "", original.get("text") or "")
             if payload in original_text:
                 raise ToolError(
                     "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE: 引文是带检查日期的"
-                    "旧报告复述，不能因出现在后一份文书中就成为新证据；请改为核对并引用"
-                    "原始报告，旧报告仍需满足严格晚于comparator：" + original["source_id"])
+                    "报告复述，不能用后一份文书重新定时；请改为核对并引用同一检查身份的"
+                    "原始报告，原始报告仍需满足严格晚于comparator：" + original["source_id"])
 
     def _evidence(self, checkpoint, citations, *, disposition, evolution, comparator=None):
         if citations is None:
@@ -351,11 +384,26 @@ class CheckpointAdjudicationStore:
                                 "管理动作句也不能作为新增患者证据。")
             source = self.source_index.require(span["source_id"])
             if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None \
-                    and comparator.get("kind") != MANAGEMENT_KIND \
-                    and span["source_id"] in self.checkpoints.diagnostic_target_source_ids(comparator):
-                raise ToolError(
-                    "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE: comparator已包含该目标报告，"
-                    "同一报告不能再次形成证据演化轮次：" + span["source_id"])
+                    and comparator.get("kind") != MANAGEMENT_KIND:
+                target_ids = set(self.checkpoints.diagnostic_target_source_ids(comparator))
+                same_target = span["source_id"] in target_ids
+                if not same_target and source.get("source_sha256") is not None:
+                    source_dates = self._source_exam_dates(source)
+                    for target_id in target_ids:
+                        target = self.source_index.require(target_id)
+                        if target.get("source_sha256") != source.get("source_sha256"):
+                            continue
+                        target_dates = self._source_exam_dates(target)
+                        if source_dates and target_dates \
+                                and source_dates.isdisjoint(target_dates):
+                            continue
+                        same_target = True
+                        break
+                if same_target:
+                    raise ToolError(
+                        "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE: comparator已包含该目标报告"
+                        "或相同source_sha256的报告副本，同一报告不能再次形成证据演化轮次："
+                        + span["source_id"])
             if evolution == "NEW_EVIDENCE_ROUND":
                 self._require_original_for_dated_recitation(source, span["quote"])
             relation = compare(source, checkpoint)["relation"]
@@ -658,7 +706,7 @@ class CheckpointAdjudicationStore:
                     "INTERVAL_EVIDENCE_NOT_MARKED_USED: 作为新增证据引用的区间资料"
                     "必须标记READ_AND_USED：" + ",".join(not_used))
 
-    def _require_comparator_read(self, comparator):
+    def _require_comparator_read(self, checkpoint, comparator):
         checkpoint_id = comparator["checkpoint_id"]
         if checkpoint_id not in self.checkpoints.read_checkpoint_ids:
             raise ToolError(
@@ -669,10 +717,14 @@ class CheckpointAdjudicationStore:
         if not target_ids:
             raise ToolError(
                 "DIAGNOSTIC_COMPARATOR_TARGET_UNAVAILABLE: 诊断比较对象没有可核验的目标报告来源。")
-        if not self.source_index.read_source_ids.intersection(target_ids):
+        contextual_reads = self.source_index.adjudication_read_source_ids(
+            checkpoint["checkpoint_id"], checkpoint_id)
+        if not contextual_reads.intersection(target_ids):
             raise ToolError(
-                "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ: 必须read_source读取比较诊断CP的"
-                "目标报告，不能用当前管理文书代替：" + ",".join(target_ids))
+                "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ_IN_CURRENT_CONTEXT: 必须先调用"
+                "read_checkpoint_adjudication_context建立当前CP/comparator上下文，再read_source"
+                "读取比较诊断CP的目标报告；此前全局或其他CP的读取不能替代当前上下文读取："
+                + ",".join(target_ids))
 
     def adjudicate(self, checkpoint_id, disposition, evolution,
                    comparator_checkpoint_id=None, evidence_supports=None,
@@ -758,7 +810,7 @@ class CheckpointAdjudicationStore:
 
         self._require_current_source_read(checkpoint)
         if comparator is not None:
-            self._require_comparator_read(comparator)
+            self._require_comparator_read(checkpoint, comparator)
         evidence = self._evidence(
             checkpoint, evidence_supports, disposition=disposition, evolution=evolution,
             comparator=comparator)
