@@ -330,10 +330,8 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         registry.get("review_checkpoint_interval_sources").run(
             checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST",
             reviews=[dict(source_id="S-CT", status="READ_NOT_NEW", reason="CT内容已读。"),
-                     dict(source_id="S-LAB", status="SKIPPED_FROM_INDEX",
-                          reason="常规检验索引，不影响当前判断。"),
-                     dict(source_id="S-UNKNOWN", status="SKIPPED_FROM_INDEX",
-                          reason="索引显示为无关时间未知记录。")])
+                     dict(source_ids=["S-LAB", "S-UNKNOWN"], status="SKIPPED_FROM_INDEX",
+                          reason="常规检验或无关时间未知记录，按索引合组排除。")])
         item = store.adjudicate(**call)["item"]
         self.assertEqual(item["interval_evidence_review"]["source_count"], 3)
         self.assertEqual(item["interval_evidence_review"]["status_counts"]["READ_NOT_NEW"], 1)

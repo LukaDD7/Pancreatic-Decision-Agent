@@ -39,7 +39,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 
 先用list_candidate_checkpoints逐页查看全部candidate_checkpoints；用read_candidate_checkpoint查看candidate_actions、member_event_ids、来源、成员span和clock，用read_source/search_sources核对原文。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。提交RETAIN或SUPPORT前，必须读取当前CP详情及至少一份当前来源原文；带comparator时还必须read_candidate_checkpoint读取该comparator。若comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取当前来源、比较对象或目标报告的提交，不能用其他管理文书代替。
 
-每次带comparator的RETAIN或SUPPORT裁决前，必须调用list_checkpoint_interval_sources逐页查看两个CP可见时间之间的新增资料索引及时间未知资料，再用review_checkpoint_interval_sources批量逐项处置：READ_AND_USED（读取并作为新增证据）、READ_NOT_NEW（读取后确认不是新增）、SKIPPED_FROM_INDEX（仅凭索引即可排除）、UNCERTAIN。READ_AND_USED/READ_NOT_NEW必须实际read_source；影像、病理及EUS/超声内镜、腹腔镜、穿刺、活检相关资料不得只凭索引跳过。SUPPORT_ONLY也必须完成区间核查，不能只看两个CP就声称无新增证据；区间有新增证据或不确定项时不能提交SUPPORT。时间未知资料单列，不得静默忽略。若后续判断改变，可对同一来源重新提交处置以修订最终状态并记录revision；若提示引文未标READ_AND_USED，只修订对应来源，不要整批重复或反复重列索引。
+每次带comparator的RETAIN或SUPPORT裁决前，必须调用list_checkpoint_interval_sources逐页查看两个CP可见时间之间的新增资料索引及时间未知资料，再用review_checkpoint_interval_sources批量逐项处置：READ_AND_USED（读取并作为新增证据）、READ_NOT_NEW（读取后确认不是新增）、SKIPPED_FROM_INDEX（仅凭索引即可排除）、UNCERTAIN。READ_AND_USED/READ_NOT_NEW必须实际read_source；影像、病理及EUS/超声内镜、腹腔镜、穿刺、活检相关资料不得只凭索引跳过。SUPPORT_ONLY也必须完成区间核查，不能只看两个CP就声称无新增证据；区间有新增证据或不确定项时不能提交SUPPORT。时间未知资料单列，不得静默忽略。同一状态和同一理由的多条资料必须用source_ids合组提交，只写一次理由，不要逐条重复相同理由。若后续判断改变，可对同一来源重新提交处置以修订最终状态并记录revision；若提示引文未标READ_AND_USED，只修订对应来源，不要整批重复或反复重列索引。
 
 裁决规则：
 1. RETAIN_CP+FIRST_VISIBLE仅用于全病例没有任何其他可见候选状态的首见锚点，不给comparator_checkpoint_id；同刻候选也不能被忽略。
@@ -425,10 +425,30 @@ class CheckpointAdjudicationStore:
         key = self._pair_key(checkpoint_id, comparator_checkpoint_id)
         listed = self.interval_listed.get(key, set())
         stored = self.interval_reviews.setdefault(key, {})
+        expanded = []
         for review in reviews:
             if not isinstance(review, dict):
                 raise ToolError("INTERVAL_REVIEW_NOT_OBJECT")
             source_id = review.get("source_id")
+            source_ids = review.get("source_ids")
+            if (source_id is None) == (source_ids is None):
+                raise ToolError("INTERVAL_REVIEW_REQUIRES_SOURCE_ID_OR_SOURCE_IDS")
+            if source_ids is not None:
+                if not isinstance(source_ids, list) or not source_ids \
+                        or not all(isinstance(item, str) and item for item in source_ids):
+                    raise ToolError("INTERVAL_REVIEW_SOURCE_IDS_INVALID")
+                if len(set(source_ids)) != len(source_ids):
+                    raise ToolError("INTERVAL_REVIEW_SOURCE_IDS_DUPLICATE")
+            else:
+                source_ids = [source_id]
+            for item in source_ids:
+                expanded.append(dict(source_id=item, status=review.get("status"),
+                                     reason=review.get("reason")))
+        batch_source_ids = [review["source_id"] for review in expanded]
+        if len(set(batch_source_ids)) != len(batch_source_ids):
+            raise ToolError("INTERVAL_REVIEW_BATCH_SOURCE_DUPLICATE")
+        for review in expanded:
+            source_id = review["source_id"]
             status = review.get("status")
             reason = review.get("reason")
             if source_id not in expected:
@@ -464,9 +484,11 @@ class CheckpointAdjudicationStore:
     def interval_tools(self):
         review_schema = dict(
             type="object", additionalProperties=False,
-            required=["source_id", "status", "reason"],
+            required=["status", "reason"],
             properties=dict(
                 source_id=dict(type="string", minLength=1),
+                source_ids=dict(type="array", minItems=1,
+                                items=dict(type="string", minLength=1)),
                 status=dict(type="string", enum=sorted(INTERVAL_STATUSES)),
                 reason=dict(type="string", minLength=1)))
         pair_properties = dict(
@@ -484,7 +506,8 @@ class CheckpointAdjudicationStore:
                  run=self.list_interval_sources),
             Tool(name="review_checkpoint_interval_sources",
                  description=("批量记录或修订区间资料处置；同一来源重复提交会更新最终状态并记录revision。"
-                              "READ状态须先读原文；高风险检查不得仅凭索引跳过；SUPPORT前不得保留USED或UNCERTAIN项。"),
+                              "同一状态和理由的多条资料用source_ids合组，不要重复理由。READ状态须先读原文；"
+                              "高风险检查不得仅凭索引跳过；SUPPORT前不得保留USED或UNCERTAIN项。"),
                  input_schema=dict(
                      type="object", additionalProperties=False,
                      required=["checkpoint_id", "comparator_checkpoint_id", "reviews"],
@@ -780,7 +803,7 @@ def build_prompt(checkpoints, *, case_id):
 
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
 按clock从早到晚，核对相对最近已保留CP是否已有新的相关患者证据，不得跳过中间CP。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
-每次RETAIN或SUPPORT前读取当前CP及来源；有comparator时逐页list_checkpoint_interval_sources，并批量review_checkpoint_interval_sources覆盖全部区间及时间未知资料。关键检查按需read_source，普通重复资料可按索引跳过；SUPPORT也必须完成区间核查。
+每次RETAIN或SUPPORT前读取当前CP及来源；有comparator时逐页list_checkpoint_interval_sources，并批量review_checkpoint_interval_sources覆盖全部区间及时间未知资料。相同状态和理由用source_ids合组，关键检查按需read_source，普通重复资料可按索引跳过；SUPPORT也必须完成区间核查。
 RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且证据严格晚于comparator、不晚于当前CP。比较CP已有的旧证据及未来证据不可用；时间不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count)
