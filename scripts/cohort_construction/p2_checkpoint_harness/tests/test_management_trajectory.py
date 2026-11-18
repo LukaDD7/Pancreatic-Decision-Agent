@@ -638,6 +638,8 @@ class ManagementTrajectoryTests(unittest.TestCase):
         ]
         sources = [source("CT-1", "CT报告。"),
                    source("S-TRANSFER", text, clock="2026-03-03")]
+        sources[1]["clocks"] = {"source_create_time": dict(
+            value="2026-03-04 09:00", precision="minute")}
         reviews = [review("DE-CT", AFTER)]
         management_id = self.provisional_management_id(items, sources)
         diagnostic_id = self.project(
@@ -677,6 +679,20 @@ class ManagementTrajectoryTests(unittest.TestCase):
             projection=result)["packets"][0]
         self.assertEqual(packet["supporting_adjudications"],
                          checkpoint["supporting_adjudications"])
+        self.assertNotIn("S-TRANSFER", {item["source_id"]
+                                       for item in packet["included_sources"]})
+        self.assertEqual(packet["masked_projection"]["excluded_support_source_ids"],
+                         ["S-TRANSFER"])
+        material_spans = [span for span in packet["masked_projection"]["masked_spans"]
+                          if span["source_id"] == "S-TRANSFER"]
+        for item in items:
+            span = item["span"]
+            self.assertTrue(any(mask["start"] <= span["start"]
+                                and span["end"] <= mask["end"]
+                                for mask in material_spans))
+        original = next(item for item in packet["researcher_target_originals"]
+                        if item["source_id"] == "S-TRANSFER")
+        self.assertEqual(original["text"], text)
 
     def test_global_retain_new_evidence_round_skips_legacy_signature_merge(self):
         event = diagnostic("DE-CT", "CT-1")

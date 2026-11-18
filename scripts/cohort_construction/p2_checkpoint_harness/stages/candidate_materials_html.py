@@ -402,7 +402,7 @@ def _adjudication_card(item, *, supporting=False, researcher=False, included_sou
     return _node(
         "article", {"class": "adjudication"},
         _node("h4", {}, _h(
-            ("归并到本 CP 的支持记录：" if supporting else "本 CP 的全病例证据演化裁决：")
+            ("归并到本 CP 的支持记录：" if supporting else "本 CP 的证据演化裁决：")
             + str(item.get("checkpoint_id") or "未标 CP"))),
         _node("p", {"class": "small"}, _h(
             f"裁决：{item.get('disposition') or '未提供'} · "

@@ -326,7 +326,21 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                          key=len, reverse=True) if pre_exam else []
         included, excluded, mask_metadata = [], [], []
         whole_masked = []
+        excluded_support_masked = []
         body_creation_time_conflicts = []
+
+        def retain_excluded_support_masks(source_id):
+            if source_id in target_ids or source_id not in checkpoint.get("support_source_ids", []):
+                return
+            spans = target_spans_by_source.get(source_id) or []
+            if not spans:
+                return
+            excluded_support_masked.append(source_id)
+            mask_metadata.extend(dict(
+                source_id=source_id, start=span["start"], end=span["end"],
+                mask_reason="SUPPORT_TARGET_EXCLUDED_FROM_VISIBLE_CONTEXT",
+                member_event_ids=span.get("member_event_ids")) for span in spans)
+
         for source in sources:
             source_id = source["source_id"]
             visible_clock = effective_clocks[source_id]
@@ -354,11 +368,13 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 excluded.append(dict(
                     source_id=source_id, disposition="EXCLUDED_BY_CANDIDATE_TIMELINE",
                     reason="SOURCE_CREATED_AFTER_CANDIDATE_CUTOFF"))
+                retain_excluded_support_masks(source_id)
                 continue
             if not is_masked_pre_exam_target and (
                     not cutoff or not visible_value or visible_value > cutoff):
                 excluded.append(dict(source_id=source_id,
                                      disposition="EXCLUDED_BY_CANDIDATE_TIMELINE"))
+                retain_excluded_support_masks(source_id)
                 continue
             card = _source_card(source, visible_clock)
             _redact_future_clocks(card, cutoff)
@@ -517,6 +533,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             masked_projection=dict(
                 reason=mask_reason, masked_spans=mask_metadata,
                 whole_source_ids=whole_masked,
+                excluded_support_source_ids=sorted(set(excluded_support_masked)),
                 cross_document_reviewed=False,
                 protocol_status="private_development_projection_not_doctor_release",
                 heuristic_diagnostic_restatement_mask=bool(pre_exam)),
