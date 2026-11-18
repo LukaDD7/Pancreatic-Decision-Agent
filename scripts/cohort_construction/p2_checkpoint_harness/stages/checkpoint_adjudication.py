@@ -621,7 +621,8 @@ class CheckpointAdjudicationStore:
             if comparator_checkpoint_id not in latest_retained:
                 raise ToolError(
                     "COMPARATOR_NOT_LATEST_RETAINED_STATE: SUPPORT_ONLY必须挂到最近保留状态，"
-                    "不能跳过中间CP或挂到未保留CP。")
+                    "不能跳过中间CP或挂到未保留CP。当前唯一可选comparator："
+                    + ",".join(sorted(latest_retained)))
         elif disposition == RETAIN:
             if comparator is not None:
                 if evolution != "NEW_EVIDENCE_ROUND":
@@ -630,7 +631,8 @@ class CheckpointAdjudicationStore:
                 if comparator_checkpoint_id not in latest_retained:
                     raise ToolError(
                         "COMPARATOR_NOT_LATEST_RETAINED_STATE: 只能相对最近保留状态判定新增证据，"
-                        "不能跳过中间CP、选择未保留CP或无视已有诊断CP。")
+                        "不能跳过中间CP、选择未保留CP或无视已有诊断CP。当前唯一可选comparator："
+                        + ",".join(sorted(latest_retained)))
                 if not evidence_supports:
                     raise ToolError(
                         "NEW_EVIDENCE_ROUND_REQUIRES_EVIDENCE_SUPPORT: "

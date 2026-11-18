@@ -631,12 +631,13 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                               source("S-SECOND", second_text, "2026-03-03")])
         store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
                          evolution="FIRST_VISIBLE", rationale="首见锚点。")
-        with self.assertRaisesRegex(ToolError, "COMPARATOR_NOT_LATEST_RETAINED_STATE"):
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_NOT_LATEST_RETAINED_STATE") as caught:
             store.adjudicate(
                 checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
                 evidence_supports=[citation("S-CT", "增强CT未见远处转移。", "未见远处转移")],
                 rationale="错误跳过更近的CT后状态。")
+        self.assertIn("当前唯一可选comparator：CP-CT", str(caught.exception))
         with self.assertRaisesRegex(ToolError, "EVIDENCE_NOT_NEW_AFTER_COMPARATOR"):
             store.adjudicate(
                 checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
