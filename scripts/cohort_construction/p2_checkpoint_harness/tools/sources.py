@@ -31,6 +31,7 @@ class SourceIndex:
         self.by_id = {source["source_id"]: source for source in self.sources}
         self.units = list(units)
         self.units_by_id = {unit["unit_id"]: unit for unit in self.units}
+        self.read_source_ids = set()
         # A source may appear in several units only if the unit grouping put it
         # there; keep the mapping explicit rather than guessing.
         self.source_units = {}
@@ -154,6 +155,7 @@ class SourceIndex:
             end = len(text) if end is None else min(len(text), int(end))
             if end <= start:
                 raise ToolError("READ_RANGE_EMPTY")
+            self.read_source_ids.add(source_id)
             return dict(source_id=source_id, title=source.get("title"),
                         kind=source.get("kind"),
                         source_sha256=source.get("source_sha256"),

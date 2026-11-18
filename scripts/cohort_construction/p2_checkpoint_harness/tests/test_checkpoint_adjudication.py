@@ -54,12 +54,21 @@ def citation(source_id, text, quote):
                 end=start + len(quote))
 
 
-def make_store(checkpoints, candidates, sources):
+def make_store(checkpoints, candidates, sources, *, autoread=True):
     source_index = SourceIndex(sources)
     checkpoint_index = adjudication.AdjudicationCheckpointIndex(checkpoints, candidates)
     registry = ToolRegistry(approve=lambda *args: True)
+    source_index.register(registry)
+    for tool in checkpoint_index.tools():
+        registry.register(tool)
     store = adjudication.checkpoint_adjudication_tools(
         registry, checkpoint_index=checkpoint_index, source_index=source_index)
+    if autoread:
+        for checkpoint in checkpoints:
+            registry.get("read_candidate_checkpoint").run(checkpoint["checkpoint_id"])
+            target_ids = checkpoint_index.diagnostic_target_source_ids(checkpoint)
+            if checkpoint.get("kind") != MANAGEMENT and target_ids:
+                registry.get("read_source").run(target_ids[0])
     return store, registry
 
 
@@ -71,6 +80,12 @@ class FakeAgent:
     def act(self, prompt, *, final_tool):
         self.registry.get("list_candidate_checkpoints").run(limit=200)
         for call in self.calls:
+            comparator_id = call.get("comparator_checkpoint_id")
+            if comparator_id:
+                comparator = self.registry.get("read_candidate_checkpoint").run(comparator_id)
+                target_ids = comparator.get("diagnostic_target_source_ids") or []
+                if target_ids:
+                    self.registry.get("read_source").run(target_ids[0])
             self.registry.get("adjudicate_checkpoint").run(**call)
         final = final_tool.run(note="合成裁决完成")
         return SimpleNamespace(stop="answered", final=final)
@@ -170,6 +185,60 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         detail = tools["read_candidate_checkpoint"].run("CP-FIRST")
         self.assertEqual(detail["candidate_actions"], [member["candidate_action"]])
         self.assertEqual(detail["masked_spans"], [member["span"]])
+
+    def test_diagnostic_comparator_requires_detail_and_actual_report_reads(self):
+        ct_text = "增强CT示胰头占位，未见远处转移。"
+        transfer_text = "转入后继续EUS+FNA。"
+        member = candidate("EV-TRANSFER", "S-TRANSFER", transfer_text, transfer_text,
+                           clock="2026-03-03", action_type="ORDER_EUS", target="EUS+FNA")
+        ct_checkpoint = checkpoint(
+            "CP-CT-AFTER", [], kind=AFTER, clock="2026-03-02",
+            actions=[dict(action_type="ORDER_EUS", target="EUS+FNA")],
+            source_ids=["S-CT"])
+        store, registry = make_store([
+            ct_checkpoint, checkpoint("CP-TRANSFER", [member], clock="2026-03-03")],
+            [member], [source("S-CT", ct_text, "2026-03-02"),
+                       source("S-TRANSFER", transfer_text, "2026-03-03")], autoread=False)
+        call = dict(checkpoint_id="CP-TRANSFER", disposition="SUPPORT_ONLY",
+                    evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id="CP-CT-AFTER",
+                    rationale="转入记录延续CT后计划。")
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_NOT_READ"):
+            store.adjudicate(**call)
+        comparator = registry.get("read_candidate_checkpoint").run("CP-CT-AFTER")
+        self.assertEqual(comparator["diagnostic_target_source_ids"], ["S-CT"])
+        self.assertEqual(comparator["candidate_actions"][0]["target"], "EUS+FNA")
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_source").run("S-TRANSFER")
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_source").run("S-CT")
+        self.assertEqual(store.adjudicate(**call)["item"]["disposition"], "SUPPORT_ONLY")
+
+    def test_management_comparator_requires_detail_read(self):
+        first_text = "拟行手术。"
+        second_text = "MRI后拟行手术。"
+        evidence_text = "MRI未见远处转移。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03"),
+                              source("S-MRI", evidence_text, "2026-03-02")], autoread=False)
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        call = dict(checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+                    evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
+                    evidence_supports=[dict(source_id="S-MRI", quote="未见远处转移")],
+                    rationale="MRI是新增患者证据。")
+        with self.assertRaisesRegex(ToolError, "COMPARATOR_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_candidate_checkpoint").run("CP-FIRST")
+        self.assertEqual(store.adjudicate(**call)["item"]["evolution"],
+                         "NEW_EVIDENCE_ROUND")
 
     def test_same_action_with_new_patient_evidence_is_retained(self):
         first_text = "讨论后拟行胰十二指肠切除术。"

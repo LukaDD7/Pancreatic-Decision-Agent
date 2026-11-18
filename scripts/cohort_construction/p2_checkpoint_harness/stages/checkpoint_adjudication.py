@@ -33,7 +33,7 @@ ACTOR = "case_level_adjudication_llm"
 ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
-先用list_candidate_checkpoints逐页查看全部candidate_checkpoints；需要时用read_candidate_checkpoint查看candidate_actions、member_event_ids、来源、成员span和clock，用read_source/search_sources核对原文。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。
+先用list_candidate_checkpoints逐页查看全部candidate_checkpoints；用read_candidate_checkpoint查看candidate_actions、member_event_ids、来源、成员span和clock，用read_source/search_sources核对原文。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint。每次提交带comparator的裁决前，必须read_candidate_checkpoint读取该comparator；若comparator是诊断CP，还必须read_source读取diagnostic_target_source_ids中至少一个目标报告原文。程序会拒绝未读取比较对象或目标报告的提交，不能用当前管理文书代替。
 
 裁决规则：
 1. RETAIN_CP+FIRST_VISIBLE仅用于全病例没有任何其他可见候选状态的首见锚点，不给comparator_checkpoint_id；同刻候选也不能被忽略。
@@ -62,6 +62,7 @@ class AdjudicationCheckpointIndex:
         self.checkpoints = list(checkpoints)
         self.by_id = {}
         self.returned_checkpoint_ids = set()
+        self.read_checkpoint_ids = set()
         self.limitations = []
         self.member_spans = {}
         self.management_member_spans = {}
@@ -124,6 +125,13 @@ class AdjudicationCheckpointIndex:
         if checkpoint.get("kind") == MANAGEMENT_KIND:
             self.management_member_spans[checkpoint_id] = spans
 
+    def diagnostic_target_source_ids(self, checkpoint):
+        management_sources = {
+            span["source_id"] for spans in self.management_member_spans.values()
+            for span in spans}
+        return [source_id for source_id in checkpoint.get("source_ids") or ()
+                if source_id not in management_sources]
+
     def _member_candidate(self, event_id):
         candidate = self.candidates_by_id[event_id]
         return dict(
@@ -133,7 +141,7 @@ class AdjudicationCheckpointIndex:
             span=deepcopy(candidate.get("span") or {}))
 
     def _summary(self, checkpoint):
-        return dict(
+        result = dict(
             checkpoint_id=checkpoint["checkpoint_id"], kind=checkpoint.get("kind"),
             clock=deepcopy(checkpoint.get("clock") or {}),
             clock_basis=checkpoint.get("clock_basis"),
@@ -141,6 +149,11 @@ class AdjudicationCheckpointIndex:
             source_ids=list(checkpoint.get("source_ids") or ()),
             member_event_ids=list(checkpoint.get("member_event_ids") or ()),
             diagnostic_event_ids=list(checkpoint.get("diagnostic_event_ids") or ()))
+        if checkpoint.get("kind") != MANAGEMENT_KIND:
+            result.update(
+                candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
+                diagnostic_target_source_ids=self.diagnostic_target_source_ids(checkpoint))
+        return result
 
     def tools(self):
         def list_candidate_checkpoints(kind=None, source_id=None, offset=0, limit=100):
@@ -162,6 +175,7 @@ class AdjudicationCheckpointIndex:
 
         def read_candidate_checkpoint(checkpoint_id):
             checkpoint = self.require(checkpoint_id)
+            self.read_checkpoint_ids.add(checkpoint_id)
             result = self._summary(checkpoint)
             result.update(
                 support_source_ids=list(checkpoint.get("support_source_ids") or ()),
@@ -317,6 +331,22 @@ class CheckpointAdjudicationStore:
             normalized.append(span)
         return normalized
 
+    def _require_comparator_read(self, comparator):
+        checkpoint_id = comparator["checkpoint_id"]
+        if checkpoint_id not in self.checkpoints.read_checkpoint_ids:
+            raise ToolError(
+                "COMPARATOR_NOT_READ: 提交前必须read_candidate_checkpoint读取比较对象：" + checkpoint_id)
+        if comparator.get("kind") == MANAGEMENT_KIND:
+            return
+        target_ids = self.checkpoints.diagnostic_target_source_ids(comparator)
+        if not target_ids:
+            raise ToolError(
+                "DIAGNOSTIC_COMPARATOR_TARGET_UNAVAILABLE: 诊断比较对象没有可核验的目标报告来源。")
+        if not self.source_index.read_source_ids.intersection(target_ids):
+            raise ToolError(
+                "COMPARATOR_DIAGNOSTIC_SOURCE_NOT_READ: 必须read_source读取比较诊断CP的"
+                "目标报告，不能用当前管理文书代替：" + ",".join(target_ids))
+
     def adjudicate(self, checkpoint_id, disposition, evolution,
                    comparator_checkpoint_id=None, evidence_supports=None,
                    rationale=""):
@@ -364,6 +394,7 @@ class CheckpointAdjudicationStore:
                 raise ToolError(
                     "COMPARATOR_NOT_STRICTLY_EARLIER: comparator必须严格更早；"
                     "同刻或未知请用REVIEW_REQUIRED+UNCERTAIN。")
+            self._require_comparator_read(comparator)
         if disposition == SUPPORT:
             if comparator is None:
                 raise ToolError("SUPPORT_ONLY_REQUIRES_COMPARATOR")
