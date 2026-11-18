@@ -135,7 +135,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert(firstScreen.nextLabel.includes('本患者下一 CP'));
     assert.equal(await evaluate("document.querySelectorAll('[data-navigation^=\"episode-\"]').length"), 0,
       'Duplicate Episode navigation remains visible');
-    assert(!firstScreen.materialText.includes('全病例'), 'Navigation implies a cross-patient scope');
+    assert(!firstScreen.headerText.includes('全病例'), 'Navigation implies a cross-patient scope');
     assert.equal(firstScreen.hasGlobalWarning, true, 'Global warning or migration summary remains visible');
     assert.equal(firstScreen.taskColumnCount, 3, 'Desktop task header is not a three-column grid');
     assert.equal(firstScreen.taskCellsFit, true, 'Task header text overflows its grid cell');
