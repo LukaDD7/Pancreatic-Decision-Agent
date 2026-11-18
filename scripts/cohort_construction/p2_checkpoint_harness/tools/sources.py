@@ -32,6 +32,7 @@ class SourceIndex:
         self.units = list(units)
         self.units_by_id = {unit["unit_id"]: unit for unit in self.units}
         self.read_source_ids = set()
+        self.adjudication_context = None
         # A source may appear in several units only if the unit grouping put it
         # there; keep the mapping explicit rather than guessing.
         self.source_units = {}
@@ -60,6 +61,34 @@ class SourceIndex:
         if role == "clock":
             return (source.get("clock") or {}).get("value")
         return ((source.get("clocks") or {}).get(role) or {}).get("value")
+
+    def set_adjudication_context(self, checkpoint, comparator):
+        self.adjudication_context = dict(checkpoint=checkpoint, comparator=comparator)
+
+    def _adjudication_source_status(self, source):
+        if not self.adjudication_context:
+            return None
+        from ..stages.ordering import compare
+
+        current = self.adjudication_context["checkpoint"]
+        comparator = self.adjudication_context["comparator"]
+        target_ids = set((comparator or {}).get("source_ids") or ())
+        report_time = dict((source.get("clocks") or {}).get("report_time") or {})
+        report_relation = compare(dict(clock=report_time), current)["relation"] \
+            if report_time.get("value") else "unknown"
+        is_target = source["source_id"] in target_ids
+        return dict(
+            checkpoint_id=current["checkpoint_id"],
+            comparator_checkpoint_id=(comparator or {}).get("checkpoint_id"),
+            is_comparator_target=is_target,
+            source_clock_relation_to_current=compare(source, current)["relation"],
+            report_time_relation_to_current=report_relation,
+            evidence_use=("COMPARATOR_EXISTING_EVIDENCE_NOT_NEW"
+                          if is_target else "REQUIRES_ORIGINAL_EVIDENCE_TIME_CHECK"),
+            warning=("该来源已属于comparator，不得再次作为NEW_EVIDENCE_ROUND证据。"
+                     + ("其报告时间晚于当前CP，只能用于识别comparator，当前时点不可见。"
+                        if is_target and report_relation == "after" else "")
+                     if is_target else "新文书中的旧报告复述不等于新证据，须核对原始检查与报告时间。"))
 
     # -- tools ---------------------------------------------------------
     def tool_list_sources(self):
@@ -162,6 +191,7 @@ class SourceIndex:
                         clock=self._clock_value(source),
                         clock_basis=source.get("clock_basis"),
                         clocks=dict(source.get("clocks") or {}),
+                        adjudication_visibility=self._adjudication_source_status(source),
                         total_characters=len(text), start=start, end=end,
                         truncated=start > 0 or end < len(text),
                         text=text[start:end])

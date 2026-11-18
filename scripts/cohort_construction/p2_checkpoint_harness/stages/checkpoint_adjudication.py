@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
 import json
+import re
 
 from ..tools import Tool, ToolError
 from ..tools.proposals import ProposalStore
@@ -44,7 +45,7 @@ list_checkpoint_interval_sources只作为可选诊断工具：仅当两个CP之�
 裁决规则：
 1. RETAIN_CP+FIRST_VISIBLE仅用于全病例没有任何其他可见候选状态的首见锚点；同刻候选也不能被忽略。
 2. 按检索clock从早到晚裁决。除首个可见锚点外，程序自动将唯一最近一个已保留CP状态作为comparator；不能跳过中间CP选择更早的比较对象。诊断CP是已保留状态，后续管理CP不能无视它而自称FIRST_VISIBLE。同刻、未知或并列最近状态不可定序时用REVIEW_REQUIRED+UNCERTAIN。
-3. 相对程序给定的最近保留状态出现了新的相关患者证据，才用RETAIN_CP+NEW_EVIDENCE_ROUND，并至少给一条evidence_support。证据必须严格晚于comparator、且在该CP可见clock之前或当时已经可见，不能只引用当前CP的动作、计划或管理句。
+3. 相对程序给定的最近保留状态出现了新的相关患者证据，才用RETAIN_CP+NEW_EVIDENCE_ROUND，并至少给一条evidence_support。证据必须严格晚于comparator、且在该CP可见clock之前或当时已经可见，不能只引用当前CP的动作、计划或管理句。诊断CP已经包含的目标报告不得再次作为新增证据；后续文书中带检查日期的旧报告复述仍属于原报告，必须回到原始报告判断时间，不能因复述文书较晚而变成新证据。BEFORE_ACQUISITION comparator的目标报告可能晚于当前CP，强制读取只为识别比较对象，绝不代表报告在当前时点可见。
 4. 动作更具体、新计划、转科、复述、执行本身都不是证据演化。CT后CP已可输出EUS+FNA时，后续转入记录再次写EUS+FNA或择期手术，应SUPPORT_ONLY+SAME_ROUND_SUPPORT挂到CT后CP，而不是另建证据演化轮次。复述用REPEATED_PLAN，执行用EXECUTION。
 5. SUPPORT_ONLY由程序自动挂到最近保留CP，evolution只能是SAME_ROUND_SUPPORT/REPEATED_PLAN/EXECUTION。
 6. 时间缺失、先后无法确定或证据关系无法确定时用REVIEW_REQUIRED+UNCERTAIN，不要为了通过校验猜测时间或编造引文。不同任务但没有新增证据也不能冒充NEW_EVIDENCE_ROUND。
@@ -285,6 +286,33 @@ class CheckpointAdjudicationStore:
         if pending:
             raise ToolError("PRIOR_MANAGEMENT_ADJUDICATION_REQUIRED:" + ",".join(pending))
 
+    @staticmethod
+    def _dated_recitation_payload(quote):
+        match = re.match(
+            r"^\s*\d{4}[-年]\d{1,2}[-月]\d{1,2}日?[^,，:：]*[,，:：]\s*(.+)$",
+            quote or "", flags=re.DOTALL)
+        if not match:
+            return None
+        payload = re.sub(r"\s+", "", match.group(1))
+        return payload if len(payload) >= 12 else None
+
+    def _require_original_for_dated_recitation(self, source, quote):
+        if source.get("kind") != "document":
+            return
+        payload = self._dated_recitation_payload(quote)
+        if not payload:
+            return
+        for original in self.source_index.sources:
+            if original["source_id"] == source["source_id"] \
+                    or original.get("kind") == "document":
+                continue
+            original_text = re.sub(r"\s+", "", original.get("text") or "")
+            if payload in original_text:
+                raise ToolError(
+                    "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE: 引文是带检查日期的"
+                    "旧报告复述，不能因出现在后一份文书中就成为新证据；请改为核对并引用"
+                    "原始报告，旧报告仍需满足严格晚于comparator：" + original["source_id"])
+
     def _evidence(self, checkpoint, citations, *, disposition, evolution, comparator=None):
         if citations is None:
             citations = []
@@ -322,6 +350,14 @@ class CheckpointAdjudicationStore:
                                 "EVIDENCE_OVERLAPS_MANAGEMENT_CANDIDATE: 其他CP或其他文书中的"
                                 "管理动作句也不能作为新增患者证据。")
             source = self.source_index.require(span["source_id"])
+            if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None \
+                    and comparator.get("kind") != MANAGEMENT_KIND \
+                    and span["source_id"] in self.checkpoints.diagnostic_target_source_ids(comparator):
+                raise ToolError(
+                    "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE: comparator已包含该目标报告，"
+                    "同一报告不能再次形成证据演化轮次：" + span["source_id"])
+            if evolution == "NEW_EVIDENCE_ROUND":
+                self._require_original_for_dated_recitation(source, span["quote"])
             relation = compare(source, checkpoint)["relation"]
             if relation == "after":
                 raise ToolError(
@@ -356,6 +392,9 @@ class CheckpointAdjudicationStore:
                     "same_time_unresolved", "unknown"}]
             if len(unresolved) == 1:
                 review_comparator_id = unresolved[0]["checkpoint_id"]
+        active_comparator = self.checkpoints.by_id.get(
+            comparator_id or review_comparator_id)
+        self.source_index.set_adjudication_context(checkpoint, active_comparator)
         return dict(
             checkpoint_id=checkpoint_id,
             current=self.checkpoints.detail(checkpoint_id),
@@ -368,8 +407,14 @@ class CheckpointAdjudicationStore:
                                if review_comparator_id and review_comparator_id != comparator_id
                                else None),
             interval_review_required=False,
+            evidence_policy=dict(
+                comparator_targets_reusable_as_new_evidence=False,
+                dated_secondary_restatement_requires_original_source=True,
+                future_comparator_report_read_role="COMPARATOR_IDENTITY_ONLY"),
             note=("comparator由程序按唯一最近保留状态自动计算，不由Agent选择。"
-                  "区间资料索引仅在有疑问时可选查看；诊断comparator的目标报告仍须read_source。"))
+                  "comparator已有的目标报告不得再次作为新增证据；其报告时间可能晚于当前CP，"
+                  "读取仅用于识别comparator。后一份文书中的带日期旧报告复述不是新证据。"
+                  "区间资料索引仅在有疑问时可选查看。"))
 
     def adjudication_context_tool(self):
         return Tool(
@@ -829,7 +874,7 @@ def build_prompt(checkpoints, *, case_id):
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
 按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP及唯一最近保留comparator，不得自行选择比较对象。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
 每次裁决前读取当前来源原文；诊断comparator还须读取目标报告原文。区间索引仅在证据关系不清时可选查看，不要求逐项处置全部区间资料。
-RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且证据严格晚于comparator、不晚于当前CP。比较CP已有的旧证据及未来证据不可用；时间不确定用REVIEW_REQUIRED+UNCERTAIN。
+RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且原始证据严格晚于comparator、不晚于当前CP。comparator目标报告及其在后续文书中的旧复述均不可用；BEFORE_ACQUISITION comparator的未来目标报告只用于识别比较对象。时间不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count)
 
