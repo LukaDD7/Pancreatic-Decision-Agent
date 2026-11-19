@@ -9,7 +9,8 @@ from scripts.cohort_construction.p2_checkpoint_harness import session as S
 
 def _session(directory, session_id="t1"):
     return S.Session(Path(directory) / "session.jsonl", session_id=session_id,
-                     metadata=dict(case_id="TEST-01"))
+                     metadata=dict(case_id="TEST-01",
+                                   source_deidentification="FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY"))
 
 
 class SessionLogTests(unittest.TestCase):
@@ -47,6 +48,14 @@ class SessionLogTests(unittest.TestCase):
         session.close()
         with self.assertRaises(ValueError):
             S.Session(self.dir / "session.jsonl", session_id="bbb", resume=True)
+
+    def test_HSL004b_resume_rejects_history_without_deidentification_marker(self):
+        path = self.dir / "legacy.jsonl"
+        path.write_text(json.dumps(dict(
+            format=S.FORMAT, session_id="t1", metadata=dict(case_id="TEST-01"))) + "\n" +
+            json.dumps(dict(seq=1, type=S.USER_MESSAGE, payload=dict(text="legacy raw text"))) + "\n")
+        with self.assertRaisesRegex(ValueError, "SESSION_DEIDENTIFICATION_PROVENANCE_MISSING"):
+            S.Session(path, session_id="t1", resume=True)
 
     def test_HSL005_surface_op_hides_range_but_log_keeps_it(self):
         session = _session(self.dir)

@@ -114,6 +114,7 @@ class Harness:
             session_id="p2h-%s-%s" % (self.case_id, name),
             metadata=dict(case_id=self.case_id,
                           created_at=datetime.now(timezone.utc).isoformat(),
+                          source_deidentification="FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY",
                           config=_config_snapshot(self.config)))
         self._sessions[name] = session
         return session

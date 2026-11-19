@@ -126,6 +126,10 @@ class Session:
             raise ValueError("SESSION_FORMAT_UNSUPPORTED")
         if header.get("session_id") != self.session_id:
             raise ValueError("SESSION_ID_MISMATCH")
+        metadata = header.get("metadata") or {}
+        if metadata.get("source_deidentification") != \
+                "FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY":
+            raise ValueError("SESSION_DEIDENTIFICATION_PROVENANCE_MISSING")
         for line in lines[1:]:
             if not line.strip():
                 continue

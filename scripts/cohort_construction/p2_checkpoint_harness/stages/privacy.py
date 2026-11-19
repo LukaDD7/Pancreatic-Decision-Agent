@@ -59,6 +59,8 @@ _EMAIL = re.compile(
     r"[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?![A-Za-z0-9._%+\-])"
 )
 _AGE_OVER_89 = re.compile(r"(?<![\d≥.])(?:9\d|[1-9]\d{2,})\s*岁")
+_CLINICAL_NUMBER_BEFORE_MOBILE = re.compile(
+    r"(?:指标|检验值|检查结果|测定值|检测值|结果|计数|数值)\s*[:：=]?\s*$")
 
 _VALUE_PATTERNS = {
     "name": (_NAME, NAME_REPLACEMENT),
@@ -145,7 +147,30 @@ def collect_identifier_values(sources, patient=None):
                     visit(item)
         visit(source.get("original_fields"))
         visit(source.get("provenance"))
+    if isinstance(patient, dict):
+        structured_numeric = {
+            item.get("value").strip()
+            for item in patient.get("identifier") or []
+            if isinstance(item, dict) and isinstance(item.get("value"), str)
+            and len(item.get("value").strip()) >= 6
+            and item.get("value").strip().isdigit()
+        }
+        labeled_numeric = {
+            match.group("value").strip()
+            for source in sources
+            for text in (source.get("text"), source.get("title"))
+            for match in _IDENTIFIER.finditer(text or "")
+            if match.group("value").strip().isdigit()
+        }
+        values["identifier"].update(structured_numeric & labeled_numeric)
     return values
+
+
+def _replace_unlabeled_mobile(match):
+    prefix = match.string[max(0, match.start() - 30):match.start()]
+    if _CLINICAL_NUMBER_BEFORE_MOBILE.search(prefix):
+        return match.group(0)
+    return PHONE_REPLACEMENT
 
 
 def deidentify_text(text, identifier_values=None) -> str:
@@ -163,7 +188,7 @@ def deidentify_text(text, identifier_values=None) -> str:
     text = _ADDRESS.sub(lambda match: _replace_labeled(match, ADDRESS_REPLACEMENT), text)
     text = _LABELED_PHONE.sub(
         lambda match: _replace_labeled(match, PHONE_REPLACEMENT), text)
-    text = _MOBILE.sub(PHONE_REPLACEMENT, text)
+    text = _MOBILE.sub(_replace_unlabeled_mobile, text)
     text = _LANDLINE.sub(PHONE_REPLACEMENT, text)
     for category, replacement in (("name", NAME_REPLACEMENT),
                                   ("address", ADDRESS_REPLACEMENT),

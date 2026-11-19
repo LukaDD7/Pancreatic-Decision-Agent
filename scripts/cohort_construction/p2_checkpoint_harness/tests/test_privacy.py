@@ -170,6 +170,31 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(roundtripped[0]["source_sha256"],
                          roundtripped[0]["deidentified_text_sha256"])
 
+    def test_numeric_patient_identifier_propagates_only_with_identifier_context(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
+            collect_identifier_values)
+        patient = dict(identifier=[{"value": "12345678"}])
+        sources = [dict(text="住院号：12345678。检验值：120000 U/mL。"),
+                   dict(text="既往就诊标识12345678；检验值120000 U/mL。")]
+        values = collect_identifier_values(sources, patient)
+        result = deidentify_text(sources[1]["text"], values)
+        self.assertNotIn("12345678", result)
+        self.assertIn("120000 U/mL", result)
+
+    def test_unconfirmed_numeric_patient_identifier_does_not_replace_lab_values(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
+            collect_identifier_values)
+        values = collect_identifier_values(
+            [dict(text="合成检验值：12345678 U/mL。")],
+            dict(identifier=[{"value": "12345678"}]))
+        self.assertEqual(deidentify_text("合成检验值：12345678 U/mL。", values),
+                         "合成检验值：12345678 U/mL。")
+
+    def test_mobile_shaped_clinical_result_is_not_a_phone_number(self):
+        text = "合成指标：13800138000 U/mL；手机：13900139000"
+        self.assertEqual(deidentify_text(text),
+                         "合成指标：13800138000 U/mL；手机：[电话已去标识化]")
+
 
 if __name__ == "__main__":
     unittest.main()
