@@ -1290,6 +1290,19 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED",
                       result["action_cycles"][0]["review_flags"])
 
+    def test_postoperative_recurrence_reassessment_is_not_preoperative_action_mismatch(self):
+        event = diagnostic("DE-POST-RECURRENCE", "CT-RECURRENCE",
+                           exam="2026-03-02 08:00", report="2026-03-02 12:00")
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"), source("CT-RECURRENCE", "CT报告。")],
+            events=[event], reviews=[review(
+                "DE-POST-RECURRENCE", AFTER, action_type="reassessment",
+                target="胰十二指肠切除术后术区复发可能性大")],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["phase"], "POSTOPERATIVE_TRAJECTORY")
+        self.assertNotIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED", checkpoint["review_flags"])
+
     def test_placeholder_only_report_cannot_create_evidence_arrival_checkpoint(self):
         event = diagnostic("DE-PLACEHOLDER", "CT-PLACEHOLDER")
         event["audit"] = dict(placeholder_only_event=True)

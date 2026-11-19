@@ -683,6 +683,25 @@
       ],
       "status": "real_counterexample_and_synthetic_regression_validated_adjudication_rerun_pending",
       "limitations": "Removing this checkpoint changes the provisional comparator chain; prior adjudication artifacts cannot simply be relabelled as valid for the corrected projection."
+    },
+    {
+      "id": "HPO-LIVE-037",
+      "problem": "The postoperative action-mismatch guard treated any target containing 切除 as preoperative, including an explicitly postoperative recurrence reassessment.",
+      "change_type": "postoperative_target_false_positive_guard",
+      "real_counterexample": {
+        "case_id": "SCALE-09",
+        "checkpoint_id": "CP-D-f704075e348666cf9add",
+        "observation": "The candidate action was reassessment/胰十二指肠切除术后术区复发可能性大 in POSTOPERATIVE_TRAJECTORY, but the word 切除 triggered ACTION_TASK_MISMATCH_REVIEW_REQUIRED."
+      },
+      "positive_control": "START_NAT with 术后辅助化疗 and explicit preoperative resection/NAT semantics still receive mismatch review.",
+      "negative_control": "An explicitly postoperative recurrence reassessment does not receive a preoperative-action mismatch flag merely because the operation name contains 切除.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_recurrence_reassessment_is_not_preoperative_action_mismatch",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_diagnostic_preoperative_action_gets_mismatch_review"
+      ],
+      "status": "real_counterexample_and_synthetic_regression_validated_offline_rerender_pending",
+      "limitations": "This deterministic review-flag correction does not change checkpoint topology or adjudication and therefore does not require another model run."
     }
   ]
 }

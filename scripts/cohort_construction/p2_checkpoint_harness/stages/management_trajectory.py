@@ -193,10 +193,15 @@ def _preoperative_action_conflict(candidate):
     action = candidate.get("candidate_action") or {}
     if action.get("phase") in PHASES - {"POSTOPERATIVE_TRAJECTORY"}:
         return True
-    text = " ".join((action.get("action_type") or "",
-                     action.get("target") or "")).lower()
+    action_type = (action.get("action_type") or "").lower()
+    target = (action.get("target") or "").lower()
+    text = action_type + " " + target
+    if any(term in text for term in (
+            "start_nat", "neoadjuvant", "conversion", "新辅助", "转化治疗", "术前")):
+        return True
+    if "术后" in target:
+        return False
     return any(term in text for term in (
-        "start_nat", "neoadjuvant", "conversion", "新辅助", "转化治疗", "术前",
         "根治", "切除", "resect", "explor", "探查"))
 
 

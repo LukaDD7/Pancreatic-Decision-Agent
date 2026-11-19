@@ -439,6 +439,16 @@ class CandidateCheckpointTests(unittest.TestCase):
             task_time_bounds=dict(operation_start=dict(
                 value="2026-03-02 10:00", precision="minute")))
         self.assertEqual(result["candidate_checkpoints"][0]["action_task_review_flags"], [])
+        recurrence = project_candidate_checkpoints(
+            case_id="SYN", candidates=[], sources=[source("S-CONTEXT", "既往临床资料。")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR",
+                       candidate_action=dict(
+                           action_type="reassessment", target="胰十二指肠切除术后术区复发可能性大"))],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual(recurrence["candidate_checkpoints"][0]["action_task_review_flags"], [])
 
     def test_operation_day_coarse_diagnostic_clocks_still_require_review(self):
         event = diagnostic(exam_time="2026-03-02", report_time="2026-03-02")

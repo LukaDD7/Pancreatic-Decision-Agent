@@ -400,7 +400,7 @@ def _action_task_review_flags(node_kind, review, postoperative):
         "ADVANCE_RESECTION", "SURGICAL_RESECTION", "CURATIVE_RESECTION",
         "RADICAL_RESECTION",
     }
-    preoperative_resection_target = any(term in target for term in (
+    preoperative_resection_target = "术后" not in target and any(term in target for term in (
         "根治性切除", "根治术", "胰十二指肠切除", "胰体尾切除", "胰腺切除"))
     mismatch = action_type == "START_NAT" or preoperative_resection_type \
         or preoperative_resection_target
