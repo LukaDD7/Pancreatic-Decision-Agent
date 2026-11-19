@@ -646,6 +646,23 @@
       ],
       "status": "synthetic_regression_chrome_and_adversarial_recheck_validated_live_r32_pending",
       "limitations": "The stopped r31 requests are retained only as execution receipts. Clinical correctness and fresh end-to-end behavior require the separate r32 run."
+    },
+    {
+      "id": "HAC-LIVE-035",
+      "problem": "A fresh adjudication can record every required management CP and then return a prose summary without calling finish, leaving an otherwise complete result INCOMPLETE. The initial r32 command also used stages=case, which runs legacy case organization rather than trajectory adjudication.",
+      "change_type": "bounded_program_completion_validation_and_execution_scope_correction",
+      "real_counterexample": {
+        "case_id": "SCALE-05",
+        "run": "live-r32/adjudication",
+        "observation": "All 12 management checkpoints were adjudicated, missing_checkpoint_ids and attempt_problems were empty and list coverage was complete, but stop was not_finished because Agent omitted the finish tool."
+      },
+      "positive_control": "After Agent has answered, the program may perform the deterministic finish validation only when every management CP is adjudicated, no attempt problem exists, and every candidate CP was listed. The validation is recorded in final.program_completion_validation.",
+      "negative_control": "Missing adjudications still produce not_finished and no program completion validation. The fallback does not invent or alter any clinical adjudication.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_program_validates_completion_only_after_full_agent_adjudication"
+      ],
+      "status": "synthetic_regression_validated_live_rerun_pending",
+      "limitations": "SCALE-05 legacy case organization was complete; SCALE-09 legacy case organization reached max_steps and is not claimed complete. Its fresh Discovery answered all 60 units, and subsequent trajectory validation uses that fresh Discovery rather than the unrelated legacy organization stage."
     }
   ]
 }

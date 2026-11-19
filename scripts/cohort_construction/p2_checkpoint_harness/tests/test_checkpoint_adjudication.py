@@ -107,22 +107,24 @@ def make_report_restatement_store(report_text, current_text, *, extra_sources=()
 
 
 class FakeAgent:
-    def __init__(self, registry, calls):
+    def __init__(self, registry, calls, finish=True):
         self.registry = registry
         self.calls = calls
+        self.finish = finish
 
     def act(self, prompt, *, final_tool):
         self.registry.get("list_candidate_checkpoints").run(limit=200)
         for call in self.calls:
             prepare_call(self.registry, call)
             self.registry.get("adjudicate_checkpoint").run(**call)
-        final = final_tool.run(note="合成裁决完成")
+        final = final_tool.run(note="合成裁决完成") if self.finish else dict(note="仅文字总结")
         return SimpleNamespace(stop="answered", final=final)
 
 
 class FakeHarness:
-    def __init__(self, calls):
+    def __init__(self, calls, finish=True):
         self.calls = calls
+        self.finish = finish
         self.agent_count = 0
 
     def session_for(self, name):
@@ -133,10 +135,32 @@ class FakeHarness:
 
     def agent(self, *, registry, session, system_prompt):
         self.agent_count += 1
-        return FakeAgent(registry, self.calls)
+        return FakeAgent(registry, self.calls, self.finish)
 
 
 class CheckpointAdjudicationTests(unittest.TestCase):
+    def test_program_validates_completion_only_after_full_agent_adjudication(self):
+        text = "拟行胰十二指肠切除术。"
+        member = candidate("EV-FIRST", "S-FIRST", text, text)
+        projection = dict(candidate_checkpoints=[checkpoint("CP-FIRST", [member])])
+        sources = [source("S-FIRST", text, "2026-03-01")]
+        call = dict(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                    evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        result = adjudication.run_checkpoint_adjudication(
+            FakeHarness([call], finish=False), case_id="SYN-FINISH",
+            sources=sources, candidates=[member], projection=projection)
+        self.assertTrue(result["summary"]["complete"])
+        self.assertEqual(result["summary"]["stop"], "answered")
+        self.assertTrue(result["summary"]["final"]["program_completion_validation"]["finished"])
+
+        incomplete = adjudication.run_checkpoint_adjudication(
+            FakeHarness([], finish=False), case_id="SYN-NO-FINISH",
+            sources=sources, candidates=[member], projection=projection)
+        self.assertFalse(incomplete["summary"]["complete"])
+        self.assertEqual(incomplete["summary"]["stop"], "not_finished")
+        self.assertEqual(incomplete["summary"]["missing_checkpoint_ids"], ["CP-FIRST"])
+        self.assertNotIn("program_completion_validation", incomplete["summary"]["final"])
+
     def test_ct_post_eus_transfer_is_support_only_on_ct_checkpoint(self):
         ct_text = "增强CT示胰头占位，未见远处转移。"
         transfer_text = "转入胰腺外科，继续EUS+FNA并择期手术。"

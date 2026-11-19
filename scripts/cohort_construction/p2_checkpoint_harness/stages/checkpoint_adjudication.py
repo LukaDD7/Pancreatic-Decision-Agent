@@ -1077,10 +1077,18 @@ def run_checkpoint_adjudication(harness, *, case_id, sources, candidates, projec
     outcome = agent.act(build_prompt(checkpoints, case_id=case_id),
                         final_tool=registry.get("finish"))
     stop = outcome.stop
+    final = deepcopy(getattr(outcome, "final", None) or {})
     if stop == "answered" and not store.finished:
-        stop = "not_finished"
-    return store.result(case_id=case_id, stop=stop,
-                        final=getattr(outcome, "final", None) or {})
+        missing = [checkpoint_id for checkpoint_id in checkpoint_index.management_ids
+                   if checkpoint_id not in store.items]
+        expected = set(checkpoint_index.by_id)
+        listed = set(checkpoint_index.returned_checkpoint_ids)
+        if not missing and not store.attempt_problems and expected <= listed:
+            final["program_completion_validation"] = store.finish_tool().run(
+                note="Agent已结束且全部管理CP裁决、列表覆盖和尝试记录完整；程序补做完成校验。")
+        else:
+            stop = "not_finished"
+    return store.result(case_id=case_id, stop=stop, final=final)
 
 
 __all__ = [
