@@ -100,8 +100,8 @@ class PrivacyTests(unittest.TestCase):
     def test_identifier_literals_do_not_replace_short_clinical_numbers_or_years(self):
         from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
             collect_identifier_values)
-        values = collect_identifier_values([], dict(identifier=[{"value": "12"}, {"value": "2026"}]))
-        text = "2026-11-19 08:00；CA19-9 result: 12 U/mL；dose 120 mg"
+        values = collect_identifier_values([], dict(identifier=[{"value": "12"}, {"value": "2026"}, {"value": "120000"}]))
+        text = "2026-11-19 08:00；CA19-9 result: 12 U/mL；dose 120 mg；合成高值120000 U/mL"
         self.assertEqual(deidentify_text(text, values), text)
 
     def test_metadata_and_english_names_propagate_across_sources(self):

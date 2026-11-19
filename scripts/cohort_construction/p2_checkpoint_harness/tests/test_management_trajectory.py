@@ -66,6 +66,14 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(len(result["candidate_checkpoints"]), 1)
         return result["candidate_checkpoints"][0]["checkpoint_id"]
 
+    def test_old_raw_span_is_rejected_before_trajectory_masking(self):
+        raw = "姓名：张测试。拟行胰十二指肠切除术。"
+        item = candidate("EV-OLD", "S-OLD", raw, "拟行胰十二指肠切除术。")
+        sanitized = "[姓名已去标识化]拟行胰十二指肠切除术。"
+        sources = [source("S-OLD", sanitized)]
+        with self.assertRaisesRegex(ValueError, "CANDIDATE_SPAN_SOURCE_TEXT_MISMATCH"):
+            self.project(candidates=[item], sources=sources)
+
     def test_same_ct_has_two_cutoffs_and_before_question_does_not_leak_target(self):
         event = diagnostic("DE-CT", "CT-1")
         result = self.project(

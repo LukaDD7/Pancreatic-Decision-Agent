@@ -107,7 +107,7 @@ def _literal_values(patient):
     for identifier in patient.get("identifier") or []:
         if isinstance(identifier, dict) and isinstance(identifier.get("value"), str):
             value = identifier["value"].strip()
-            if len(value) >= 6:
+            if len(value) >= 6 and not value.isdigit():
                 values["identifier"].add(value)
     return values
 
@@ -117,7 +117,7 @@ def _collect_labeled(values, text):
         for match in pattern.finditer(text or ""):
             value = match.group("value").strip()
             minimum = 4 if category == "address" else 6 if category == "identifier" else 2
-            if len(value) >= minimum:
+            if len(value) >= minimum and not (category == "identifier" and value.isdigit()):
                 values[category].add(value)
 
 
@@ -136,7 +136,8 @@ def collect_identifier_values(sources, patient=None):
                     if key in key_categories and isinstance(item, str):
                         category = key_categories[key]
                         minimum = 4 if category == "address" else 6 if category == "identifier" else 2
-                        if len(item.strip()) >= minimum:
+                        if len(item.strip()) >= minimum and not (
+                                category == "identifier" and item.strip().isdigit()):
                             values[category].add(item.strip())
                     visit(item)
             elif isinstance(value, list):

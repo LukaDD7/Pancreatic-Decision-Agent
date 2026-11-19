@@ -24,6 +24,7 @@ from .candidate_checkpoints import (
     _source_id,
     _task_scope,
     _valid_span,
+    validate_candidate_spans,
 )
 
 
@@ -907,6 +908,7 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
                                   diagnostic_reviews=None, task_time_bounds=None,
                                   checkpoint_adjudications=None):
     """Project one continuous curative goal into reviewable state/action cycles."""
+    validate_candidate_spans(candidates, sources)
     if task_time_bounds is None:
         from .diagnostic_events import derive_preoperative_task_bounds
         task_time_bounds = derive_preoperative_task_bounds(sources)
