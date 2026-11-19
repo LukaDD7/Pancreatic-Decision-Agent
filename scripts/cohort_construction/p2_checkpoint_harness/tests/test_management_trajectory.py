@@ -189,6 +189,18 @@ class ManagementTrajectoryTests(unittest.TestCase):
                                          for event in result["diagnostic_events"]]
                 self.assertEqual(first_ids[AFTER], second_ids[AFTER])
 
+    def test_further_treatment_admission_intent_is_not_an_independent_checkpoint(self):
+        text = "今为进一步治疗来我院就诊，门诊以\"胰腺肿瘤\"收入院"
+        item = candidate("EV-ADMISSION", "S-ADMISSION", text, text,
+                         action_type="住院评估", target="胰腺肿瘤")
+        result = self.project(
+            candidates=[item], sources=[source(
+                "S-ADMISSION", text, profile="admission_or_first_course")])
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][0]["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(result["migrations"][0]["reason"],
+                         "ADMISSION_INTENT_NOT_INDEPENDENT_DECISION")
+
     def test_postoperative_icu_round_is_outside_main_task(self):
         text = "术后转ICU监护并常规补液。"
         item = candidate("EV-ICU", "S-ROUND", text, text,

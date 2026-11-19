@@ -663,6 +663,26 @@
       ],
       "status": "synthetic_regression_validated_live_rerun_pending",
       "limitations": "SCALE-05 legacy case organization was complete; SCALE-09 legacy case organization reached max_steps and is not claimed complete. Its fresh Discovery answered all 60 units, and subsequent trajectory validation uses that fresh Discovery rather than the unrelated legacy organization stage."
+    },
+    {
+      "id": "HAI-LIVE-036",
+      "problem": "The trajectory projection inherited the admission-intent rule but its intent vocabulary omitted 进一步治疗. A fresh SCALE-05 admission sentence was therefore retained as the first management checkpoint even though the legacy projection excluded equivalent admission intent.",
+      "change_type": "real_live_admission_intent_counterexample_parity",
+      "real_counterexample": {
+        "case_id": "SCALE-05",
+        "event_id": "EV-c13b9dfb48db2cca",
+        "checkpoint_id": "CP-M-44bf812d3daf5a295164",
+        "quote": "今为进一步治疗来我院就诊，门诊以\"胰腺肿瘤\"收入院",
+        "observation": "Discovery proposed 住院评估/胰腺肿瘤 and adjudication retained FIRST_VISIBLE; the sentence states admission intent, not an independent actionable management choice."
+      },
+      "positive_control": "Concrete diagnostic, treatment and reassessment actions remain candidates under the existing rules.",
+      "negative_control": "The exact further-treatment admission sentence becomes SUPPORT_ONLY/ADMISSION_INTENT_NOT_INDEPENDENT_DECISION in both projections and produces no independent checkpoint.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_admission_repeat_and_postoperative_profile_do_not_become_checkpoints",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_further_treatment_admission_intent_is_not_an_independent_checkpoint"
+      ],
+      "status": "real_counterexample_and_synthetic_regression_validated_adjudication_rerun_pending",
+      "limitations": "Removing this checkpoint changes the provisional comparator chain; prior adjudication artifacts cannot simply be relabelled as valid for the corrected projection."
     }
   ]
 }

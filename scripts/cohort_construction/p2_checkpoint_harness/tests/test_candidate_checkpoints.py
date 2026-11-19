@@ -62,21 +62,27 @@ class CandidateCheckpointTests(unittest.TestCase):
         admission_text = "患者为求手术治疗，今日收入我科。"
         repeat_text = "前次已拟手术，本次再次回述。"
         postoperative_text = "术后继续常规补液。"
+        further_treatment_text = "今为进一步治疗来我院就诊，门诊以\"胰腺肿瘤\"收入院"
         admission = candidate("EV-ADMIT", "S-A", admission_text, admission_text)
+        further_treatment = candidate("EV-ADMIT-FURTHER", "S-AF", further_treatment_text,
+                                      further_treatment_text)
         repeat = candidate("EV-REPEAT", "S-R", repeat_text, repeat_text,
                            function="repeat")
         postoperative = candidate("EV-POST", "S-P", postoperative_text,
                                   postoperative_text)
         result = self.project(
-            [admission, repeat, postoperative],
-            [source("S-A", admission_text), source("S-R", repeat_text),
+            [admission, further_treatment, repeat, postoperative],
+            [source("S-A", admission_text), source("S-AF", further_treatment_text),
+             source("S-R", repeat_text),
              source("S-P", postoperative_text, profile="postoperative_course")])
         self.assertEqual(result["candidate_checkpoints"], [])
         self.assertEqual([item["migration_status"] for item in result["migrations"]],
-                         ["SUPPORT_ONLY", "SUPPORT_ONLY", "TASK_OUT_OF_SCOPE"])
+                         ["SUPPORT_ONLY", "SUPPORT_ONLY", "SUPPORT_ONLY", "TASK_OUT_OF_SCOPE"])
         self.assertEqual(result["migrations"][0]["reason"],
                          "ADMISSION_INTENT_NOT_INDEPENDENT_DECISION")
-        self.assertEqual(len(result["support_records"]), 2)
+        self.assertEqual(result["migrations"][1]["reason"],
+                         "ADMISSION_INTENT_NOT_INDEPENDENT_DECISION")
+        self.assertEqual(len(result["support_records"]), 3)
 
     def test_five_spans_from_one_source_merge_into_one_review_candidate(self):
         text = "拟行手术。|复查后评估。|暂缓推进。|补充证据。|调整方案。"
