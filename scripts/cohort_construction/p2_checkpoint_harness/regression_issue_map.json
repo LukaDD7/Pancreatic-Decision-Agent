@@ -562,7 +562,7 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_agent_citation_without_deterministic_new_evidence_stays_review",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_future_exam_plan_overlapping_current_action_requires_review"
       ],
-      "status": "synthetic_regression_validated_live_pending",
+      "status": "synthetic_regression_and_live_r32_SCALE05_SCALE09_validated",
       "limitations": "The projection does not certify clinical truth or prove that the historical team actually used the evidence."
     },
     {
@@ -599,7 +599,7 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_candidate_does_not_merge_into_preoperative_same_question",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_cross_source_action_merge_does_not_drop_postoperative_report"
       ],
-      "status": "synthetic_regression_validated_live_pending",
+      "status": "synthetic_regression_and_live_r32_SCALE05_SCALE09_validated",
       "limitations": "The program does not rewrite START_NAT into a clinically confirmed adjuvant action; source labels and task mismatch remain explicit."
     },
     {
@@ -619,7 +619,7 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_same_target_diagnostic_action_types_merge_without_merging_other_targets",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_export_and_restore_require_matching_manifest_form_version_and_form_hash"
       ],
-      "status": "synthetic_regression_and_chrome_validated_live_pending",
+      "status": "synthetic_regression_chrome_and_live_r32_SCALE05_SCALE09_validated",
       "limitations": "Clinical action availability, formal Q1-Q5 Reference and E/F/M/A/U scoring are not frozen or implemented by this engineering schema."
     },
     {
@@ -644,7 +644,7 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_render_recomputes_manifest_and_rejects_caller_or_material_tamper",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_export_and_restore_require_matching_manifest_form_version_and_form_hash"
       ],
-      "status": "synthetic_regression_chrome_and_adversarial_recheck_validated_live_r32_pending",
+      "status": "synthetic_regression_chrome_adversarial_recheck_and_live_r32_SCALE05_SCALE09_validated",
       "limitations": "The stopped r31 requests are retained only as execution receipts. Clinical correctness and fresh end-to-end behavior require the separate r32 run."
     },
     {
@@ -661,7 +661,7 @@
       "required_tests": [
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_program_validates_completion_only_after_full_agent_adjudication"
       ],
-      "status": "synthetic_regression_validated_live_rerun_pending",
+      "status": "synthetic_regression_and_live_r32_final_adjudications_validated",
       "limitations": "SCALE-05 legacy case organization was complete; SCALE-09 legacy case organization reached max_steps and is not claimed complete. Its fresh Discovery answered all 60 units, and subsequent trajectory validation uses that fresh Discovery rather than the unrelated legacy organization stage."
     },
     {
@@ -681,7 +681,7 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_admission_repeat_and_postoperative_profile_do_not_become_checkpoints",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_further_treatment_admission_intent_is_not_an_independent_checkpoint"
       ],
-      "status": "real_counterexample_and_synthetic_regression_validated_adjudication_rerun_pending",
+      "status": "real_counterexample_regression_and_live_r32_SCALE05_final_adjudication_validated",
       "limitations": "Removing this checkpoint changes the provisional comparator chain; prior adjudication artifacts cannot simply be relabelled as valid for the corrected projection."
     },
     {
@@ -700,7 +700,7 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_diagnostic_preoperative_action_gets_mismatch_review"
       ],
-      "status": "real_counterexample_and_synthetic_regression_validated_offline_rerender_pending",
+      "status": "real_counterexample_regression_and_final_offline_rerender_SCALE05_SCALE09_validated",
       "limitations": "This deterministic review-flag correction does not change checkpoint topology or adjudication and therefore does not require another model run."
     }
   ]
