@@ -119,16 +119,19 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     if (firstScreen.contextCount > 0) {
       assert(firstScreen.contextText.length > 0, 'Context source text is blank on the first screen');
     }
-    assert(firstScreen.heading.includes('Agent候选动作（不是答案/Reference）'));
+    const beforeAcquisitionGate = firstScreen.headerText.includes('已移至“研究原文”页');
+    if (!beforeAcquisitionGate) {
+      assert(firstScreen.heading.includes('Agent候选动作（不是答案/Reference）'));
+      assert(firstScreen.headerText.indexOf('评价时点') < firstScreen.headerText.indexOf('Agent候选动作'));
+    }
     assert(firstScreen.candidateCount > 0 || firstScreen.failureVisible
-      || firstScreen.headerText.includes('已移至“研究原文”页'),
+      || beforeAcquisitionGate,
       'Candidate actions, technical-failure warning, and before-acquisition research gate are all absent');
     if (firstScreen.candidateCount > 0) {
       for (const label of ['action_type', 'target', '理由']) {
         assert(firstScreen.actionText.includes(label), `Candidate action lacks ${label}`);
       }
     }
-    assert(firstScreen.headerText.indexOf('评价时点') < firstScreen.headerText.indexOf('Agent候选动作'));
     assert.equal(firstScreen.navAria, '本患者显示顺序节点切换');
     assert(firstScreen.previousLabel.includes('本患者上一 CP'));
     assert(firstScreen.positionLabel.includes('本患者 CP'));
