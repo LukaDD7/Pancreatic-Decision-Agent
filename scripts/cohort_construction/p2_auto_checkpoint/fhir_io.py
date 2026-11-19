@@ -98,7 +98,7 @@ def _generic_attachment_text(attachments):
     return base64.b64decode(attachments[0]['data'], validate=True).decode()
 
 
-def import_sources(bundle):
+def import_sources(bundle, *, deidentify=True):
     """Read source resources, ignoring any research Basic annotations.
 
     Supports this adapter's lossless source extension and ordinary R4 source
@@ -163,8 +163,45 @@ def import_sources(bundle):
                             kind=kind,family='FHIR/'+rt,title=title,text=text,source_sha256=source_hash,
                             clocks=clocks,clock=chosen,clock_basis=basis,
                             provenance={'native_resource_reference':rt+'/'+r.get('id','')},original_fields={},flags=[]))
-    return sources,dict(skipped_non_source_resources=skipped,resources_imported=len(sources),
-                        research_annotations_used_as_input=False)
+    if not deidentify:
+        return sources, dict(skipped_non_source_resources=skipped,
+                            resources_imported=len(sources),
+                            research_annotations_used_as_input=False,
+                            direct_identifier_deidentification=None)
+    return _deidentify_imported_sources(bundle, sources, patient, skipped)
+
+
+def _deidentify_imported_sources(bundle, sources, patient, skipped):
+    import hashlib
+    from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
+        collect_identifier_values, deidentify_text, deidentify_value)
+
+    patient_resource = next(entry['resource'] for entry in bundle['entry']
+                            if entry['resource']['resourceType'] == 'Patient'
+                            and entry['resource']['id'] == patient)
+    values = collect_identifier_values(sources, patient_resource)
+    receipt = dict(skipped_non_source_resources=skipped, resources_imported=len(sources),
+                   research_annotations_used_as_input=False,
+                   direct_identifier_deidentification=dict(
+                       stage='FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY',
+                       method='STRUCTURED_VALUES_AND_EXPLICIT_LABELS_THEN_CROSS_SOURCE_LITERALS',
+                       ages_and_sex_retained=True, ages_over_89_grouped=True,
+                       exact_dates_retained_for_sequential_evaluation=True,
+                       hipaa_safe_harbor_claimed=False, source_count=len(sources)))
+    for source in sources:
+        for field in ('title', 'text'):
+            source[field] = deidentify_text(source.get(field) or '', values)
+        for field in ('original_fields', 'provenance', 'flags'):
+            source[field] = deidentify_value(source.get(field), values)
+        source['deidentified_text_sha256'] = hashlib.sha256(source['text'].encode()).hexdigest()
+        source['original_source_sha256'] = source['source_sha256']
+        source['source_sha256'] = source['deidentified_text_sha256']
+        source['direct_identifier_deidentification'] = dict(
+            stage='FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY',
+            source_sha256_basis='DEIDENTIFIED_SOURCE_TEXT',
+            original_source_sha256_basis='ORIGINAL_SOURCE_BEFORE_DEIDENTIFICATION',
+            deidentified_text_sha256=source['deidentified_text_sha256'])
+    return sources, receipt
 
 
 def fhir_clock(raw):

@@ -1,4 +1,6 @@
 """Synthetic-only tests for direct-identifier de-identification."""
+import base64
+import copy
 import unittest
 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
@@ -94,6 +96,54 @@ class PrivacyTests(unittest.TestCase):
     def test_text_api_rejects_non_string_input(self):
         with self.assertRaises(TypeError):
             deidentify_text(None)
+
+    def test_fhir_ingress_deidentifies_before_sources_are_returned(self):
+        from scripts.cohort_construction.p2_auto_checkpoint.fhir_io import import_sources
+
+        first = "姓名：张测试，性别：女，年龄：98岁，电话：13800138000。拟行增强CT。"
+        second = "张测试，住址：虚构省虚构市示例路8号。性别：女。继续评估。"
+        original = copy.deepcopy(first)
+
+        def document(identifier, text):
+            return dict(resource=dict(
+                resourceType="DocumentReference", id=identifier,
+                subject={"reference": "Patient/synthetic"},
+                type={"text": "姓名：张测试的病程"},
+                content=[{"attachment": {"data": base64.b64encode(
+                    text.encode()).decode()}}]))
+
+        bundle = dict(entry=[
+            dict(fullUrl="Patient/synthetic", resource=dict(
+                resourceType="Patient", id="synthetic",
+                name=[{"family": "张", "given": ["测试"]}],
+                telecom=[{"system": "phone", "value": "13800138000"}],
+                address=[{"text": "虚构省虚构市示例路8号"}],
+                identifier=[{"value": "SYNTHETIC-ID-001"}])),
+            document("D1", first), document("D2", second),
+        ])
+        sources, receipt = import_sources(bundle)
+        serialized = str(sources)
+        for identifier in ("张测试", "13800138000", "虚构省虚构市示例路8号"):
+            self.assertNotIn(identifier, serialized)
+        self.assertIn("性别：女", sources[0]["text"])
+        self.assertIn("年龄：≥90岁", sources[0]["text"])
+        self.assertNotEqual(sources[0]["text"], original)
+        self.assertEqual(sources[0]["source_sha256"],
+                         sources[0]["deidentified_text_sha256"])
+        self.assertNotEqual(sources[0]["original_source_sha256"],
+                            sources[0]["deidentified_text_sha256"])
+        self.assertEqual(receipt["direct_identifier_deidentification"]["stage"],
+                         "FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY")
+        self.assertFalse(receipt["direct_identifier_deidentification"][
+            "hipaa_safe_harbor_claimed"])
+        quote = "拟行增强CT。"
+        start = sources[0]["text"].index(quote)
+        self.assertEqual(sources[0]["text"][start:start + len(quote)], quote)
+        unchanged = import_sources(bundle)[0]
+        self.assertEqual([source["source_id"] for source in sources],
+                         [source["source_id"] for source in unchanged])
+        self.assertEqual([source["text"] for source in sources],
+                         [source["text"] for source in unchanged])
 
 
 if __name__ == "__main__":

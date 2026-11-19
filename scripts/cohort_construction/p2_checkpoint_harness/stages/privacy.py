@@ -60,12 +60,65 @@ _EMAIL = re.compile(
 )
 _AGE_OVER_89 = re.compile(r"(?<![\d≥.])(?:9\d|[1-9]\d{2,})\s*岁")
 
+_VALUE_PATTERNS = {
+    "name": (_NAME, NAME_REPLACEMENT),
+    "identifier": (_IDENTIFIER, IDENTIFIER_REPLACEMENT),
+    "address": (_ADDRESS, ADDRESS_REPLACEMENT),
+    "phone": (_LABELED_PHONE, PHONE_REPLACEMENT),
+}
+
 
 def _replace_labeled(match, replacement):
     return match.group("prefix") + replacement
 
 
-def deidentify_text(text) -> str:
+def _literal_values(patient):
+    values = {"name": set(), "address": set(), "phone": set(), "identifier": set()}
+    if not isinstance(patient, dict):
+        return values
+    for name in patient.get("name") or []:
+        if not isinstance(name, dict):
+            continue
+        parts = [name.get("text"), name.get("family"), *(name.get("given") or [])]
+        joined = "".join(part for part in parts[1:] if isinstance(part, str))
+        for value in (name.get("text"), joined):
+            if isinstance(value, str) and len(value.strip()) >= 2:
+                values["name"].add(value.strip())
+    for address in patient.get("address") or []:
+        if not isinstance(address, dict):
+            continue
+        candidates = [address.get("text"), *(address.get("line") or [])]
+        joined = "".join(str(part) for key in
+                         ("line", "city", "district", "state", "postalCode", "country")
+                         for part in (address.get(key) if isinstance(address.get(key), list)
+                                      else [address.get(key)]) if part)
+        if isinstance(joined, str):
+            candidates.append(joined)
+        for value in candidates:
+            if isinstance(value, str) and len(value.strip()) >= 4:
+                values["address"].add(value.strip())
+    for contact in patient.get("telecom") or []:
+        if isinstance(contact, dict) and isinstance(contact.get("value"), str):
+            values["phone"].add(contact["value"].strip())
+    for identifier in patient.get("identifier") or []:
+        if isinstance(identifier, dict) and isinstance(identifier.get("value"), str):
+            values["identifier"].add(identifier["value"].strip())
+    return values
+
+
+def collect_identifier_values(sources, patient=None):
+    values = _literal_values(patient)
+    for source in sources:
+        text = source.get("text") or ""
+        for category, (pattern, _) in _VALUE_PATTERNS.items():
+            for match in pattern.finditer(text):
+                value = match.group("value").strip()
+                if len(value) >= (4 if category == "address" else 2):
+                    values[category].add(value)
+    return values
+
+
+def deidentify_text(text, identifier_values=None) -> str:
     """Replace explicitly labeled names/addresses and recognizable contact details.
 
     Bare Chinese words and unknown field names are never treated as identifiers.
@@ -82,15 +135,23 @@ def deidentify_text(text) -> str:
         lambda match: _replace_labeled(match, PHONE_REPLACEMENT), text)
     text = _MOBILE.sub(PHONE_REPLACEMENT, text)
     text = _LANDLINE.sub(PHONE_REPLACEMENT, text)
+    for category, replacement in (("name", NAME_REPLACEMENT),
+                                  ("address", ADDRESS_REPLACEMENT),
+                                  ("phone", PHONE_REPLACEMENT),
+                                  ("identifier", IDENTIFIER_REPLACEMENT)):
+        for value in sorted((identifier_values or {}).get(category) or (), key=len,
+                            reverse=True):
+            if value:
+                text = text.replace(value, replacement)
     return _AGE_OVER_89.sub("≥90岁", text)
 
 
-def deidentify_value(value):
+def deidentify_value(value, identifier_values=None):
     """Recursively de-identify string values in dicts/lists without using key names."""
     if isinstance(value, str):
-        return deidentify_text(value)
+        return deidentify_text(value, identifier_values)
     if isinstance(value, dict):
-        return {key: deidentify_value(item) for key, item in value.items()}
+        return {key: deidentify_value(item, identifier_values) for key, item in value.items()}
     if isinstance(value, list):
-        return [deidentify_value(item) for item in value]
+        return [deidentify_value(item, identifier_values) for item in value]
     return value

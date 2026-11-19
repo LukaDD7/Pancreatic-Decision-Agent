@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 from .materials import digest
-from .privacy import deidentify_text, deidentify_value
 
 
 FORMAT = "p2-candidate-checkpoint-material-0.6.0"
@@ -245,7 +244,10 @@ def _navigation(packets):
 def project_candidate_materials(*, case_id, sources, candidates, projection,
                                 relations=None, episodes=None,
                                 candidate_relations=None, candidate_episodes=None):
-    """Project candidate CPs with a separate de-identified researcher source layer."""
+    """Project candidate CPs from sources de-identified before reconstruction."""
+    for source in sources:
+        if not source.get("deidentified_text_sha256"):
+            raise ValueError("DIRECT_IDENTIFIER_INGRESS_RECEIPT_MISSING:" + source["source_id"])
     relations = relations or []
     episodes = episodes or []
     candidate_relations = candidate_relations or []
@@ -412,8 +414,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                                               mask_reason=span.get("mask_reason"),
                                               member_event_ids=span.get("member_event_ids"))
                                          for span in merged)
-            card["title"] = deidentify_text(card.get("title") or "")
-            card["text"] = deidentify_text(card.get("text") or "")
+            if not source.get("deidentified_text_sha256"):
+                raise ValueError("DIRECT_IDENTIFIER_INGRESS_RECEIPT_MISSING:" + source_id)
             included.append(card)
         originals = []
         for source_id in checkpoint["source_ids"]:
@@ -421,8 +423,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             if source is not None:
                 original = _source_card(source, source.get("clock") or {})
                 original["presentation_scope"] = "researcher_original_not_doctor_projection"
-                original["title"] = deidentify_text(original.get("title") or "")
-                original["text"] = deidentify_text(original.get("text") or "")
+                if original.get("text") != source.get("text"):
+                    raise ValueError("RESEARCH_ORIGINAL_DIFFERS_FROM_INGRESS_SOURCE:" + source_id)
                 originals.append(original)
         if checkpoint["kind"] in MANAGEMENT_KINDS:
             origin_episode_ids = sorted({membership[event_id] for event_id in
@@ -552,9 +554,9 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 cross_document_reviewed=False,
                 protocol_status="private_development_projection_not_doctor_release",
                 heuristic_diagnostic_restatement_mask=bool(pre_exam),
-                span_offset_basis="original_source_before_direct_identifier_deidentification"),
+                span_offset_basis="deidentified_source_text_used_for_episode_reconstruction"),
             direct_identifier_deidentification=dict(
-                method="CONSERVATIVE_EXPLICIT_LABEL_AND_CONTACT_PATTERN",
+                method="FHIR_INGRESS_STRUCTURED_VALUES_EXPLICIT_LABELS_AND_CROSS_SOURCE_LITERALS",
                 ages_and_sex_retained=True, ages_over_89_grouped=True,
                 exact_dates_retained_for_sequential_evaluation=True,
                 temporal_masking_is_separate=True, hipaa_safe_harbor_claimed=False),
@@ -568,7 +570,6 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 if item.get("to_checkpoint_id") == checkpoint["checkpoint_id"]],
             clinical_reference_created=False, doctor_answer_prefilled=False,
             not_doctor_release=True)
-        packet = deidentify_value(packet)
         packet["content_sha256"] = digest(packet)
         packets.append(packet)
     no_context_ids = {
@@ -678,13 +679,13 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                     summary=summary, source_count=len(sources),
                     clinical_accuracy_assessed=False, not_doctor_release=True,
                     direct_identifier_deidentification=dict(
-                        method="CONSERVATIVE_EXPLICIT_LABEL_AND_CONTACT_PATTERN",
+                        method="FHIR_INGRESS_STRUCTURED_VALUES_EXPLICIT_LABELS_AND_CROSS_SOURCE_LITERALS",
                         ages_and_sex_retained=True, ages_over_89_grouped=True,
                         exact_dates_retained_for_sequential_evaluation=True,
                         temporal_masking_is_separate=True,
                         hipaa_safe_harbor_claimed=False),
                     note="候选CP私有研究预览；已做保守直接标识符去标识化，保留精确日期；研究原文和未来节点均嵌入HTML，不能作为医生盲评包。")
-    return deidentify_value(material)
+    return material
 
 
 def write_candidate_material_set(material, output):
