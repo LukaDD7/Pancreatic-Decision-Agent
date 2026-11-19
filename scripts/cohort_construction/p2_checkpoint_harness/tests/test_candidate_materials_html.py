@@ -177,6 +177,40 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn("S-CONTEXT", packet_page)
         self.assertNotIn("pre_exam_evaluation", packet_page)
 
+    def test_non_primary_checkpoint_is_explicitly_excluded_from_main_scoring(self):
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="术后新证据状态",
+            text="合成术后复查报告。", original="合成术后复查报告。", index=2)
+        post["evaluation"].update(
+            primary_evaluation_eligible=False,
+            scope="NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY",
+            scope_reason="AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY")
+        page = rendered_packet_html(render_html(material([post]), "manifest-sha"), "CP-POST")
+        self.assertIn("否：非本版主要评价", page)
+        self.assertIn("不进入术前路径推进／NAT再评估主评分", page)
+        self.assertIn("NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY", page)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for DOM execution")
+    def test_export_partitions_primary_and_non_primary_responses(self):
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="术后新证据状态",
+            text="合成术后复查报告。", original="合成术后复查报告。", index=2)
+        post["evaluation"].update(
+            primary_evaluation_eligible=False,
+            scope="NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY",
+            scope_reason="AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY")
+        page = render_html(material([post]), "manifest-sha")
+        execute_page(page, r"""
+assert.equal(current.primary_evaluation_eligible,false);
+assert.equal(current.evaluation_scope,'NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY');
+const partitioned=partitionResponses([
+ {checkpoint_id:'PRE',primary_evaluation_eligible:true},
+ {checkpoint_id:'POST',primary_evaluation_eligible:false}
+]);
+assert.deepEqual(partitioned.responses.map(item=>item.checkpoint_id),['PRE']);
+assert.deepEqual(partitioned.non_primary_p2_review_responses.map(item=>item.checkpoint_id),['POST']);
+""")
+
     def test_evidence_adjudication_shows_comparator_reason_quotes_and_merged_support(self):
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据到达后状态",

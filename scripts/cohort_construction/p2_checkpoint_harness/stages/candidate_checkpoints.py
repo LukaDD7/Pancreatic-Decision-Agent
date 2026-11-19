@@ -12,7 +12,9 @@ import hashlib
 import json
 
 
-PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.2.0"
+PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.3.0"
+PRIMARY_EVALUATION_SCOPE = "PRIMARY_TASK_PREOPERATIVE_OR_NAT_REASSESSMENT"
+NON_PRIMARY_EVALUATION_SCOPE = "NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY"
 SUPPORT_FUNCTIONS = {"repeat", "execution", "generic", "uncertain"}
 OUT_OF_SCOPE_PROFILES = {"postoperative_course", "discharge_summary", "operative"}
 MODES = ["ADVANCE", "HOLD_FOR_EVIDENCE", "REDIRECT"]
@@ -32,6 +34,33 @@ def _clock(value):
 
 def _has_clock(value):
     return bool(_clock(value).get("value"))
+
+
+def _evaluation_scope(clock, operation_start):
+    value = _clock(clock).get("value")
+    postoperative = bool(operation_start and value and value >= operation_start)
+    return dict(
+        primary_evaluation_eligible=not postoperative,
+        evaluation_scope=(NON_PRIMARY_EVALUATION_SCOPE if postoperative
+                          else PRIMARY_EVALUATION_SCOPE),
+        evaluation_scope_reason=("AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY"
+                                 if postoperative else
+                                 "PREOPERATIVE_OR_NAT_REASSESSMENT_PRIMARY_TASK"
+                                 if operation_start else
+                                 "OPERATION_BOUNDARY_UNKNOWN_PRIMARY_TASK_CANDIDATE_REVIEW_REQUIRED"),
+    )
+
+
+def _operation_day_order_unknown(clock, operation_start):
+    value = _clock(clock).get("value")
+    operation_value = _clock(operation_start).get("value")
+    if not value or not operation_value or value[:10] != operation_value[:10]:
+        return False
+    coarse = {"date", "day", "unknown"}
+    precision = (_clock(clock).get("precision") or "unknown").lower()
+    operation_precision = (_clock(operation_start).get("precision") or "unknown").lower()
+    return (len(value) <= 10 or len(operation_value) <= 10
+            or precision in coarse or operation_precision in coarse)
 
 
 def _action_space():
@@ -265,6 +294,7 @@ def _management_checkpoint(case_id, group, source):
             for item in retained) if action],
         action_space=_action_space(),
         task_scope=_task_scope(),
+        **_evaluation_scope(clock, None),
         provenance=_provenance(
             grouping_rule="all_candidate_spans_from_one_source",
             group_id=group[0]["group_id"],
@@ -273,8 +303,12 @@ def _management_checkpoint(case_id, group, source):
     )
 
 
-def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=None):
+def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=None,
+                           operation_start=None):
     source_ids = sorted(event.get("source_ids") or [])
+    evaluation_clock = (event.get("exam_time")
+                        if node_kind == "pre_exam_evaluation" and pre_time_basis == "exam_time"
+                        else event.get("visibility_clock"))
     checkpoint_id = "CP-D-" + _digest([case_id, event["event_id"], node_kind])
     action = _candidate_action(review, event_id=event["event_id"])
     common = dict(
@@ -293,6 +327,7 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
         program_generated_task_header=True,
         management_question_source="discovery_agent_question_or_program_action_header",
         diagnostic_event_id=event["event_id"],
+        **_evaluation_scope(evaluation_clock, operation_start),
     )
     if node_kind == "pre_exam_evaluation":
         return dict(
@@ -391,6 +426,15 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         source_id = _source_id(candidate)
         source = source_by_id.get(source_id)
         status, reason = _classify(candidate, source)
+        effective_clock = (candidate.get("clock") if _has_clock(candidate.get("clock"))
+                           else (source or {}).get("clock"))
+        candidate_time = _clock(effective_clock).get("value")
+        if status == "RETAINED" and operation_start and candidate_time:
+            if _operation_day_order_unknown(
+                    effective_clock, task_time_bounds.get("operation_start")):
+                status, reason = "REVIEW_REQUIRED", "OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"
+            elif candidate_time >= operation_start:
+                status, reason = "TASK_OUT_OF_SCOPE", "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE"
         item = dict(candidate=candidate, event_id=event_id, source_id=source_id,
                     source=source, migration_status=status, reason=reason,
                     input_index=index, group_id=None)
@@ -465,9 +509,6 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         pre_clock = (event.get("exam_time") if pre_time_basis == "exam_time"
                      else event.get("visibility_clock"))
         pre_value = _clock(pre_clock).get("value")
-        exam_out = bool(operation_start and pre_value and pre_value >= operation_start)
-        report_out = bool(operation_start and report_available
-                          and _clock(event["visibility_clock"])["value"] >= operation_start)
         context_source_ids = []
         if pre_value:
             for source in sources:
@@ -482,7 +523,7 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         reviews = {kind: reviews_by_unit.get((unit_id, kind)) for kind in
                    ("pre_exam_evaluation", "evidence_arrival_reassessment")}
 
-        def gate_reason(node_kind, clock_available, out_of_scope):
+        def gate_reason(node_kind, clock_available):
             review = reviews[node_kind]
             if review is None:
                 return "DISCOVERY_REVIEW_REQUIRED"
@@ -492,34 +533,40 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                 return "DISCOVERY_AGENT_REVIEW_UNCERTAIN"
             if _candidate_action(review) is None:
                 return "DISCOVERY_CONCRETE_ACTION_REQUIRED"
-            if out_of_scope:
-                return "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE"
             if not clock_available:
                 if node_kind == "pre_exam_evaluation":
                     return "MISSING_EXAM_AND_REPORT_TIME_FOR_EVALUATION_ANCHOR"
                 return ("MISSING_OR_CONFLICTING_REPORT_VISIBILITY" if clock_flags else
                         "MISSING_REPORT_AND_VERIFIED_TIME_VISIBILITY_UNKNOWN")
+            evaluation_clock = (pre_clock if node_kind == "pre_exam_evaluation"
+                                else event["visibility_clock"])
+            if _operation_day_order_unknown(
+                    evaluation_clock, task_time_bounds.get("operation_start")):
+                return "OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"
             if node_kind == "pre_exam_evaluation" and not context_source_ids:
                 return "NO_VISIBLE_PRE_EXAM_CLINICAL_CONTEXT"
             return pre_time_basis if node_kind == "pre_exam_evaluation" else visibility_basis
 
-        pre_gate = gate_reason("pre_exam_evaluation", bool(pre_time_basis), exam_out)
+        pre_gate = gate_reason("pre_exam_evaluation", bool(pre_time_basis))
         pre_available = pre_gate in ("exam_time", "report_time_fallback_for_pre_exam_evaluation")
         specifications = [
             ("pre_exam_evaluation", pre_available, pre_gate),
             ("evidence_arrival_reassessment", False, None),
         ]
-        post_gate = gate_reason("evidence_arrival_reassessment", report_available, report_out)
+        post_gate = gate_reason("evidence_arrival_reassessment", report_available)
         post_available = post_gate == visibility_basis
+        postoperative_report = bool(
+            operation_start and _clock(event["visibility_clock"]).get("value")
+            and _clock(event["visibility_clock"])["value"] >= operation_start)
         management_claim = (management_claims.get(event["event_id"])
                             if pre_available else None)
         if management_claim:
             pre_available = False
             pre_gate = "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED"
-            if post_available:
+            if post_available and not postoperative_report:
                 post_available = False
                 post_gate = "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED"
-        if pre_available and post_available:
+        if pre_available and post_available and not postoperative_report:
             post_gate = "SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED"
             post_available = False
         specifications[0] = ("pre_exam_evaluation", pre_available, pre_gate)
@@ -535,7 +582,7 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                         and len(management_conflicts) == len(conflicts):
                     checkpoint = _diagnostic_checkpoint(
                         case_id, event, node_kind, reviews[node_kind],
-                        pre_time_basis=pre_time_basis)
+                        pre_time_basis=pre_time_basis, operation_start=operation_start)
                     destination_id = checkpoint["checkpoint_id"]
                     candidate_checkpoints.append(checkpoint)
                     for old in management_conflicts:
@@ -550,7 +597,8 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                         for support in support_records:
                             if support.get("to_checkpoint_id") == old["checkpoint_id"]:
                                 support["to_checkpoint_id"] = destination_id
-                elif conflicts:
+                elif conflicts and not (
+                        node_kind == "evidence_arrival_reassessment" and postoperative_report):
                     available = False
                     destination_id = conflicts[0]["checkpoint_id"]
                     audit_reason = ("SAME_SOURCE_MANAGEMENT_CP_RETAINED"
@@ -560,7 +608,7 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                 if destination_id is None:
                     checkpoint = _diagnostic_checkpoint(
                         case_id, event, node_kind, reviews[node_kind],
-                        pre_time_basis=pre_time_basis)
+                        pre_time_basis=pre_time_basis, operation_start=operation_start)
                     destination_id = checkpoint["checkpoint_id"]
                     candidate_checkpoints.append(checkpoint)
                 checkpoint_id = destination_id
@@ -573,8 +621,7 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
             event["generation_audits"].append(audit)
             migration = _diagnostic_migration(
                 case_id, event, node_kind, checkpoint_id, audit_reason)
-            if audit_reason in ("AFTER_OPERATION_START_TASK_OUT_OF_SCOPE",
-                                "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE"):
+            if audit_reason == "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE":
                 migration["migration_status"] = migration["status"] = "TASK_OUT_OF_SCOPE"
             elif audit_reason in ("SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED",
                                   "SAME_SOURCE_MANAGEMENT_CP_RETAINED",
@@ -611,6 +658,10 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
             item["reason"] for item in migrations).items())),
         candidate_checkpoint_kind_counts=dict(sorted(Counter(
             item["kind"] for item in candidate_checkpoints).items())),
+        primary_evaluation_checkpoint_count=sum(
+            item["primary_evaluation_eligible"] for item in candidate_checkpoints),
+        non_primary_evaluation_checkpoint_count=sum(
+            not item["primary_evaluation_eligible"] for item in candidate_checkpoints),
         task_time_bounds=deepcopy(task_time_bounds),
         clinical_accuracy_assessed=False,
         note="离线程序重投影与迁移计数，不代表临床准确性或专家Reference。",

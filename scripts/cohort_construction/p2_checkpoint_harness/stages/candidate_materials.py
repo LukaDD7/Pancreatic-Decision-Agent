@@ -7,9 +7,10 @@ import json
 from pathlib import Path
 
 from .materials import digest
+from .privacy import deidentify_text, deidentify_value
 
 
-FORMAT = "p2-candidate-checkpoint-material-0.5.0"
+FORMAT = "p2-candidate-checkpoint-material-0.6.0"
 BEFORE_KINDS = {"pre_exam_evaluation", "BEFORE_ACQUISITION"}
 ARRIVAL_KINDS = {"evidence_arrival_reassessment", "AFTER_EVIDENCE_ARRIVAL"}
 MANAGEMENT_KINDS = {"management_decision", "MANAGEMENT_REASSESSMENT"}
@@ -210,10 +211,13 @@ def _same_checkpoint_spans(checkpoint, projection, relations):
 
 
 def _navigation(packets):
+    kind_order = {"BEFORE_ACQUISITION": 0, "pre_exam_evaluation": 0,
+                  "AFTER_EVIDENCE_ARRIVAL": 2, "evidence_arrival_reassessment": 2}
     groups = {}
     for packet in sorted(packets, key=lambda item: (
             item["episode_id"] or "EP-UNASSIGNED",
             _clock_value(item["evaluation"]["clock"]) or "9999",
+            kind_order.get(item.get("kind"), 1),
             item["checkpoint_id"])):
         groups.setdefault(packet["episode_id"], []).append(packet)
     for siblings in groups.values():
@@ -226,7 +230,8 @@ def _navigation(packets):
                                       if index + 1 < len(siblings) else None),
                 order_role="candidate_display_order_not_confirmed_clinical_sequence")
     ordered = sorted(packets, key=lambda item: (
-        _clock_value(item["evaluation"]["clock"]) or "9999", item["checkpoint_id"]))
+        _clock_value(item["evaluation"]["clock"]) or "9999",
+        kind_order.get(item.get("kind"), 1), item["checkpoint_id"]))
     for index, packet in enumerate(ordered):
         packet["display_order"] = dict(index=index + 1, total=len(packets))
         packet["sequence_navigation"] = dict(
@@ -240,7 +245,7 @@ def _navigation(packets):
 def project_candidate_materials(*, case_id, sources, candidates, projection,
                                 relations=None, episodes=None,
                                 candidate_relations=None, candidate_episodes=None):
-    """Project candidate CPs; original text remains a separate researcher layer."""
+    """Project candidate CPs with a separate de-identified researcher source layer."""
     relations = relations or []
     episodes = episodes or []
     candidate_relations = candidate_relations or []
@@ -407,6 +412,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                                               mask_reason=span.get("mask_reason"),
                                               member_event_ids=span.get("member_event_ids"))
                                          for span in merged)
+            card["title"] = deidentify_text(card.get("title") or "")
+            card["text"] = deidentify_text(card.get("text") or "")
             included.append(card)
         originals = []
         for source_id in checkpoint["source_ids"]:
@@ -414,6 +421,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             if source is not None:
                 original = _source_card(source, source.get("clock") or {})
                 original["presentation_scope"] = "researcher_original_not_doctor_projection"
+                original["title"] = deidentify_text(original.get("title") or "")
+                original["text"] = deidentify_text(original.get("text") or "")
                 originals.append(original)
         if checkpoint["kind"] in MANAGEMENT_KINDS:
             origin_episode_ids = sorted({membership[event_id] for event_id in
@@ -509,7 +518,13 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             management_question_source=checkpoint["management_question_source"],
             evaluation=dict(clock=deepcopy(checkpoint["clock"]),
                             time_basis=checkpoint["time_basis"],
-                            role=checkpoint["evaluation_time_role"]),
+                            role=checkpoint["evaluation_time_role"],
+                            primary_evaluation_eligible=checkpoint.get(
+                                "primary_evaluation_eligible", True),
+                            scope=checkpoint.get(
+                                "evaluation_scope",
+                                "PRIMARY_TASK_PREOPERATIVE_OR_NAT_REASSESSMENT"),
+                            scope_reason=checkpoint.get("evaluation_scope_reason")),
             target=dict(source_ids=list(checkpoint["source_ids"]), title=target_title,
                         document_profile=" / ".join(document_profiles) or "未分类",
                         diagnostic_event_id=checkpoint.get("diagnostic_event_id"),
@@ -536,7 +551,13 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 excluded_support_source_ids=sorted(set(excluded_support_masked)),
                 cross_document_reviewed=False,
                 protocol_status="private_development_projection_not_doctor_release",
-                heuristic_diagnostic_restatement_mask=bool(pre_exam)),
+                heuristic_diagnostic_restatement_mask=bool(pre_exam),
+                span_offset_basis="original_source_before_direct_identifier_deidentification"),
+            direct_identifier_deidentification=dict(
+                method="CONSERVATIVE_EXPLICIT_LABEL_AND_CONTACT_PATTERN",
+                ages_and_sex_retained=True, ages_over_89_grouped=True,
+                exact_dates_retained_for_sequential_evaluation=True,
+                temporal_masking_is_separate=True, hipaa_safe_harbor_claimed=False),
             related_checkpoints=related,
             migration_event_ids=list(checkpoint.get("member_event_ids") or []),
             migration_records=[dict(
@@ -547,6 +568,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 if item.get("to_checkpoint_id") == checkpoint["checkpoint_id"]],
             clinical_reference_created=False, doctor_answer_prefilled=False,
             not_doctor_release=True)
+        packet = deidentify_value(packet)
         packet["content_sha256"] = digest(packet)
         packets.append(packet)
     no_context_ids = {
@@ -606,6 +628,14 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
     summary = deepcopy(projection["summary"])
     summary.update(
         material_checkpoint_count=len(packets),
+        projection_primary_evaluation_checkpoint_count=summary.get(
+            "primary_evaluation_checkpoint_count"),
+        projection_non_primary_evaluation_checkpoint_count=summary.get(
+            "non_primary_evaluation_checkpoint_count"),
+        primary_evaluation_checkpoint_count=sum(
+            packet["evaluation"]["primary_evaluation_eligible"] for packet in packets),
+        non_primary_evaluation_checkpoint_count=sum(
+            not packet["evaluation"]["primary_evaluation_eligible"] for packet in packets),
         material_action_cycle_count=len(material_cycles),
         material_evidence_state_count=len(material_states),
         material_no_visible_context_count=len(no_context_ids),
@@ -638,16 +668,23 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 evidence_use_claimed=False))
         packet["content_sha256"] = digest({key: value for key, value in packet.items()
                                           if key != "content_sha256"})
-    return dict(format=FORMAT + "-set", case_id=case_id,
-                packets=packets, migrations=material_migrations,
-                support_records=material_support_records,
-                diagnostic_events=material_diagnostic_events,
-                management_episodes=material_episodes,
-                action_cycles=material_cycles,
-                evidence_states=material_states,
-                summary=summary, source_count=len(sources),
-                clinical_accuracy_assessed=False, not_doctor_release=True,
-                note="候选CP私有研究预览；研究原文和未来节点均嵌入HTML，不能作为医生盲评包。")
+    material = dict(format=FORMAT + "-set", case_id=case_id,
+                    packets=packets, migrations=material_migrations,
+                    support_records=material_support_records,
+                    diagnostic_events=material_diagnostic_events,
+                    management_episodes=material_episodes,
+                    action_cycles=material_cycles,
+                    evidence_states=material_states,
+                    summary=summary, source_count=len(sources),
+                    clinical_accuracy_assessed=False, not_doctor_release=True,
+                    direct_identifier_deidentification=dict(
+                        method="CONSERVATIVE_EXPLICIT_LABEL_AND_CONTACT_PATTERN",
+                        ages_and_sex_retained=True, ages_over_89_grouped=True,
+                        exact_dates_retained_for_sequential_evaluation=True,
+                        temporal_masking_is_separate=True,
+                        hipaa_safe_harbor_claimed=False),
+                    note="候选CP私有研究预览；已做保守直接标识符去标识化，保留精确日期；研究原文和未来节点均嵌入HTML，不能作为医生盲评包。")
+    return deidentify_value(material)
 
 
 def write_candidate_material_set(material, output):

@@ -144,7 +144,7 @@ def _researcher_originals(packet):
         _node("div", {"class": "step-body"},
               _node("div", {"class": "research-warning"},
                     _node("strong", {}, "研究审核，不是医生投影"),
-                    _node("p", {}, "以下原文仅供研究者核对；不得把本页作为医生盲评材料分发。")),
+                    _node("p", {}, "以下目标管理原文仅供研究者核对；直接标识符已去标识化，不得把本页作为医生盲评材料分发。")),
               *(cards or [_node("p", {"class": "empty"}, "未提供研究审核原文。")]),
               *([_adjudication_card(packet["global_adjudication"], researcher=True)]
                 if packet.get("global_adjudication") else []),
@@ -181,6 +181,9 @@ def _masked_projection(packet):
                   f"局部 MASK {len(spans)} 处 · 整份来源遮蔽 {len(whole)} 份 · "
                   f"跨文书复核：{'已记录' if reviewed else '未确认'}"
               )),
+              (_node("p", {"class": "small"},
+                     "MASK start/end 坐标对应直接标识符去标识化前的原始来源；展示正文已脱敏，长度可能不同。")
+               if projection.get("span_offset_basis") else ""),
               _node("details", {},
                     _node("summary", {}, "查看 MASK 元数据（不展示被遮原文）"),
                     *[_mask_span(span) for span in spans],
@@ -397,7 +400,7 @@ def _adjudication_card(item, *, supporting=False, researcher=False, included_sou
             content = f"来源 {source_id} · 本 CP 遮蔽后仍可见：{quote}"
         else:
             content = (f"来源 {source_id} · 引文未进入本 CP 遮蔽后可见资料；"
-                       "逐字内容仅在研究原文页展示。")
+                       "目标管理自由文本仅在研究原文页展示，直接标识符已去标识化。")
         citation_cards.append(_node("p", {}, _h(content)))
     return _node(
         "article", {"class": "adjudication"},
@@ -480,7 +483,14 @@ def _packet_html(packet):
               _node("div", {}, _node("dt", {}, "时点角色"),
                     _node("dd", {}, _h(evaluation.get("role") or "未提供"))),
               _node("div", {}, _node("dt", {}, "显示顺序"),
-                    _node("dd", {}, _h(f"{order.get('index', '?')} / {order.get('total', '?')}")))),
+                    _node("dd", {}, _h(f"{order.get('index', '?')} / {order.get('total', '?')}"))),
+              _node("div", {}, _node("dt", {}, "本版主要评价"),
+                    _node("dd", {}, _h(
+                        "是：术前路径推进／NAT再评估"
+                        if evaluation.get("primary_evaluation_eligible", True)
+                        else "否：非本版主要评价"))),
+              _node("div", {}, _node("dt", {}, "评价范围"),
+                    _node("dd", {}, _h(evaluation.get("scope") or "旧版候选未提供")))),
         _node("p", {"class": "small"}, _h(
             "发现阶段 Agent 分类：" + ", ".join(packet.get("record_functions") or ["检查事件由程序组织"])
             + "；旧 span → 本 CP：" + ", ".join(packet.get("migration_event_ids") or ["无旧管理 span"])
@@ -489,6 +499,10 @@ def _packet_html(packet):
         )),
         _node("p", {"class": "time-guidance"},
               "仅依据本节点评价时点可见资料作答；检索时钟及报告可见性代理不等于医生实际阅读或选择时刻。"),
+        (_node("p", {"class": "non-primary-note"}, _h(
+            "非本版主要评价：仅用于完整 P2 轨迹与手术截止审核；不进入术前路径推进／NAT再评估主评分。"
+            + (evaluation.get("scope_reason") or "")))
+         if evaluation.get("primary_evaluation_eligible") is False else ""),
         _state_delta(packet),
         (_node("p", {"class": "small"},
                "Discovery 候选动作及理由含目标检查信息，已移至“研究原文”页；默认任务头不展示，避免泄漏。")
@@ -536,7 +550,7 @@ def _packet_html(packet):
 
 _STYLE = r"""
 :root{color-scheme:light;--bg:#f3f6f4;--paper:#fff;--ink:#17231d;--muted:#5c6a62;--line:#d3ded7;--accent:#17654c;--soft:#edf3ef;--warn:#8a4b08}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:24px 18px 64px}h1{font-size:26px;margin:0}h2{font-size:25px;margin:4px 0 12px}h3{font-size:20px;margin:4px 0 10px}h4{margin:16px 0 4px}.private-note{margin:6px 0 12px}.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 0}select,input,textarea,button{font:inherit}select,input,textarea{border:1px solid var(--line);border-radius:5px;padding:8px;background:#fff;max-width:100%}button{border:0;border-radius:5px;background:var(--accent);color:#fff;padding:9px 14px;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:var(--soft);color:var(--accent);border:1px solid #aac4b5}.small,.meta{font-size:13px;color:var(--muted)}.task-header{background:var(--paper);border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:9px;padding:12px 16px;margin-top:8px}.eyebrow,.step-kicker{font-size:12px;font-weight:750;letter-spacing:.03em;color:var(--accent)}.question{font-size:19px;font-weight:700;line-height:1.45;margin:8px 0}.task-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 16px}.task-grid>div{min-width:0}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:650;overflow-wrap:anywhere}.time-guidance{background:#eaf4ef;border-left:4px solid var(--accent);padding:10px 14px}.step{display:grid;grid-template-columns:42px minmax(0,1fr);gap:16px;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:22px;margin:16px 0}.workflow-step[hidden]{display:none!important}.workflow-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.workflow-tabs .active{background:var(--accent);color:#fff}.step-number{width:34px;height:34px;display:grid;place-items:center;border:1px solid #aac4b5;border-radius:50%;color:var(--accent);font-weight:750}.step-body{min-width:0}.source{border-top:1px solid var(--line);padding:10px 0}pre{white-space:pre-wrap;word-break:break-word;background:#f7f9f7;border-radius:5px;padding:12px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}details summary{cursor:pointer;font-weight:650}.source-clocks{font-size:13px;color:var(--muted)}.researcher-only{border:3px solid #c56d13;background:#fffaf2}.research-warning{background:#fff0d8;color:#783b05;padding:12px 16px;border-radius:6px;font-size:17px}.research-warning p{font-size:14px;margin:4px 0}.mask-step{background:#fffdf7}.mask-reason{border-left:4px solid #c58a2d;background:#fff4dd;padding:8px 14px}.mask-reason p{margin:4px 0}.neighbor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.neighbor,.relation{border:1px solid var(--line);border-radius:7px;padding:12px;margin:8px 0}.checkpoint-navigation{margin:14px 0}.checkpoint-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:6px 0}.navigation-note{margin:4px 0 10px}.action-form{display:grid;gap:12px}.action-form>label,.action-row label{display:grid;gap:4px;font-weight:650}.action-form textarea{min-height:72px;resize:vertical}.action-row{border:1px solid var(--line);border-radius:7px;padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.action-row label:has(textarea),.action-row .remove-action{grid-column:1/-1}.saved{color:var(--accent);margin-left:10px}.empty{color:var(--muted)}#download{color:var(--accent)}@media(max-width:720px){.task-grid,.neighbor-grid,.action-row{grid-template-columns:1fr}.step{grid-template-columns:30px minmax(0,1fr);gap:8px;padding:14px}.bar{position:static}.checkpoint-nav{flex-wrap:wrap}}
-.state-delta{border:1px solid #aac4b5;background:var(--soft);border-radius:7px;padding:10px 14px;margin:10px 0}.state-delta p{margin:5px 0}.adjudication{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:10px 0}.adjudication h4{margin:0 0 6px}.evidence-supports{border-left:3px solid var(--accent);padding-left:12px;margin-top:8px}.day-source-group{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#fbfcfb}.day-source-group>summary{padding:11px 14px;background:var(--soft);border-radius:7px;color:var(--accent)}.day-source-group>.source{margin:0 14px}.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
+.non-primary-note{background:#fff4dd;border-left:4px solid #c58a2d;padding:10px 14px}.state-delta{border:1px solid #aac4b5;background:var(--soft);border-radius:7px;padding:10px 14px;margin:10px 0}.state-delta p{margin:5px 0}.adjudication{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:10px 0}.adjudication h4{margin:0 0 6px}.evidence-supports{border-left:3px solid var(--accent);padding-left:12px;margin-top:8px}.day-source-group{border:1px solid var(--line);border-radius:8px;margin:10px 0;background:#fbfcfb}.day-source-group>summary{padding:11px 14px;background:var(--soft);border-radius:7px;color:var(--accent)}.day-source-group>.source{margin:0 14px}.candidate-actions{border-top:1px solid var(--line);margin-top:14px;padding-top:8px}.candidate-action{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:8px 12px;margin:8px 0}.candidate-action h4{margin:4px 0}.candidate-action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.candidate-action-grid dd{overflow-wrap:anywhere}.source-role{display:inline-block;margin:8px 0 0;padding:1px 8px;border-radius:4px;background:var(--soft);color:var(--accent);font-size:12px;font-weight:750}.target-source{border-left:4px solid var(--accent);padding-left:12px}.context-source{border-left:4px solid #9aaba1;padding-left:12px}.technical-failure{background:#fff0d8;border:2px solid #c56d13;border-radius:6px;color:#783b05;padding:12px 16px;font-weight:700}@media(max-width:720px){.candidate-action-grid{grid-template-columns:1fr}}
 """
 
 
@@ -598,6 +612,8 @@ function response(form){
  }));
  return {checkpoint_id:current.checkpoint_id,case_id:caseId,material_manifest_sha256:manifestSha,
   form_version:__FORM_VERSION__,material_format:__HTML_FORMAT__,reviewer_status:'draft_not_clinical_reference',
+  primary_evaluation_eligible:current.primary_evaluation_eligible,
+  evaluation_scope:current.evaluation_scope,evaluation_scope_reason:current.evaluation_scope_reason,
   mode:form.querySelector('[name="mode"]').value,actions,
   rationale:form.querySelector('[name="rationale"]').value,
   evidence_to_obtain:lines(form.querySelector('[name="evidence_to_obtain"]').value)};
@@ -621,15 +637,25 @@ function restore(id){
   row.querySelector('[name="conditions"]').value=(action.conditions||[]).join('\n');
  });
 }
+function partitionResponses(items){
+ return {
+  responses:items.filter(item=>item.primary_evaluation_eligible===true),
+  non_primary_p2_review_responses:items.filter(item=>item.primary_evaluation_eligible===false),
+ };
+}
 kindSelect.addEventListener('change',()=>{fillCheckpoints(kindSelect.value);go(cpSelect.value);});
 cpSelect.addEventListener('change',()=>go(cpSelect.value));
 document.querySelector('#export').addEventListener('click',()=>{
- const responses=[];for(const packet of DATA){try{const old=JSON.parse(localStorage.getItem(key(packet.checkpoint_id)));if(old)responses.push(old);}catch{}}
+ const responses=[];for(const packet of DATA){try{const old=JSON.parse(localStorage.getItem(key(packet.checkpoint_id)));if(old)responses.push({...old,
+  primary_evaluation_eligible:packet.primary_evaluation_eligible,
+  evaluation_scope:packet.evaluation_scope,evaluation_scope_reason:packet.evaluation_scope_reason});}catch{}}
  const form=document.querySelector('.action-form');if(form){
   if(!form.checkValidity()){form.reportValidity();return;}
   const fresh=response(form),index=responses.findIndex(x=>x.checkpoint_id===fresh.checkpoint_id);if(index>=0)responses[index]=fresh;else responses.push(fresh);
  }
- const output={format:__RESPONSE_FORMAT__,case_id:caseId,material_manifest_sha256:manifestSha,renderer_format:__HTML_FORMAT__,responses};
+ const output={format:__RESPONSE_FORMAT__,case_id:caseId,material_manifest_sha256:manifestSha,
+  renderer_format:__HTML_FORMAT__,primary_evaluation_policy:'PREOPERATIVE_OR_NAT_ONLY',
+  ...partitionResponses(responses)};
  const blob=new Blob([JSON.stringify(output,null,2)],{type:'application/json'}),link=document.querySelector('#download');
  if(link.href)URL.revokeObjectURL(link.href);link.href=URL.createObjectURL(blob);link.download='candidate-action-drafts.json';link.textContent='草稿已生成，点击下载';link.hidden=false;
 });
@@ -660,6 +686,10 @@ def render_html(material, manifest_sha):
             "episode_id": packet.get("episode_id"),
             "display_order": packet["display_order"],
             "sequence_navigation": packet["sequence_navigation"],
+            "primary_evaluation_eligible": (packet.get("evaluation") or {}).get(
+                "primary_evaluation_eligible", True),
+            "evaluation_scope": (packet.get("evaluation") or {}).get("scope"),
+            "evaluation_scope_reason": (packet.get("evaluation") or {}).get("scope_reason"),
             "html": _packet_html(packet),
         })
     script = _SCRIPT.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))

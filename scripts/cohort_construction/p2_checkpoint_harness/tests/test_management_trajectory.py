@@ -531,6 +531,61 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertCountEqual([cp["kind"] for cp in retained["candidate_checkpoints"]],
                               [BEFORE, AFTER])
 
+    def test_coarse_same_day_diagnostic_pair_orders_acquisition_before_arrival(self):
+        event = diagnostic("DE-CT", "CT-1", exam="2026-03-02", report="2026-03-02")
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"), source("CT-1", "CT报告。")],
+            events=[event], reviews=[
+                review("DE-CT", BEFORE, target="增强CT", action_type="ORDER_DIAGNOSTIC_TEST"),
+                review("DE-CT", AFTER)],
+            bounds=dict(operation_start=dict(value="2026-03-03 10:00", precision="minute")))
+        self.assertEqual([item["kind"] for item in result["candidate_checkpoints"]],
+                         [BEFORE, AFTER])
+
+    def test_empty_candidate_clock_falls_back_for_operation_day_review(self):
+        text = "拟行胰十二指肠切除术。"
+        item = candidate("EV-DATE", "S-DATE", text, text, clock="2026-03-02")
+        item["clock"] = dict(value=None, precision="unknown")
+        result = self.project(
+            candidates=[item], sources=[source("S-DATE", text, clock="2026-03-02")],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][0]["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(result["migrations"][0]["reason"],
+                         "OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN")
+
+    def test_date_only_operation_start_makes_same_day_diagnostic_order_unknown(self):
+        event = diagnostic("DE-CT", "CT-1", exam="2026-03-02 08:00",
+                           report="2026-03-02 12:00")
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"), source("CT-1", "CT报告。")],
+            events=[event], reviews=[review("DE-CT", BEFORE), review("DE-CT", AFTER)],
+            bounds=dict(operation_start=dict(value="2026-03-02", precision="date")))
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual([item["reason"] for item in result["migrations"]],
+                         ["OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"] * 2)
+
+    def test_postoperative_evidence_arrival_is_retained_outside_primary_evaluation(self):
+        event = diagnostic("DE-MR", "MR-1", exam="2026-03-02 08:00",
+                           report="2026-03-02 12:00")
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"), source("MR-1", "MR报告。")],
+            events=[event], reviews=[review("DE-MR", AFTER)],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["kind"], AFTER)
+        self.assertFalse(checkpoint["primary_evaluation_eligible"])
+        self.assertEqual(checkpoint["evaluation_scope"],
+                         "NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY")
+        self.assertEqual(result["action_cycles"][0]["primary_evaluation_eligible"], False)
+        migration = next(item for item in result["migrations"]
+                         if item.get("node_kind") == AFTER)
+        self.assertEqual(migration["reason"],
+                         "ACTIONABLE_DIAGNOSTIC_PROJECTION_NON_PRIMARY_TASK")
+        self.assertEqual(result["summary"]["primary_evaluation_checkpoint_count"], 0)
+        self.assertEqual(result["summary"]["non_primary_evaluation_checkpoint_count"], 1)
+
     def test_postoperative_routine_exclusion_ignores_historical_resection_quote(self):
         text = "既往行胰腺癌切除，本次术后转ICU监护并常规补液。"
         item = candidate("EV-ICU-HISTORY", "S-ROUND", text, text,

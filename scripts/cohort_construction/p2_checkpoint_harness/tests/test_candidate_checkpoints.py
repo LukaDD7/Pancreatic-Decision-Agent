@@ -215,8 +215,11 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(result["migrations"][0]["reason"], "MISSING_EVALUATION_CLOCK")
 
     def test_operation_start_separates_preoperative_and_postoperative_diagnostic_nodes(self):
-        event = diagnostic(exam_time="2026-03-02 08:00", report_time="2026-03-02 12:00")
-        bounds = dict(operation_start=dict(value="2026-03-02 10:00"), status="TEST")
+        event = diagnostic(
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 12:00", precision="minute"))
+        bounds = dict(operation_start=dict(
+            value="2026-03-02 10:00", precision="minute"), status="TEST")
         result = project_candidate_checkpoints(
             case_id="SYN", candidates=[],
             sources=[source("S-CONTEXT", "既往临床资料。")], diagnostic_events=[event],
@@ -225,10 +228,92 @@ class CandidateCheckpointTests(unittest.TestCase):
                 review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
             task_time_bounds=bounds)
         self.assertEqual([item["kind"] for item in result["candidate_checkpoints"]],
-                         ["pre_exam_evaluation"])
-        self.assertEqual(result["migrations"][1]["migration_status"], "TASK_OUT_OF_SCOPE")
-        self.assertEqual(result["migrations"][1]["reason"],
-                         "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE")
+                         ["pre_exam_evaluation", "evidence_arrival_reassessment"])
+        pre, post = result["candidate_checkpoints"]
+        self.assertTrue(pre["primary_evaluation_eligible"])
+        self.assertFalse(post["primary_evaluation_eligible"])
+        self.assertEqual(post["evaluation_scope"], "NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY")
+        self.assertEqual(result["migrations"][1]["migration_status"], "RETAINED")
+        self.assertEqual(result["summary"]["primary_evaluation_checkpoint_count"], 1)
+        self.assertEqual(result["summary"]["non_primary_evaluation_checkpoint_count"], 1)
+
+    def test_operation_day_coarse_diagnostic_clocks_still_require_review(self):
+        event = diagnostic(exam_time="2026-03-02", report_time="2026-03-02")
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[],
+            sources=[source("S-CONTEXT", "既往临床资料。")], diagnostic_events=[event],
+            diagnostic_reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
+            task_time_bounds=dict(operation_start=dict(value="2026-03-02 10:00")))
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual([item["reason"] for item in result["migrations"]],
+                         ["OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"] * 2)
+
+    def test_cross_source_action_merge_does_not_drop_postoperative_report(self):
+        event = diagnostic(
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 12:00", precision="minute"))
+        text = "拟行胰腺增强MR。"
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[candidate("EV-PLAN", "S-PLAN", text, text)],
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("S-PLAN", text, clock="2026-03-01 09:00")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        post = next(item for item in result["candidate_checkpoints"]
+                    if item["kind"] == "evidence_arrival_reassessment")
+        self.assertFalse(post["primary_evaluation_eligible"])
+        self.assertEqual(result["diagnostic_events"][0]["candidate_checkpoint_ids"][
+            "evidence_arrival_reassessment"], post["checkpoint_id"])
+
+    def test_same_source_management_does_not_drop_postoperative_report(self):
+        event = diagnostic(
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 12:00", precision="minute"))
+        text = "拟行胰腺增强MR。"
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[candidate(
+                "EV-PLAN", "MR-1", text, text, clock="2026-03-02 08:00")],
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("MR-1", text, clock="2026-03-02 08:00")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        post = next(item for item in result["candidate_checkpoints"]
+                    if item["kind"] == "evidence_arrival_reassessment")
+        self.assertFalse(post["primary_evaluation_eligible"])
+
+    def test_management_empty_candidate_clock_uses_source_for_operation_day_review(self):
+        text = "拟行手术。"
+        item = candidate("EV-DATE", "S-DATE", text, text)
+        item["clock"] = dict(value=None, precision="unknown")
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[item],
+            sources=[source("S-DATE", text, clock="2026-03-02")], diagnostic_events=[],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][0]["migration_status"], "REVIEW_REQUIRED")
+
+    def test_date_only_operation_start_makes_same_day_diagnostic_order_unknown(self):
+        event = diagnostic(
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 12:00", precision="minute"))
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[], sources=[source("S-CONTEXT", "既往临床资料。")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
+            task_time_bounds=dict(operation_start=dict(value="2026-03-02", precision="date")))
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual([item["reason"] for item in result["migrations"]],
+                         ["OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"] * 2)
 
     def test_conflicting_report_visibility_is_not_repaired_by_verified_time(self):
         event = diagnostic(

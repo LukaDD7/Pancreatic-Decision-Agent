@@ -244,6 +244,11 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertFalse(any(packet["kind"] == "pre_exam_evaluation"
                              for packet in material["packets"]))
         self.assertEqual(material["summary"]["material_no_visible_context_count"], 1)
+        self.assertEqual(material["summary"]["primary_evaluation_checkpoint_count"],
+                         sum(packet["evaluation"]["primary_evaluation_eligible"]
+                             for packet in material["packets"]))
+        self.assertEqual(material["summary"]["non_primary_evaluation_checkpoint_count"], 0)
+        self.assertEqual(material["summary"]["projection_primary_evaluation_checkpoint_count"], 2)
         migration = next(item for item in material["migrations"]
                          if item.get("event_id") == "EA-D"
                          and item.get("node_kind") == "pre_exam_evaluation")
@@ -420,6 +425,47 @@ class CandidateMaterialTests(unittest.TestCase):
         original = next(source for source in packet["researcher_target_originals"]
                         if source["source_id"] == "S-D")
         self.assertEqual(original["clocks"]["verified_time"]["value"], "2022-12-16 15:33:07")
+
+    def test_direct_identifiers_are_removed_after_masking_without_removing_demographics(self):
+        prefix = ("患者姓名：张测试，性别：女，年龄：98岁，电话：13800138000，"
+                  "邮箱：synthetic@example.invalid，住址：虚构市示例路1号。\n")
+        self.sources[0]["text"] = prefix + self.management_text
+        self.candidates[0]["span"]["start"] += len(prefix)
+        self.candidates[0]["span"]["end"] += len(prefix)
+        self.candidates[0]["reason"] = "复核联系方式：synthetic@example.invalid"
+        self.projection = self.diagnostic_projection("yes", "no")
+
+        material = self.material()
+        serialized = json.dumps(material, ensure_ascii=False)
+        for identifier in ("张测试", "13800138000", "synthetic@example.invalid",
+                           "虚构市示例路1号"):
+            self.assertNotIn(identifier, serialized)
+        packet = self.packet("management_decision")
+        target = next(source for source in packet["included_sources"]
+                      if source["source_id"] == "S-M")
+        original = packet["researcher_target_originals"][0]
+        for card in (target, original):
+            self.assertIn("[姓名已去标识化]", card["text"])
+            self.assertIn("性别：女", card["text"])
+            self.assertIn("年龄：≥90岁", card["text"])
+        self.assertNotIn("拟行胰十二指肠切除术", target["text"])
+        self.assertIn("拟行胰十二指肠切除术", original["text"])
+        self.assertEqual(packet["masked_projection"]["span_offset_basis"],
+                         "original_source_before_direct_identifier_deidentification")
+        self.assertFalse(material["direct_identifier_deidentification"][
+            "hipaa_safe_harbor_claimed"])
+
+    def test_navigation_orders_same_clock_acquisition_before_evidence_arrival(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_materials import _navigation
+        packets = [dict(checkpoint_id=checkpoint_id, kind=kind, episode_id="EP-SYN",
+                        evaluation=dict(clock=clock("2022-12-14")))
+                   for checkpoint_id, kind in (("CP-A", "AFTER_EVIDENCE_ARRIVAL"),
+                                               ("CP-Z", "BEFORE_ACQUISITION"))]
+        _navigation(packets)
+        ordered = sorted(packets, key=lambda item: item["display_order"]["index"])
+        self.assertEqual([item["kind"] for item in ordered],
+                         ["BEFORE_ACQUISITION", "AFTER_EVIDENCE_ARRIVAL"])
+        self.assertEqual(ordered[0]["episode_navigation"]["next_checkpoint_id"], "CP-A")
 
     def test_organized_material_requires_complete_checkpoint_coverage(self):
         with self.assertRaisesRegex(ValueError, "INCOMPLETE_CANDIDATE_EPISODE_COVERAGE"):
