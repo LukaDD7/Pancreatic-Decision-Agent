@@ -11,9 +11,11 @@ import html
 import json
 from pathlib import Path
 
-HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.6.0"
-RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.5.0"
-FORM_VERSION = "candidate-action-plan-development-0.5"
+from .candidate_materials import candidate_material_manifest_sha256
+
+HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.7.0"
+RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.6.0"
+FORM_VERSION = "candidate-action-plan-development-0.6"
 KIND_LABELS = {
     "BEFORE_ACQUISITION": "证据获取前状态",
     "AFTER_EVIDENCE_ARRIVAL": "新证据到达后状态",
@@ -303,7 +305,7 @@ def _action_form(packet):
               _node("h3", {}, "管理动作计划（草稿，不是临床 Reference）"),
               _node("p", {}, _h(space.get("note") or "程序不预填答案。")),
               _node("p", {"class": "small"},
-                    "ACTIONS_PROPOSED 至少填写一个动作；NO_NEW_ACTION 不填写动作；ABSTAIN 仅表示技术拒答，不是第四种临床 Mode。timing 及新增动作语义字段均为可选。"),
+                    "ACTIONS_PROPOSED 至少填写一个动作，可填写待获取证据；NO_NEW_ACTION 与 ABSTAIN 均不填写动作或待获取证据。ABSTAIN 仅表示技术拒答，不是第四种临床 Mode。timing 及新增动作语义字段均为可选。"),
               _node("details", {},
                     _node("summary", {}, "查看 action_plan_schema"),
                     _pre(json.dumps(schema, ensure_ascii=False, indent=2))),
@@ -321,12 +323,25 @@ def _action_form(packet):
                           "新增具体动作"),
                     _node("label", {}, "rationale（ABSTAIN 时填写技术原因）",
                           _node("textarea", {"name": "rationale", "required": "required"})),
-                    _node("label", {}, "evidence_to_obtain（每行一项，可选）",
+                    _node("label", {"class": "evidence-to-obtain-field"},
+                          "evidence_to_obtain（每行一项，仅 ACTIONS_PROPOSED 可选）",
                           _node("textarea", {"name": "evidence_to_obtain"})),
                     _node("div", {},
                           _node("button", {"type": "submit"}, "提交并保存本机草稿"),
                           _node("span", {"class": "saved", "aria-live": "polite"})))),
     )
+
+
+def _form_sha256(packets):
+    definition = dict(
+        form_version=FORM_VERSION,
+        basis="actual_blank_action_form_and_action_plan_schema",
+        forms=[dict(checkpoint_id=packet["checkpoint_id"], blank_form_html=_action_form(packet))
+               for packet in sorted(packets, key=lambda item: item["checkpoint_id"])],
+    )
+    payload = json.dumps(definition, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _candidate_actions(packet):
@@ -552,6 +567,10 @@ def _packet_html(packet):
             "非本版主要评价：仅用于完整 P2 轨迹与手术截止审核；不进入术前路径推进／NAT再评估主评分。"
             + (evaluation.get("scope_reason") or "")))
          if evaluation.get("primary_evaluation_eligible") is False else ""),
+        (_node("p", {"class": "non-primary-note action-task-review"}, _h(
+            "动作/任务语义待核：" + ", ".join(packet.get("action_task_review_flags") or [])
+            + "；术后诊断 AFTER 中的术前 NAT/切除候选动作原样保留，仅进入非主评价审核。"))
+         if packet.get("action_task_review_flags") else ""),
         _state_delta(packet),
         (_node("p", {"class": "small"},
                "Discovery 候选动作及理由含目标检查信息，已移至“研究原文”页；默认任务头不展示，避免泄漏。")
@@ -605,7 +624,7 @@ _STYLE = r"""
 
 _SCRIPT = r"""
 const DATA=__DATA__;
-const caseId=__CASE_ID__,manifestSha=__MANIFEST_SHA__;
+const caseId=__CASE_ID__,manifestSha=__MANIFEST_SHA__,formSha=__FORM_SHA__;
 const byId=new Map(DATA.map(p=>[p.checkpoint_id,p]));
 const kindSelect=document.querySelector('#kind'),cpSelect=document.querySelector('#checkpoint');
 let current=null;
@@ -650,7 +669,10 @@ function bindPacket(){
 function updatePlanStatus(form){
  const status=form.querySelector('[name="plan_status"]').value,proposed=status==='ACTIONS_PROPOSED';
  const abstain=status==='ABSTAIN',mode=form.querySelector('[name="mode"]');
+ const evidence=form.querySelector('[name="evidence_to_obtain"]');
+ const evidenceField=form.querySelector('.evidence-to-obtain-field');
  form.querySelector('.actions').hidden=!proposed;document.querySelector('#add-action').hidden=!proposed;
+ evidenceField.hidden=!proposed;evidence.disabled=!proposed;if(!proposed)evidence.value='';
  for(const row of form.querySelectorAll('.action-row')){
   row.querySelector('[name="action_type"]').required=proposed;
   row.querySelector('[name="target"]').required=proposed;
@@ -667,11 +689,13 @@ function lines(value){return value.split('\n').map(x=>x.trim()).filter(Boolean);
 function response(form){
  const planStatus=form.querySelector('[name="plan_status"]').value;
  const data={checkpoint_id:current.checkpoint_id,case_id:caseId,material_manifest_sha256:manifestSha,
-  form_version:__FORM_VERSION__,material_format:__HTML_FORMAT__,reviewer_status:'draft_not_clinical_reference',
+  form_version:__FORM_VERSION__,form_sha256:formSha,material_format:__HTML_FORMAT__,
+  reviewer_status:'draft_not_clinical_reference',
   response_status:'SUBMITTED',primary_evaluation_eligible:current.primary_evaluation_eligible,
   evaluation_scope:current.evaluation_scope,evaluation_scope_reason:current.evaluation_scope_reason,
   plan_status:planStatus,actions:[],rationale:form.querySelector('[name="rationale"]').value,
-  evidence_to_obtain:lines(form.querySelector('[name="evidence_to_obtain"]').value)};
+  evidence_to_obtain:planStatus==='ACTIONS_PROPOSED'
+   ?lines(form.querySelector('[name="evidence_to_obtain"]').value):[]};
  if(planStatus!=='ABSTAIN')data.mode=form.querySelector('[name="mode"]').value;
  if(planStatus==='ACTIONS_PROPOSED')data.actions=[...form.querySelectorAll('.action-row')].map(row=>{
   const action={action_type:row.querySelector('[name="action_type"]').value.trim(),
@@ -686,12 +710,15 @@ function response(form){
  });
  return data;
 }
-function key(id){return ['candidate-action-draft',__FORM_VERSION__,manifestSha,caseId,id].join('-');}
+function key(id){return ['candidate-action-draft',__FORM_VERSION__,formSha,manifestSha,caseId,id].join('-');}
 function storedResponse(id){
  let old=null;try{old=JSON.parse(localStorage.getItem(key(id)));}catch{}
  if(!old||old.checkpoint_id!==id||old.material_manifest_sha256!==manifestSha
-    ||old.form_version!==__FORM_VERSION__||old.response_status!=='SUBMITTED'
+    ||old.form_version!==__FORM_VERSION__||old.form_sha256!==formSha
+    ||old.response_status!=='SUBMITTED'
     ||!['ACTIONS_PROPOSED','NO_NEW_ACTION','ABSTAIN'].includes(old.plan_status))return null;
+ if(old.plan_status!=='ACTIONS_PROPOSED'
+    &&((old.actions||[]).length||(old.evidence_to_obtain||[]).length))return null;
  return old;
 }
 function save(event){
@@ -736,7 +763,8 @@ function exportData(){
    evaluation_scope:packet.evaluation_scope,evaluation_scope_reason:packet.evaluation_scope_reason});
  }
  return {format:__RESPONSE_FORMAT__,case_id:caseId,material_manifest_sha256:manifestSha,
-  form_version:__FORM_VERSION__,renderer_format:__HTML_FORMAT__,export_status:'DRAFT_NOT_CLINICAL_REFERENCE',
+  form_version:__FORM_VERSION__,form_sha256:formSha,renderer_format:__HTML_FORMAT__,
+  export_status:'DRAFT_NOT_CLINICAL_REFERENCE',
   primary_evaluation_policy:'PREOPERATIVE_OR_NAT_ONLY',...partitionResponses(submitted),
   unsubmitted_checkpoints:unsubmitted};
 }
@@ -757,6 +785,11 @@ def render_html(material, manifest_sha):
                      key=lambda packet: packet["display_order"]["index"])
     if not packets:
         raise ValueError("MATERIAL_SET_HAS_NO_CANDIDATES")
+    expected_manifest_sha = candidate_material_manifest_sha256(material)
+    if manifest_sha != expected_manifest_sha:
+        raise ValueError("CANDIDATE_MATERIAL_MANIFEST_SHA256_MISMATCH")
+    manifest_sha = expected_manifest_sha
+    form_sha = _form_sha256(packets)
     payload = []
     for index, source_packet in enumerate(packets):
         packet = dict(source_packet)
@@ -785,6 +818,7 @@ def render_html(material, manifest_sha):
         ("__CASE_ID__", material["case_id"]),
         ("__MANIFEST_SHA__", manifest_sha),
         ("__FORM_VERSION__", FORM_VERSION),
+        ("__FORM_SHA__", form_sha),
         ("__HTML_FORMAT__", HTML_FORMAT),
         ("__RESPONSE_FORMAT__", RESPONSE_FORMAT),
     ]:
@@ -814,6 +848,7 @@ def write_html(material, manifest, output):
     receipt = dict(
         output=str(output / "index.html"), candidates=len(material["packets"]),
         manifest_sha256=manifest["manifest_sha256"], html_format=HTML_FORMAT,
+        form_sha256=_form_sha256(material["packets"]),
         html_sha256=hashlib.sha256(page.encode("utf-8")).hexdigest(),
         provider_requests=0, doctor_release=False,
         private_research_preview=True, network_calls=0,

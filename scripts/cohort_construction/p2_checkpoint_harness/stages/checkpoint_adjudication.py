@@ -104,7 +104,11 @@ class AdjudicationCheckpointIndex:
     def _index_member_spans(self, checkpoint):
         checkpoint_id = checkpoint["checkpoint_id"]
         spans = []
-        for event_id in checkpoint.get("member_event_ids") or ():
+        member_event_ids = list(checkpoint.get("member_event_ids") or ())
+        event_ids = member_event_ids + [
+            event_id for event_id in checkpoint.get("supporting_event_ids") or ()
+            if event_id not in member_event_ids]
+        for event_id in event_ids:
             candidate = self.candidates_by_id.get(event_id)
             if candidate is None:
                 self._limitation(checkpoint_id, event_id,

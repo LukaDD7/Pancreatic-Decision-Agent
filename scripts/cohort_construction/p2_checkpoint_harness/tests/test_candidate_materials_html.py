@@ -7,7 +7,11 @@ import subprocess
 import tempfile
 import unittest
 
+from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_materials import (
+    candidate_material_manifest_sha256,
+)
 from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_materials_html import (
+    _form_sha256,
     render_html,
     write_html,
 )
@@ -45,7 +49,7 @@ def packet(checkpoint_id, kind, *, title, text, original, index=1):
     previous_id = None if index == 1 else other
     next_id = other if index == 1 else None
     return dict(
-        checkpoint_id=checkpoint_id, kind=kind,
+        checkpoint_id=checkpoint_id, kind=kind, content_sha256="content-" + checkpoint_id,
         management_question="当时应推进、暂缓取证还是调整管理路径？",
         evaluation=dict(
             clock=dict(value="2026-03-02 08:00", precision="minute"),
@@ -66,6 +70,7 @@ def packet(checkpoint_id, kind, *, title, text, original, index=1):
             source(checkpoint_id + "-CONTEXT", "同期病史与体检",
                    "当时可见上下文：合成病史、体检及既有检验。"),
         ],
+        excluded_sources=[],
         researcher_target_originals=[source(
             checkpoint_id + "-ORIGINAL", "研究审核原始文书", original)],
         masked_projection=dict(
@@ -96,6 +101,10 @@ def material(packets):
     )
 
 
+def render_material(value):
+    return render_html(value, candidate_material_manifest_sha256(value))
+
+
 _DOM_SHIM = r"""
 const assert=require('node:assert/strict');
 class Element {
@@ -124,13 +133,14 @@ Object.defineProperty(elements.material,'innerHTML',{
   }
  }
 });
-const actionForm=new Element(),actionFields={},actionsElement=new Element();
+const actionForm=new Element(),actionFields={},actionsElement=new Element(),evidenceFieldElement=new Element();
 actionsElement.querySelectorAll=selector=>selector==='.action-row'?actionsElement.children:[];
 for(const name of ['plan_status','mode','rationale','evidence_to_obtain']){
  const field=new Element();field.value=name==='plan_status'?'ACTIONS_PROPOSED':name==='mode'?'ADVANCE':'';
  actionFields[`[name="${name}"]`]=field;
 }
-actionForm.querySelector=selector=>selector==='.actions'?actionsElement:actionFields[selector]||null;
+actionForm.querySelector=selector=>selector==='.actions'?actionsElement:
+ selector==='.evidence-to-obtain-field'?evidenceFieldElement:actionFields[selector]||null;
 actionForm.querySelectorAll=selector=>selector==='.action-row'?actionsElement.children:[];
 actionForm.checkValidity=()=>true;actionForm.reportValidity=()=>{};
 const document={
@@ -185,6 +195,29 @@ def rendered_packet_html(page, checkpoint_id="CP-PRE"):
 
 
 class CandidateMaterialsHtmlTests(unittest.TestCase):
+    def test_render_recomputes_manifest_and_rejects_caller_or_material_tamper(self):
+        value = material([packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")])
+        expected = candidate_material_manifest_sha256(value)
+        page = render_html(value, expected)
+        self.assertIn(expected, page)
+        with self.assertRaisesRegex(ValueError, "CANDIDATE_MATERIAL_MANIFEST_SHA256_MISMATCH"):
+            render_html(value, "caller-supplied-wrong-hash")
+        value["summary"]["candidate_checkpoint_count"] = 999
+        with self.assertRaisesRegex(ValueError, "CANDIDATE_MATERIAL_MANIFEST_SHA256_MISMATCH"):
+            render_html(value, expected)
+
+    def test_form_hash_binds_blank_form_and_schema_not_candidate_answers(self):
+        value = material([packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")])
+        before = _form_sha256(value["packets"])
+        value["packets"][0]["candidate_actions"][0]["target"] = "变化的研究候选动作"
+        self.assertEqual(_form_sha256(value["packets"]), before)
+        value["packets"][0]["action_space"]["action_plan_schema"]["required"].append("tampered")
+        self.assertNotEqual(_form_sha256(value["packets"]), before)
+
     def test_state_transition_header_exposes_goal_phase_cycle_and_new_evidence(self):
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据到达后状态",
@@ -193,7 +226,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
                     phase="INITIAL_RESECTABILITY_ASSESSMENT",
                     action_cycle_id="AC-SYN", evidence_state_id="ES-SYN",
                     support_source_ids=["S-CONTEXT"])
-        packet_page = rendered_packet_html(render_html(material([post]), "manifest-sha"),
+        packet_page = rendered_packet_html(render_material(material([post])),
                                            "CP-POST")
         self.assertIn("持续根治切除评估", packet_page)
         self.assertIn("INITIAL_RESECTABILITY_ASSESSMENT", packet_page)
@@ -211,7 +244,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
             next_key_surgical_step="上游手术步骤",
             allowed_time_precision=["date", "minute"],
             knowledge_version="SYNTHETIC-KNOWLEDGE-V1")
-        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        packet_page = rendered_packet_html(render_material(material([pre])))
         header = packet_page.split('id="workflow-original"', 1)[0]
         self.assertIn("下一关键手术步骤", header)
         self.assertIn("上游手术步骤", header)
@@ -225,7 +258,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据状态",
             text="合成报告", original="合成报告", index=2)
-        missing = rendered_packet_html(render_html(material([post]), "manifest-sha"), "CP-POST")
+        missing = rendered_packet_html(render_material(material([post])), "CP-POST")
         self.assertIn("下一关键手术步骤", missing)
         self.assertGreaterEqual(missing.count("待核"), 3)
 
@@ -237,7 +270,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
             degraded=True, basis="report_time_fallback_for_pre_exam_evaluation",
             same_clock_as_evidence_arrival=True,
             reason="REPORT_VISIBILITY_USED_FOR_PRE_EXAM_EVALUATION")
-        page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        page = rendered_packet_html(render_material(material([pre])))
         self.assertIn("时钟降级：report_time_fallback_for_pre_exam_evaluation", page)
         self.assertIn("与证据到达评价同钟：是", page)
 
@@ -249,8 +282,11 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
             primary_evaluation_eligible=False,
             scope="NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY",
             scope_reason="AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY")
-        page = rendered_packet_html(render_html(material([post]), "manifest-sha"), "CP-POST")
+        post["action_task_review_flags"] = ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"]
+        page = rendered_packet_html(render_material(material([post])), "CP-POST")
         self.assertIn("否：非本版主要评价", page)
+        self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED", page)
+        self.assertIn("候选动作原样保留", page)
         self.assertIn("不进入术前路径推进／NAT再评估主评分", page)
         self.assertIn("NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY", page)
 
@@ -263,7 +299,7 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
             primary_evaluation_eligible=False,
             scope="NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY",
             scope_reason="AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY")
-        page = render_html(material([post]), "manifest-sha")
+        page = render_material(material([post]))
         execute_page(page, r"""
 assert.equal(current.primary_evaluation_eligible,false);
 assert.equal(current.evaluation_scope,'NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY');
@@ -280,7 +316,7 @@ assert.deepEqual(partitioned.non_primary_p2_review_responses.map(item=>item.chec
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
             text="[已遮蔽]", original="合成研究原文")
-        page = render_html(material([pre]), "manifest-sha")
+        page = render_material(material([pre]))
         execute_page(page, r"""
 const proposed=response(testResponseForm('ACTIONS_PROPOSED',[{
  action_type:'MANAGE',target:'合成目标',action_id:'A-1',uncertainty_addressed:'待明确问题',
@@ -292,14 +328,27 @@ assert.equal(proposed.actions.length,1);
 assert.equal('timing' in proposed.actions[0],false);
 assert.equal(proposed.actions[0].action_id,'A-1');
 assert.deepEqual(proposed.actions[0].dependencies,['前置动作']);
-const noNew=response(testResponseForm('NO_NEW_ACTION',[{action_type:'OLD',target:'不得导出'}]));
-assert.deepEqual(noNew.actions,[]);assert.equal(noNew.mode,'ADVANCE');
-const abstain=response(testResponseForm('ABSTAIN',[{action_type:'OLD',target:'不得导出'}]));
-assert.deepEqual(abstain.actions,[]);assert.equal('mode' in abstain,false);
+const proposedForm=testResponseForm('ACTIONS_PROPOSED',[{action_type:'MANAGE',target:'目标'}]);
+proposedForm.querySelector('[name="evidence_to_obtain"]').value='增强CT\nCA19-9';
+assert.deepEqual(response(proposedForm).evidence_to_obtain,['增强CT','CA19-9']);
+const noNewForm=testResponseForm('NO_NEW_ACTION',[{action_type:'OLD',target:'不得导出'}]);
+noNewForm.querySelector('[name="evidence_to_obtain"]').value='不得带回检查';
+const noNew=response(noNewForm);
+assert.deepEqual(noNew.actions,[]);assert.deepEqual(noNew.evidence_to_obtain,[]);
+assert.equal(noNew.mode,'ADVANCE');
+const abstainForm=testResponseForm('ABSTAIN',[{action_type:'OLD',target:'不得导出'}]);
+abstainForm.querySelector('[name="evidence_to_obtain"]').value='技术拒答不得带回检查';
+const abstain=response(abstainForm);
+assert.deepEqual(abstain.actions,[]);assert.deepEqual(abstain.evidence_to_obtain,[]);
+assert.equal('mode' in abstain,false);
 assert.equal(abstain.plan_status,'ABSTAIN');
+actionFields['[name="evidence_to_obtain"]'].value='切换后必须清空';
 actionFields['[name="plan_status"]'].value='NO_NEW_ACTION';
 for(const listener of actionFields['[name="plan_status"]'].listeners.change||[])listener();
 assert.equal(actionsElement.hidden,true);assert.equal(elements['add-action'].hidden,true);
+assert.equal(evidenceFieldElement.hidden,true);
+assert.equal(actionFields['[name="evidence_to_obtain"]'].disabled,true);
+assert.equal(actionFields['[name="evidence_to_obtain"]'].value,'');
 actionFields['[name="plan_status"]'].value='ABSTAIN';
 for(const listener of actionFields['[name="plan_status"]'].listeners.change||[])listener();
 assert.equal(actionFields['[name="mode"]'].disabled,true);
@@ -307,10 +356,12 @@ assert.equal(actionFields['[name="mode"]'].required,false);
 actionFields['[name="plan_status"]'].value='ACTIONS_PROPOSED';
 for(const listener of actionFields['[name="plan_status"]'].listeners.change||[])listener();
 assert.equal(actionsElement.hidden,false);assert.equal(actionFields['[name="mode"]'].disabled,false);
+assert.equal(evidenceFieldElement.hidden,false);
+assert.equal(actionFields['[name="evidence_to_obtain"]'].disabled,false);
 """)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for DOM execution")
-    def test_export_and_restore_require_matching_manifest_and_form_version(self):
+    def test_export_and_restore_require_matching_manifest_form_version_and_form_hash(self):
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="术后新证据状态",
             text="合成术后复查报告。", original="合成术后复查报告。", index=2)
@@ -318,7 +369,7 @@ assert.equal(actionsElement.hidden,false);assert.equal(actionFields['[name="mode
             primary_evaluation_eligible=False,
             scope="NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY",
             scope_reason="AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY")
-        page = render_html(material([post]), "manifest-sha")
+        page = render_material(material([post]))
         execute_page(page, r"""
 assert(key(current.checkpoint_id).includes(manifestSha));
 let output=exportData();
@@ -327,9 +378,12 @@ assert.deepEqual(output.non_primary_p2_review_responses,[]);
 assert.equal(output.unsubmitted_checkpoints.length,1);
 assert.equal(output.unsubmitted_checkpoints[0].response_status,'UNSUBMITTED');
 const saved=response(testResponseForm('NO_NEW_ACTION'));
+assert(saved.form_sha256.length===64);
 assert(key(current.checkpoint_id).includes(saved.form_version));
+assert(key(current.checkpoint_id).includes(saved.form_sha256));
 localStorage.setItem(key(current.checkpoint_id),JSON.stringify(saved));
 output=exportData();
+assert.equal(output.form_sha256,saved.form_sha256);
 assert.equal(output.non_primary_p2_review_responses.length,1);
 assert.equal(output.non_primary_p2_review_responses[0].response_status,'SUBMITTED');
 assert.deepEqual(output.unsubmitted_checkpoints,[]);
@@ -339,6 +393,13 @@ assert.equal(actionFields['[name="rationale"]'].value,'不得恢复');
 assert.equal(exportData().non_primary_p2_review_responses.length,0);
 assert.equal(exportData().unsubmitted_checkpoints.length,1);
 localStorage.setItem(key(current.checkpoint_id),JSON.stringify({...saved,form_version:'old-form'}));
+assert.equal(exportData().non_primary_p2_review_responses.length,0);
+localStorage.setItem(key(current.checkpoint_id),JSON.stringify({...saved,form_sha256:'stale-form'}));
+actionFields['[name="rationale"]'].value='stale form不得恢复';restore(current.checkpoint_id);
+assert.equal(actionFields['[name="rationale"]'].value,'stale form不得恢复');
+assert.equal(exportData().non_primary_p2_review_responses.length,0);
+assert.equal(exportData().unsubmitted_checkpoints.length,1);
+localStorage.setItem(key(current.checkpoint_id),JSON.stringify({...saved,evidence_to_obtain:['偷带检查']}));
 assert.equal(exportData().non_primary_p2_review_responses.length,0);
 localStorage.setItem('candidate-action-draft-'+caseId+'-'+current.checkpoint_id,JSON.stringify(saved));
 assert.equal(exportData().non_primary_p2_review_responses.length,0);
@@ -368,7 +429,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
                 evidence_supports=[])],
         )
         packet_page = rendered_packet_html(
-            render_html(material([post]), "manifest-sha"), "CP-POST")
+            render_material(material([post])), "CP-POST")
         header = packet_page.split('id="workflow-original"', 1)[0]
         research = packet_page.split('id="workflow-research"', 1)[1]
         self.assertIn("比较的最近保留 CP：CP-PRE", packet_page)
@@ -392,7 +453,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             rationale="未来MRI未见远处转移，不得进入当前任务头。",
             evidence_supports=[dict(source_id="CP-PRE-SOURCE", start=0, end=9,
                                     quote="未来MRI未见远处转移")])
-        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        packet_page = rendered_packet_html(render_material(material([pre])))
         header = packet_page.split('id="workflow-original"', 1)[0]
         research = packet_page.split('id="workflow-research"', 1)[1]
         self.assertNotIn("未来MRI未见远处转移", header)
@@ -418,7 +479,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             rationale="重复引文反例", evidence_supports=[dict(
                 source_id="S-DUPLICATE", start=2, end=8, quote="未见远处转移")])
         packet_page = rendered_packet_html(
-            render_html(material([post]), "manifest-sha"), "CP-POST")
+            render_material(material([post])), "CP-POST")
         header = packet_page.split('id="workflow-original"', 1)[0]
         adjudication = header.split('class="adjudication"', 1)[1]
         self.assertNotIn("未见远处转移", adjudication)
@@ -432,7 +493,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             action_type="ORDER_DIAGNOSTIC_TEST", target="胰腺增强MRI",
             reason="报告中的血管接触结果不得进入检查前任务头",
             actor="discovery_llm", review_source="synthetic_discovery")]
-        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        packet_page = rendered_packet_html(render_material(material([pre])))
         header = packet_page.split('id="workflow-original"', 1)[0]
         research = packet_page.split('id="workflow-research"', 1)[1]
         self.assertNotIn("胰腺增强MRI", header)
@@ -447,7 +508,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             text="当时上下文仍可见。", original="截止后创建的目标原文")
         pre["included_sources"] = [pre["included_sources"][1]]
         pre["target"]["created_after_cutoff_source_ids"] = ["CP-PRE-SOURCE"]
-        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        packet_page = rendered_packet_html(render_material(material([pre])))
 
         self.assertIn("目标原文截止后创建，未进入当时可见资料", packet_page)
         self.assertIn("CP-PRE-SOURCE", packet_page)
@@ -457,7 +518,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
             text="当时病情稳定。[目标检查计划已遮蔽]", original="研究原始医嘱已合成遮蔽。")
-        page = render_html(material([pre]), "manifest-sha")
+        page = render_material(material([pre]))
         packet_page = rendered_packet_html(page)
 
         self.assertNotIn("胰腺MR平扫+增强", page)
@@ -490,7 +551,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
             text="[目标检查结果已遮蔽]", original="合成研究原文")
-        page = render_html(material([pre]), "manifest-sha")
+        page = render_material(material([pre]))
         packet_page = rendered_packet_html(page)
         first_screen = packet_page.split('id="workflow-original"', 1)[1].split(
             'id="workflow-research"', 1)[0]
@@ -519,7 +580,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             text="[已遮蔽]", original="合成研究原文")
         pre["included_sources"][1]["clock"]["value"] = "2026-03-01 09:00"
 
-        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        packet_page = rendered_packet_html(render_material(material([pre])))
 
         self.assertIn("当前CP原始文书类型", packet_page)
         self.assertIn("术前小结（preoperative_summary）", packet_page)
@@ -536,7 +597,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             text="[已遮蔽]", original="合成研究原文")
         pre["related_checkpoints"] = []
 
-        page = render_html(material([pre]), "manifest-sha")
+        page = render_material(material([pre]))
 
         self.assertIn("关系：未分类", page)
         self.assertIn("说明：未记录直接关系", page)
@@ -546,7 +607,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
             text="[已遮蔽]", original="合成研究原文")
         del pre["candidate_actions"]
-        page = render_html(material([pre]), "manifest-sha")
+        page = render_material(material([pre]))
 
         self.assertIn("Agent候选动作（不是答案/Reference）", page)
         self.assertIn("技术失败警示", page)
@@ -558,7 +619,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             "CP-POST", "evidence_arrival_reassessment", title="报告后再评价",
             text="合成报告原文：胰腺病灶边界清楚，未见远处转移。",
             original="合成报告原文：胰腺病灶边界清楚，未见远处转移。", index=2)
-        page = render_html(material([post]), "manifest-sha")
+        page = render_material(material([post]))
 
         self.assertIn("合成报告原文：胰腺病灶边界清楚，未见远处转移。", page)
         self.assertIn("report_time", page)
@@ -581,7 +642,7 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             item["display_order"]["total"] = 2
             item["episode_navigation"] = dict(
                 index=1, total=1, previous_checkpoint_id=None, next_checkpoint_id=None)
-        page = render_html(material([second, first]), "manifest-sha")
+        page = render_material(material([second, first]))
 
         packet_page = rendered_packet_html(page)
         self.assertIn("← 本患者上一 CP", packet_page)
@@ -616,8 +677,10 @@ assert.equal(document.querySelectorAll('[data-navigation="episode-previous"]').l
         pre = packet(
             "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
             text="[已遮蔽]", original="合成研究原文")
+        value = material([pre])
+        manifest_sha = candidate_material_manifest_sha256(value)
         with tempfile.TemporaryDirectory() as directory:
-            receipt = write_html(material([pre]), {"manifest_sha256": "abc123"}, directory)
+            receipt = write_html(value, {"manifest_sha256": manifest_sha}, directory)
             index = Path(directory) / "index.html"
             saved_receipt = json.loads((Path(directory) / "render-receipt.json").read_text())
 
@@ -626,7 +689,8 @@ assert.equal(document.querySelectorAll('[data-navigation="episode-previous"]').l
             self.assertEqual(receipt["network_calls"], 0)
             self.assertEqual(receipt["provider_requests"], 0)
             self.assertFalse(receipt["doctor_release"])
-            self.assertIn("abc123", index.read_text())
+            self.assertIn(manifest_sha, index.read_text())
+            self.assertEqual(receipt["form_sha256"], _form_sha256(value["packets"]))
 
 
 if __name__ == "__main__":

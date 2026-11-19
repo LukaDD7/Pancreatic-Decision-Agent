@@ -566,6 +566,34 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertEqual(item["review_status"], "REVIEW_REQUIRED")
         self.assertEqual(item["evidence_supports"], [])
 
+    def test_supporting_management_plan_cannot_support_new_evidence_round(self):
+        first_text = "拟行胰十二指肠切除术。"
+        current_text = "再次讨论根治性切除路径。"
+        plan_text = "拟开始新辅助化疗。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,
+                            clock="2026-03-02")
+        plan = candidate("EV-PLAN", "S-PLAN", plan_text, plan_text,
+                         clock="2026-03-02", action_type="START_NAT", target="新辅助化疗")
+        current_checkpoint = checkpoint("CP-CURRENT", [current], clock="2026-03-02")
+        current_checkpoint["supporting_event_ids"] = ["EV-PLAN"]
+        current_checkpoint["source_ids"].append("S-PLAN")
+        current_checkpoint["masked_spans"].append(deepcopy(plan["span"]))
+        store, _ = make_store(
+            [checkpoint("CP-FIRST", [first]), current_checkpoint],
+            [first, current, plan],
+            [source("S-FIRST", first_text, "2026-03-01"),
+             source("S-CURRENT", current_text, "2026-03-02"),
+             source("S-PLAN", plan_text, "2026-03-02")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        with self.assertRaisesRegex(ToolError, "EVIDENCE_OVERLAPS_CURRENT_MEMBER"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
+                evidence_supports=[citation("S-PLAN", plan_text, plan_text)],
+                rationale="附属管理计划不能冒充新患者证据。")
+
     def test_current_action_quote_cannot_support_new_evidence_round(self):
         first_text = "拟行胰十二指肠切除术。"
         second_text = "再次讨论后仍拟行胰十二指肠切除术。"

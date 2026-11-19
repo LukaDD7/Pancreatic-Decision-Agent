@@ -62,17 +62,27 @@ def _pathology_specimen_clock(event, source_by_id):
     return deepcopy(present[0]) if len(signatures) == 1 else _clock(None)
 
 
-def _pre_clock_degradation(pre_time_basis):
+def _pre_clock_degradation(pre_time_basis, evaluation_clock, visibility_clock):
     is_specimen = pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation"
     is_report = pre_time_basis == "report_time_fallback_for_pre_exam_evaluation"
-    return dict(
+    evaluation_value = _clock(evaluation_clock).get("value")
+    visibility_value = _clock(visibility_clock).get("value")
+    same_clock = bool(evaluation_value and visibility_value
+                      and evaluation_value == visibility_value)
+    degradation = dict(
         degraded=bool(is_specimen or is_report),
         basis=pre_time_basis,
-        same_clock_as_evidence_arrival=is_report,
+        same_clock_as_evidence_arrival=same_clock,
         reason=("SPECIMEN_TIME_USED_FOR_MISSING_PATHOLOGY_EXAM_TIME" if is_specimen else
                 "REPORT_VISIBILITY_USED_FOR_PRE_EXAM_EVALUATION" if is_report else
                 "NO_CLOCK_DEGRADATION"),
     )
+    if same_clock:
+        degradation.update(
+            review_status="REVIEW_REQUIRED",
+            review_reason="PRE_AND_EVIDENCE_ARRIVAL_SHARE_EVALUATION_CLOCK",
+        )
+    return degradation
 
 
 def _evaluation_scope(clock, operation_start):
@@ -140,11 +150,13 @@ def _action_space():
                 ),
                 dict(
                     **{"if": dict(properties=dict(plan_status=dict(const="NO_NEW_ACTION")))},
-                    then=dict(required=["mode"], properties=dict(actions=dict(maxItems=0))),
+                    then=dict(required=["mode"], properties=dict(
+                        actions=dict(maxItems=0), evidence_to_obtain=dict(maxItems=0))),
                 ),
                 dict(
                     **{"if": dict(properties=dict(plan_status=dict(const="ABSTAIN")))},
-                    then=dict(properties=dict(actions=dict(maxItems=0))),
+                    then=dict(properties=dict(
+                        actions=dict(maxItems=0), evidence_to_obtain=dict(maxItems=0))),
                 ),
             ],
         ),
@@ -379,6 +391,23 @@ def _management_checkpoint(case_id, group, source):
     )
 
 
+def _action_task_review_flags(node_kind, review, postoperative):
+    action = (review or {}).get("candidate_action") or {}
+    action_type = str(action.get("action_type") or "").upper()
+    target = str(action.get("target") or "")
+    preoperative_resection_type = action_type in {
+        "ADVANCE_RESECTION", "SURGICAL_RESECTION", "CURATIVE_RESECTION",
+        "RADICAL_RESECTION",
+    }
+    preoperative_resection_target = any(term in target for term in (
+        "根治性切除", "根治术", "胰十二指肠切除", "胰体尾切除", "胰腺切除"))
+    mismatch = action_type == "START_NAT" or preoperative_resection_type \
+        or preoperative_resection_target
+    if node_kind == "evidence_arrival_reassessment" and postoperative and mismatch:
+        return ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"]
+    return []
+
+
 def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=None,
                            operation_start=None):
     source_ids = sorted(event.get("source_ids") or [])
@@ -390,6 +419,9 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
         event.get("visibility_clock"))
     checkpoint_id = "CP-D-" + _digest([case_id, event["event_id"], node_kind])
     action = _candidate_action(review, event_id=event["event_id"])
+    scope = _evaluation_scope(evaluation_clock, operation_start)
+    review_flags = _action_task_review_flags(
+        node_kind, review, not scope["primary_evaluation_eligible"])
     common = dict(
         checkpoint_id=checkpoint_id,
         kind=node_kind,
@@ -406,7 +438,11 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
         program_generated_task_header=True,
         management_question_source="discovery_agent_question_or_program_action_header",
         diagnostic_event_id=event["event_id"],
-        **_evaluation_scope(evaluation_clock, operation_start),
+        action_task_review_flags=review_flags,
+        action_task_review_reason=(
+            "POSTOPERATIVE_DIAGNOSTIC_AFTER_WITH_PREOPERATIVE_ACTION"
+            if review_flags else None),
+        **scope,
     )
     if node_kind == "pre_exam_evaluation":
         return dict(
@@ -425,14 +461,16 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
                 "before_pathology_specimen_collection"
                 if pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation"
                 else "report_visibility_fallback_for_exam_choice_evaluation"),
-            clock_degradation=_pre_clock_degradation(pre_time_basis),
+            clock_degradation=_pre_clock_degradation(
+                pre_time_basis, evaluation_clock, event.get("visibility_clock")),
             mask_whole_diagnostic_event=True,
             show_complete_diagnostic_event=False,
             masked_spans=[],
             provenance=_provenance(
                 diagnostic_event_id=event["event_id"],
                 diagnostic_clock=pre_time_basis,
-                clock_degradation=_pre_clock_degradation(pre_time_basis),
+                clock_degradation=_pre_clock_degradation(
+                pre_time_basis, evaluation_clock, event.get("visibility_clock")),
                 source_clocks=deepcopy(event.get("source_clocks") or {}),
                 no_documented_choice_process_inferred=True),
         )
@@ -673,6 +711,7 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         specifications[1] = ("evidence_arrival_reassessment", post_available, post_gate)
         for node_kind, available, audit_reason in specifications:
             destination_id = None
+            generated_checkpoint = None
             if available:
                 conflicts = [checkpoint for checkpoint in candidate_checkpoints
                              if set(checkpoint.get("source_ids") or []) & set(event["source_ids"])]
@@ -684,6 +723,7 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                         case_id, event, node_kind, reviews[node_kind],
                         pre_time_basis=pre_time_basis, operation_start=operation_start)
                     destination_id = checkpoint["checkpoint_id"]
+                    generated_checkpoint = checkpoint
                     candidate_checkpoints.append(checkpoint)
                     for old in management_conflicts:
                         candidate_checkpoints.remove(old)
@@ -710,17 +750,21 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                         case_id, event, node_kind, reviews[node_kind],
                         pre_time_basis=pre_time_basis, operation_start=operation_start)
                     destination_id = checkpoint["checkpoint_id"]
+                    generated_checkpoint = checkpoint
                     candidate_checkpoints.append(checkpoint)
                 checkpoint_id = destination_id
                 event["candidate_checkpoint_ids"][node_kind] = checkpoint_id
             else:
                 checkpoint_id = None
+            review_flags = (generated_checkpoint or {}).get("action_task_review_flags") or []
             audit = dict(node_kind=node_kind, generated=available,
                          checkpoint_id=checkpoint_id, reason=audit_reason,
+                         action_task_review_flags=review_flags,
                          discovery_disposition=(reviews[node_kind] or {}).get("disposition"))
             event["generation_audits"].append(audit)
             migration = _diagnostic_migration(
                 case_id, event, node_kind, checkpoint_id, audit_reason)
+            migration["action_task_review_flags"] = list(review_flags)
             if audit_reason == "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE":
                 migration["migration_status"] = migration["status"] = "TASK_OUT_OF_SCOPE"
             elif audit_reason in ("SAME_DIAGNOSTIC_SOURCE_PRE_EXAM_CP_RETAINED",

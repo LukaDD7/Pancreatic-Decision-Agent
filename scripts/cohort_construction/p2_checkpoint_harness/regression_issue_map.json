@@ -617,10 +617,35 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_action_plan_0_2_separates_plan_status_from_three_clinical_modes",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_action_dictionary_is_engineering_draft_not_prefilled_reference",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_same_target_diagnostic_action_types_merge_without_merging_other_targets",
-        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_export_and_restore_require_matching_manifest_and_form_version"
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_export_and_restore_require_matching_manifest_form_version_and_form_hash"
       ],
       "status": "synthetic_regression_and_chrome_validated_live_pending",
       "limitations": "Clinical action availability, formal Q1-Q5 Reference and E/F/M/A/U scoring are not frozen or implemented by this engineering schema."
+    },
+    {
+      "id": "HAA-LIVE-034",
+      "problem": "Adversarial review of the first r31 implementation found eight uncovered paths: placeholder events could still support management evidence evolution; supporting management spans escaped overlap checks; missing visibility raised NameError; independent same-time BEFORE events merged; no-op states exported evidence requests; pathology specimen clock handling diverged; postoperative diagnostic actions lacked mismatch review; and HTML trusted caller-supplied manifest identity without a form content hash.",
+      "change_type": "adversarial_regression_closure_before_fresh_live_r32",
+      "real_counterexample": {
+        "run": "live-r31",
+        "observation": "The affected fresh SCALE-05 and SCALE-09 runs were stopped during Discovery after 41 and 36 successful provider invocations respectively. Their partial outputs are not complete validation results."
+      },
+      "positive_control": "Substantive mixed-source events remain eligible, explicit joint diagnostic groups still merge, ACTIONS_PROPOSED still exports its action/evidence fields, and correctly canonicalized materials render with bound manifest/form hashes.",
+      "negative_control": "Placeholder-only evidence, supporting management plans, unjoined same-time events, missing/conflicting clocks, no-op evidence requests, postoperative preoperative-action semantics and stale/tampered response envelopes cannot silently pass their respective gates.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_built_placeholder_event_cannot_support_new_evidence_round",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_supporting_management_plan_cannot_support_new_evidence_round",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_missing_visibility_returns_explicit_migration_reason",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_before_same_time_actions_require_explicit_joint_declaration",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_pathology_specimen_equal_report_marks_actual_same_clock_review",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_conflicting_specimen_time_falls_back_to_legal_report_clock",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_diagnostic_preoperative_action_gets_mismatch_review",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_render_recomputes_manifest_and_rejects_caller_or_material_tamper",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_export_and_restore_require_matching_manifest_form_version_and_form_hash"
+      ],
+      "status": "synthetic_regression_chrome_and_adversarial_recheck_validated_live_r32_pending",
+      "limitations": "The stopped r31 requests are retained only as execution receipts. Clinical correctness and fresh end-to-end behavior require the separate r32 run."
     }
   ]
 }

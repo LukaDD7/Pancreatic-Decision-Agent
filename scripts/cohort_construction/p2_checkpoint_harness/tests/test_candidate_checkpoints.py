@@ -147,6 +147,48 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(result["diagnostic_events"][0]["specimen_time"]["value"],
                          "2026-03-02 09:30")
 
+    def test_pathology_specimen_equal_report_marks_actual_same_clock_review(self):
+        event = diagnostic(
+            source_ids=["PATH-1"], exam_time=None,
+            report_time=dict(value="2026-03-02 12:00", precision="minute"),
+            source_clocks={"PATH-1": {"specimen_time": dict(
+                value="2026-03-02 12:00", precision="minute")}})
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[],
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("PATH-1", "合成病理报告。", kind="pathology")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        pre = next(item for item in result["candidate_checkpoints"]
+                   if item["kind"] == "pre_exam_evaluation")
+        post = next(item for item in result["candidate_checkpoints"]
+                    if item["kind"] == "evidence_arrival_reassessment")
+        self.assertEqual(pre["clock"]["value"], post["clock"]["value"])
+        self.assertEqual(pre["time_basis"], "specimen_time_fallback_for_pre_exam_evaluation")
+        self.assertTrue(pre["clock_degradation"]["same_clock_as_evidence_arrival"])
+        self.assertEqual(pre["clock_degradation"]["review_status"], "REVIEW_REQUIRED")
+        self.assertEqual(pre["clock_degradation"]["review_reason"],
+                         "PRE_AND_EVIDENCE_ARRIVAL_SHARE_EVALUATION_CLOCK")
+        self.assertEqual(pre["provenance"]["clock_degradation"],
+                         pre["clock_degradation"])
+
+    def test_conflicting_pathology_specimen_still_falls_back_to_report(self):
+        event = diagnostic(
+            source_ids=["PATH-1"], exam_time=None,
+            source_clocks={"PATH-1": {"specimen_time": dict(
+                value="2026-03-02 09:30", precision="minute")}},
+            audit=dict(clock_inconsistent_flags=["specimen_time"]))
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("PATH-1", "合成病理报告。", kind="pathology")], events=[event])
+        pre = result["candidate_checkpoints"][0]
+        self.assertEqual(pre["clock"]["value"], "2026-03-02 12:00")
+        self.assertEqual(pre["time_basis"], "report_time_fallback_for_pre_exam_evaluation")
+        self.assertTrue(pre["clock_degradation"]["same_clock_as_evidence_arrival"])
+
     def test_ct_mr_does_not_use_specimen_time_fallback(self):
         event = diagnostic(
             source_ids=["CT-1"], exam_time=None,
@@ -262,6 +304,7 @@ class CandidateCheckpointTests(unittest.TestCase):
             self.assertEqual(schema["properties"]["actions"]["items"]["required"],
                              ["action_type", "target"])
             proposed = dict(plan_status="ACTIONS_PROPOSED", mode="ADVANCE", rationale="合成理由",
+                            evidence_to_obtain=["增强CT"],
                             actions=[dict(action_id="A-1", action_type="MANAGE", target="目标",
                                           uncertainty_addressed="待明确问题",
                                           dependencies=["前置条件"], conditions=["适用条件"])])
@@ -278,6 +321,11 @@ class CandidateCheckpointTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 validate(dict(plan_status="ABSTAIN", mode="ABSTAIN", actions=[],
                               rationale="不得成为第四Mode"), schema)
+            for status in ("NO_NEW_ACTION", "ABSTAIN"):
+                with self.subTest(status=status, field="evidence_to_obtain"):
+                    with self.assertRaises(ValidationError):
+                        validate(dict(plan_status=status, mode="ADVANCE", actions=[],
+                                      rationale="不得偷带检查", evidence_to_obtain=["增强CT"]), schema)
             self.assertTrue(space["abstain_is_technical_status_not_mode"])
             self.assertFalse(space["answer_prefilled"])
 
@@ -341,6 +389,50 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(result["migrations"][1]["migration_status"], "RETAINED")
         self.assertEqual(result["summary"]["primary_evaluation_checkpoint_count"], 1)
         self.assertEqual(result["summary"]["non_primary_evaluation_checkpoint_count"], 1)
+
+    def test_postoperative_after_flags_preoperative_action_without_rewriting_it(self):
+        for action_type, target in (("START_NAT", "新辅助化疗"),
+                                    ("ADVANCE_RESECTION", "根治性切除"),
+                                    ("MANAGE", "胰十二指肠切除术")):
+            with self.subTest(action_type=action_type, target=target):
+                event = diagnostic(
+                    exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+                    report_time=dict(value="2026-03-02 12:00", precision="minute"))
+                result = project_candidate_checkpoints(
+                    case_id="SYN", candidates=[],
+                    sources=[source("S-CONTEXT", "既往临床资料。")], diagnostic_events=[event],
+                    diagnostic_reviews=[
+                        review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+                        review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR",
+                               candidate_action=dict(action_type=action_type, target=target))],
+                    task_time_bounds=dict(operation_start=dict(
+                        value="2026-03-02 10:00", precision="minute")))
+                post = result["candidate_checkpoints"][0]
+                self.assertEqual(post["kind"], "evidence_arrival_reassessment")
+                self.assertFalse(post["primary_evaluation_eligible"])
+                self.assertEqual(post["action_task_review_flags"],
+                                 ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
+                self.assertEqual(post["candidate_actions"][0]["action_type"], action_type)
+                self.assertEqual(post["candidate_actions"][0]["target"], target)
+                audit = result["diagnostic_events"][0]["generation_audits"][1]
+                self.assertEqual(audit["action_task_review_flags"],
+                                 ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
+                self.assertEqual(result["migrations"][1]["action_task_review_flags"],
+                                 ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
+
+    def test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag(self):
+        event = diagnostic(
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 12:00", precision="minute"))
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[], sources=[source("S-CONTEXT", "既往临床资料。")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR",
+                       candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST", target="复查CT"))],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual(result["candidate_checkpoints"][0]["action_task_review_flags"], [])
 
     def test_operation_day_coarse_diagnostic_clocks_still_require_review(self):
         event = diagnostic(exam_time="2026-03-02", report_time="2026-03-02")

@@ -546,7 +546,7 @@ def _pre_exam_anchor(event, source_by_id):
     report_usable = _has_clock(event.get("report_time")) and "report_time" not in flags
     if exam_usable:
         return dict(basis="exam_time", clock=event.get("exam_time"), proxy=False)
-    if _is_pathology_event(event, source_by_id):
+    if _is_pathology_event(event, source_by_id) and "specimen_time" not in flags:
         raw_clocks = [event.get("specimen_time")]
         raw_clocks.extend((event.get("source_clocks") or {}).get(source_id, {}).get(
             "specimen_time") for source_id in event.get("source_ids") or [])
@@ -563,6 +563,7 @@ def _pre_exam_anchor(event, source_by_id):
 
 def _diagnostic_gate(event, kind, review, operation_start, context_source_ids,
                      operation_start_clock=None, pre_anchor=None):
+    flags = (event.get("audit") or {}).get("clock_inconsistent_flags") or []
     if kind == AFTER and (event.get("audit") or {}).get("placeholder_only_event"):
         return False, "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL", None, None
     pre_anchor = pre_anchor or _pre_exam_anchor(event, {})
@@ -612,6 +613,9 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
     specifications = specifications or []
     review_flags = sorted({flag for spec in specifications
                            for flag in spec.get("review_flags") or []})
+    if not before and operation_start and _value(clocks[0]) >= operation_start \
+            and any(_preoperative_action_conflict(review) for review in reviews):
+        review_flags = sorted(set(review_flags + ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"]))
     evaluation_time_role = "before_acquisition_not_confirmed_choice_time" if before \
         else "after_report_visibility_proxy"
     if before and basis == "specimen_time_proxy_for_pre_exam_evaluation":
@@ -710,11 +714,10 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
             if available:
                 group_key = (_value(clock),
                              _action_signature(review.get("candidate_action") or {}))
-                if kind == AFTER:
-                    joint_group_id = (event.get("joint_evidence_group_id")
-                                      or event.get("joint_group_id"))
-                    group_key += (("joint", joint_group_id) if joint_group_id
-                                  else ("event", event["event_id"]),)
+                joint_group_id = (event.get("joint_evidence_group_id")
+                                  or event.get("joint_group_id"))
+                group_key += (("joint", joint_group_id) if joint_group_id
+                              else ("event", event["event_id"]),)
                 grouped[kind].setdefault(group_key, []).append(event)
         before_spec = specifications[(event["event_id"], BEFORE)]
         after_spec = specifications[(event["event_id"], AFTER)]
@@ -906,6 +909,8 @@ def _new_diagnostic_events(diagnostic_events, comparator, checkpoint):
         return []
     result = []
     for event in diagnostic_events:
+        if (event.get("audit") or {}).get("placeholder_only_event"):
+            continue
         visibility = event.get("visibility_clock")
         if not _has_clock(visibility):
             continue

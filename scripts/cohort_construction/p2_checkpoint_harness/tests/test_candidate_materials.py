@@ -331,6 +331,19 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertIsNone(pre["task_header"]["allowed_time_precision"])
         self.assertIsNone(pre["task_header"]["knowledge_version"])
 
+    def test_action_task_review_flag_is_preserved_in_material(self):
+        projection = deepcopy(self.projection)
+        post = next(item for item in projection["candidate_checkpoints"]
+                    if item["kind"] == "pre_exam_evaluation")
+        post["action_task_review_flags"] = ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"]
+        post["action_task_review_reason"] = "POSTOPERATIVE_DIAGNOSTIC_AFTER_WITH_PREOPERATIVE_ACTION"
+        packet = next(item for item in self.material(projection)["packets"]
+                      if item["checkpoint_id"] == post["checkpoint_id"])
+        self.assertEqual(packet["action_task_review_flags"],
+                         ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
+        self.assertEqual(packet["action_task_review_reason"],
+                         "POSTOPERATIVE_DIAGNOSTIC_AFTER_WITH_PREOPERATIVE_ACTION")
+
     def test_global_navigation_does_not_depend_on_episode(self):
         material = self.material()
         ordered = sorted(material["packets"], key=lambda item: item["display_order"]["index"])

@@ -570,6 +570,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             task_header=_task_header(checkpoint, cycle, included),
             included_source_ids=[source["source_id"] for source in included],
             candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
+            action_task_review_flags=list(checkpoint.get("action_task_review_flags") or []),
+            action_task_review_reason=checkpoint.get("action_task_review_reason"),
             discovery_review_status=(checkpoint.get("discovery_review") or {}).get("disposition"),
             included_sources=included, excluded_sources=excluded,
             researcher_target_originals=originals,
@@ -715,12 +717,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
     return deidentify_value(material)
 
 
-def write_candidate_material_set(material, output):
-    output = Path(output)
-    output.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for packet in material["packets"]:
-        (output / (packet["checkpoint_id"] + ".json")).write_text(
-            json.dumps(packet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def candidate_material_manifest(material):
     manifest = {key: value for key, value in material.items()
                 if key not in {"packets", "migrations", "support_records", "diagnostic_events"}}
     manifest["packets"] = [dict(checkpoint_id=packet["checkpoint_id"],
@@ -730,7 +727,21 @@ def write_candidate_material_set(material, output):
                                 included_sources=len(packet["included_sources"]),
                                 excluded_sources=len(packet["excluded_sources"]))
                            for packet in material["packets"]]
-    manifest["manifest_sha256"] = digest(manifest)
+    return manifest
+
+
+def candidate_material_manifest_sha256(material):
+    return digest(candidate_material_manifest(material))
+
+
+def write_candidate_material_set(material, output):
+    output = Path(output)
+    output.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for packet in material["packets"]:
+        (output / (packet["checkpoint_id"] + ".json")).write_text(
+            json.dumps(packet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest = candidate_material_manifest(material)
+    manifest["manifest_sha256"] = candidate_material_manifest_sha256(material)
     (output / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (output / "migrations.json").write_text(

@@ -6,6 +6,9 @@ import unittest
 from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_materials import (
     project_candidate_materials,
 )
+from scripts.cohort_construction.p2_checkpoint_harness.stages.diagnostic_events import (
+    build_diagnostic_events,
+)
 from scripts.cohort_construction.p2_checkpoint_harness.stages.management_trajectory import (
     project_management_trajectory,
 )
@@ -1145,6 +1148,135 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(state["evidence_evolution_status"],
                          "REVIEW_REQUIRED_EMPTY_NEW_EVIDENCE_STATE")
         self.assertIn("REVIEW_REQUIRED_EMPTY_NEW_EVIDENCE_STATE", state["review_flags"])
+
+    def test_built_placeholder_event_cannot_support_new_evidence_round(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "再次讨论拟行胰十二指肠切除术。"
+        items = [candidate("EV-FIRST", "S-FIRST", first_text, first_text),
+                 candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-05", function="reassessment",
+                           condition_changed=True)]
+        placeholder_source = source(
+            "CT-PLACEHOLDER", "[original_findings] 已写\n[original_impression] 已写",
+            clock="2026-03-04 12:00")
+        placeholder_source["clocks"] = dict(
+            exam_time=dict(value="2026-03-04 08:00", precision="minute"),
+            report_time=dict(value="2026-03-04 12:00", precision="minute"))
+        sources = [source("S-FIRST", first_text),
+                   source("S-SECOND", second_text, clock="2026-03-05"),
+                   placeholder_source]
+        events = build_diagnostic_events(sources, [dict(
+            event_id="DE-PLACEHOLDER", source_ids=["CT-PLACEHOLDER"])])
+        self.assertTrue(events[0]["audit"]["placeholder_only_event"])
+        kwargs = dict(candidates=items, sources=sources, events=events,
+                      reviews=[review("DE-PLACEHOLDER", AFTER)])
+        provisional = self.project(**kwargs)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"] if cp["kind"] == REASSESSMENT}
+        result = self.project(**dict(kwargs, adjudications=[
+            dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="首见状态"),
+            dict(checkpoint_id=ids["EV-SECOND"], disposition="RETAIN_CP",
+                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=ids["EV-FIRST"],
+                 evidence_supports=["DE-PLACEHOLDER"], rationale="错误引用占位事件")]))
+        state = next(state for state in result["evidence_states"]
+                     if state["checkpoint_ids"] == [ids["EV-SECOND"]])
+        self.assertEqual(state["new_evidence_event_ids"], [])
+        self.assertEqual(state["agent_cited_diagnostic_event_ids"], ["DE-PLACEHOLDER"])
+        self.assertEqual(state["evidence_evolution_status"],
+                         "REVIEW_REQUIRED_EMPTY_NEW_EVIDENCE_STATE")
+
+    def test_missing_visibility_returns_explicit_migration_reason(self):
+        for flags, expected_status, expected_reason in (
+                ([], "NOT_GENERATED", "MISSING_REPORT_AND_VERIFIED_TIME_VISIBILITY_UNKNOWN"),
+                (["report_time"], "REVIEW_REQUIRED",
+                 "MISSING_OR_CONFLICTING_REPORT_VISIBILITY")):
+            with self.subTest(flags=flags):
+                event = diagnostic("DE-NO-VISIBILITY", "CT-NO-VISIBILITY", report=None)
+                event["audit"] = dict(clock_inconsistent_flags=flags)
+                result = self.project(
+                    sources=[source("CT-NO-VISIBILITY", "CT报告。")], events=[event],
+                    reviews=[review("DE-NO-VISIBILITY", AFTER)])
+                self.assertEqual(result["candidate_checkpoints"], [])
+                migration = next(row for row in result["migrations"]
+                                 if row.get("node_kind") == AFTER)
+                self.assertEqual(migration["migration_status"], expected_status)
+                self.assertEqual(migration["reason"], expected_reason)
+                self.assertIsNone(migration["to_checkpoint_id"])
+
+    def test_before_same_time_actions_require_explicit_joint_declaration(self):
+        context = source("S-CONTEXT", "既往临床资料。")
+        ct_sources = []
+        for source_id in ("CT-1", "CT-2"):
+            item = source(source_id, "增强CT报告。", clock="2026-03-02 12:00")
+            item["clocks"] = dict(
+                exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+                report_time=dict(value="2026-03-02 12:00", precision="minute"))
+            ct_sources.append(item)
+        sources = [context, *ct_sources]
+        events = build_diagnostic_events(sources, [
+            dict(event_id="DE-CT-1", source_ids=["CT-1"]),
+            dict(event_id="DE-CT-2", source_ids=["CT-2"])])
+        reviews = [review(event["event_id"], BEFORE, target="增强CT",
+                          action_type="ORDER_DIAGNOSTIC_TEST") for event in events]
+        result = self.project(sources=sources, events=events, reviews=reviews)
+        self.assertEqual(len(result["candidate_checkpoints"]), 2)
+        self.assertEqual(len({cp["diagnostic_event_ids"][0]
+                              for cp in result["candidate_checkpoints"]}), 2)
+        self.assertTrue(all(cp["kind"] == BEFORE
+                            for cp in result["candidate_checkpoints"]))
+        self.assertTrue(all(row["migration_status"] == "RETAINED"
+                            for row in result["migrations"]
+                            if row.get("node_kind") == BEFORE))
+        for event in result["diagnostic_events"]:
+            self.assertIn("SAME_EXAM_TIME_MULTIPLE_EVENTS_REVIEW_REQUIRED",
+                          event["audit"]["content_review_flags"])
+
+        for event in events:
+            event["joint_evidence_group_id"] = "JOINT-CT-DECLARED"
+        joint = self.project(sources=sources, events=events, reviews=reviews)
+        self.assertEqual(len(joint["candidate_checkpoints"]), 1)
+        self.assertEqual(joint["candidate_checkpoints"][0]["diagnostic_event_ids"],
+                         ["DE-CT-1", "DE-CT-2"])
+        self.assertEqual([row["migration_status"] for row in joint["migrations"]
+                          if row.get("node_kind") == BEFORE], ["RETAINED", "MERGED"])
+
+    def test_conflicting_specimen_time_falls_back_to_legal_report_clock(self):
+        event = diagnostic("DE-PATH-CONFLICT", "PATH-CONFLICT", exam=None,
+                           report="2026-03-02 12:00")
+        event["source_clocks"] = {"PATH-CONFLICT": {"specimen_time": dict(
+            value="2026-03-01 09:00", precision="minute")}}
+        event["audit"] = dict(clock_inconsistent_flags=["specimen_time"])
+        pathology_source = source("PATH-CONFLICT", "病理报告。", clock="2026-03-02 12:00")
+        pathology_source["kind"] = "pathology"
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"), pathology_source], events=[event],
+            reviews=[review("DE-PATH-CONFLICT", BEFORE),
+                     review("DE-PATH-CONFLICT", AFTER)])
+        before = next(cp for cp in result["candidate_checkpoints"] if cp["kind"] == BEFORE)
+        self.assertEqual(before["clock"]["value"], "2026-03-02 12:00")
+        self.assertEqual(before["clock_basis"], "report_time_fallback_for_pre_exam_evaluation")
+        self.assertIn("DEGRADED_PRE_POST_SAME_CLOCK_REVIEW_REQUIRED",
+                      before["review_flags"])
+
+    def test_postoperative_diagnostic_preoperative_action_gets_mismatch_review(self):
+        event = diagnostic("DE-POST-CT", "CT-POST", exam="2026-03-02 08:00",
+                           report="2026-03-02 12:00")
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"), source("CT-POST", "CT报告。")],
+            events=[event], reviews=[review(
+                "DE-POST-CT", AFTER, target="新辅助化疗", action_type="START_NAT")],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["kind"], AFTER)
+        self.assertEqual(checkpoint["phase"], "POSTOPERATIVE_TRAJECTORY")
+        self.assertFalse(checkpoint["primary_evaluation_eligible"])
+        self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED", checkpoint["review_flags"])
+        self.assertEqual(checkpoint["candidate_actions"][0]["action_type"], "START_NAT")
+        self.assertEqual(checkpoint["candidate_actions"][0]["target"], "新辅助化疗")
+        self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED",
+                      result["action_cycles"][0]["review_flags"])
 
     def test_placeholder_only_report_cannot_create_evidence_arrival_checkpoint(self):
         event = diagnostic("DE-PLACEHOLDER", "CT-PLACEHOLDER")
