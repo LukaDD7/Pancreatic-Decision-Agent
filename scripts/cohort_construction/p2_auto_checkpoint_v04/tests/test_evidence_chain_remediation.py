@@ -51,7 +51,12 @@ def test_CE_REM001_named_report_issue_verify_header_and_fhir_roundtrip():
     assert current['clocks']['issued']['value'] == '2022-09-01 10:00:00'
     assert current['clocks']['verified_time']['value'] == '2022-09-01 10:30:00'
     assert current['time_provenance']['report_time']['source_field'] == 'report_datetime'
-    assert current['clock']['value'] == '2022-09-01 10:00:00'
+    # V04-VISIBILITY001 (2026-11-09 user decision): 审核时间 is the visible time,
+    # so the availability clock is 10:30, not the 10:00 writing clock. Both are
+    # retained; the later clock is the stricter one and cannot admit the report
+    # earlier than its audit. The writing clock is asserted unchanged above.
+    assert current['clock']['value'] == '2022-09-01 10:30:00'
+    assert current['clock_basis'] == 'verified_time_proxy'
     assert current['provenance']['raw_record_path'] == 'synthetic/raw-path.jsonl'
     bundle = fhir_io.build([current], 'SYNTHETIC', [], [])
     restored, _ = fhir_io.import_sources(bundle)

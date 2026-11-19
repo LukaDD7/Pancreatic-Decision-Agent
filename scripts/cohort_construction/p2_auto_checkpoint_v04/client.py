@@ -30,6 +30,34 @@ _thread = local()
 _batch_budget_lock = Lock()
 _batch_budgets = {}
 
+# HTTP statuses that describe a transient condition and may be retried. Any
+# other 4xx is the provider saying this request cannot succeed as sent, so
+# repeating the identical bytes only burns the batch's attempt allowance.
+_RETRYABLE_STATUS = frozenset((408, 409, 425, 429))
+_OVERFLOW_MARKERS = ('context_length_exceeded', 'maximum context length',
+    'context window', 'too many tokens', 'input is too long', 'prompt is too long',
+    'exceeds the maximum', 'reduce the length')
+
+
+def _retry_decision(exc, evidence):
+    """Classify one failed attempt without reading credentials or headers.
+
+    Everything except a terminal 4xx keeps its previous behaviour: retry. Only
+    the provider's own rejection of this request is treated as final, because
+    resending identical bytes cannot change the answer.
+    """
+    verdict = dict(retryable=True, input_overflow_suspected=False)
+    if isinstance(exc, requests.exceptions.HTTPError):
+        status = getattr(getattr(exc, 'response', None), 'status_code', None)
+        if type(status) is int and 400 <= status < 500 \
+                and status not in _RETRYABLE_STATUS:
+            text = evidence.get('provider_response_text')
+            hint = text.lower() if isinstance(text, str) else ''
+            verdict['retryable'] = False
+            verdict['input_overflow_suspected'] = any(
+                marker in hint for marker in _OVERFLOW_MARKERS)
+    return verdict
+
 
 def _safe_provider_metadata(raw):
     """Keep only bounded operational metadata, never arbitrary provider strings."""
@@ -103,6 +131,15 @@ class Client:
                       self.min_request_interval_seconds):
             if type(value) not in (int, float) or not 0 <= value <= 3600:
                 raise ValueError('MODEL_RATE_CONFIG_INVALID')
+        # Read timeout. The historical 180 s default is kept for every config
+        # that does not set this, so old batches keep the timing they ran with.
+        # A larger untrimmed payload can legitimately take longer to answer;
+        # leaving the old value would turn that into attempt timeouts and burn
+        # the batch's HTTP allowance on a request that was never too big.
+        self.read_timeout_seconds = self.config.get('provider_read_timeout_seconds', 180)
+        if type(self.read_timeout_seconds) not in (int, float) \
+                or not 1 <= self.read_timeout_seconds <= 3600:
+            raise ValueError('MODEL_READ_TIMEOUT_INVALID')
         if (self.retry_backoff_base_seconds == 0
                 or self.retry_backoff_max_seconds < self.retry_backoff_base_seconds):
             raise ValueError('MODEL_RATE_CONFIG_INVALID')
@@ -353,7 +390,8 @@ class Client:
                         if not isinstance(actual_body, bytes) \
                                 or hashlib.sha256(actual_body).hexdigest() != http_body_sha256:
                             raise ValueError('PROVIDER_PREPARED_BODY_HASH_MISMATCH')
-                        response=_thread.session.send(prepared_request,timeout=(20,180),
+                        response=_thread.session.send(prepared_request,
+                            timeout=(20,self.read_timeout_seconds),
                             allow_redirects=False)
                     else:
                         # Existing offline test doubles intercept ``post`` rather
@@ -365,7 +403,8 @@ class Client:
                         evidence['actual_provider_http_body_sha256'] = None
                         receipt['actual_provider_http_body_sha256'] = None
                         response=_thread.session.post(self.settings.chat_completions_url,
-                            json=body,timeout=(20,180),allow_redirects=False)
+                            json=body,timeout=(20,self.read_timeout_seconds),
+                            allow_redirects=False)
                 # Persist immediately after receipt, before any JSON or status parse.
                 # requests always exposes text; legacy unit-test doubles may not.
                 provider_text=response.text
@@ -488,6 +527,15 @@ class Client:
                         ) if key in safe})
                 if type(exc) is ValueError and str(exc)=='OUTPUT_TRUNCATED':
                     failure['reason']='OUTPUT_TRUNCATED'
+                decision=_retry_decision(exc,evidence)
+                if decision['input_overflow_suspected']:
+                    # The provider rejected the input length itself. Resending the
+                    # same bytes cannot succeed and the caller must shrink the
+                    # request instead. Record the fact without displacing the
+                    # transport reason code, which must still replay from the
+                    # saved HTTP status.
+                    failure['reason']='INPUT_OVERFLOW_SUSPECTED'
+                    failure['input_overflow_suspected']=True
                 failure_evidence=private_chain_evidence(evidence)
                 failure['evidence']=self._save_attempt_evidence(archive,evidence)
                 receipt['attempts'].append(failure)
@@ -496,12 +544,21 @@ class Client:
                     # Do not reuse a TLS/keep-alive connection the peer closed.
                     # Certificate verification remains enabled on the new pool.
                     _thread.session.close();del _thread.session
-                if attempt_index + 1 < self.max_http_attempts:
+                if decision['retryable'] and attempt_index + 1 < self.max_http_attempts:
                     delay=min(self.retry_backoff_max_seconds,
                         self.retry_backoff_base_seconds*(2**attempt_index))
                     receipt['attempts'][-1]['retry_delay_seconds']=delay
                     write(archive,receipt)
                     time.sleep(delay)
+                elif not decision['retryable']:
+                    # A non-retryable rejection is terminal for this invocation.
+                    # Remaining attempts stay unspent and are settled back to the
+                    # batch budget by _settle_batch_invocation.
+                    receipt['attempts'][-1]['retry_suppressed']=(
+                        'PROVIDER_INPUT_OVERFLOW' if decision['input_overflow_suspected']
+                        else 'NON_RETRYABLE_HTTP_STATUS')
+                    write(archive,receipt)
+                    break
         receipt.update(status='FAILED',elapsed_seconds=round(time.monotonic()-started,3))
         write(archive,receipt)
         self._settle_batch_invocation(receipt)

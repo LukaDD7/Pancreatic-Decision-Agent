@@ -509,4 +509,52 @@ def test_CEAUD007_issue_map_references_existing_required_tests():
     assert issue_map['clinical_gold'] is False
     issue=next(item for item in issue_map['issues'] if item['id']=='CE-AUD-007')
     text=Path(__file__).read_text()
-    for test in issue['required_tests']:assert 'def '+test+'(' in text
+    for test in issue['required_tests']:
+        if '::' in test:
+            module_name, class_name, method_name = test.split('::')
+            module = __import__(module_name.removesuffix('.py').replace('/', '.'), fromlist=[class_name])
+            assert hasattr(getattr(module, class_name), method_name), test
+        else:
+            assert 'def '+test+'(' in text
+
+
+def test_AI_BUDGET_003_a_wire_encoded_parent_reaches_the_provider_in_the_same_canonical_domain():
+    """Repair must not care whether the parent traveled expanded or encoded.
+
+    The parent review request may have been sent with the lossless pool
+    encoding. The repair path hashes, derives feedback from and re-verifies
+    the canonical expanded payload, so the recorded parent identity is the
+    same value as a run whose parent traveled expanded - only the transmitted
+    repair bytes differ.
+    """
+    from scripts.cohort_construction.p2_auto_checkpoint_v04 import payload_codec
+    event,previous,sources,corrected,payload=setup()
+    def enrich(block):
+        # The full engine pool shape; the fixture pool carries only the fields
+        # this test needs. Encoding is an exact round trip on either.
+        return dict(block, interval='current_prechoice_fact', kind='document', source_title='查房记录',
+            clock={'value':'2022-01-02T09:00:00+08:00'}, available_clock_proxy={'value':'2022-01-02T09:00:00+08:00'},
+            execution_time=None, publication_time=None, publication_status='UNKNOWN',
+            availability_status='PRIOR_SOURCE_PROXY_UNCERTIFIED', priority=1,
+            admissibility_role='source_context_requires_semantic_time_review',
+            availability_certified=False, reading_before_choice_certified=False,
+            publication_before_choice_certified=False, time_provenance={},
+            evidence_object_id=None, test_execution_anchor_id=None)
+    full=[enrich(block) for block in payload['evidence_source_pool']]
+    payload['evidence_source_pool']=full
+    encoded_wire=dict(payload, evidence_source_pool=payload_codec.encode_pool(full))
+    expanded_client, encoded_client=FakeClient({'items':[corrected]}), FakeClient({'items':[corrected]})
+    expanded_revised, expanded_audit=run(event,previous,sources,payload,expanded_client)
+    encoded_revised, encoded_audit=run(event,previous,sources,encoded_wire,encoded_client,
+        dict(CONFIG, review_payload_pool_encoding='source_table'))
+    assert encoded_audit['original_payload_sha256']==expanded_audit['original_payload_sha256']
+    assert encoded_audit['repair_payload_sha256']==expanded_audit['repair_payload_sha256']
+    assert encoded_audit['status']==expanded_audit['status']=='COMPLETE'
+    assert [e['checkpoint_status'] for e in encoded_revised]==[e['checkpoint_status'] for e in expanded_revised]
+    # Only the transmitted repair bytes differ, and the encoding is named.
+    assert encoded_audit['provider_payload_pool_encoding']==payload_codec.POOL_ENCODING
+    assert expanded_audit['provider_payload_pool_encoding']==payload_codec.EXPANDED_POOL_FORMAT
+    assert encoded_client.calls[0]['payload']['evidence_source_pool']['encoding']==payload_codec.POOL_ENCODING
+    # The provider still receives every block and every quotation intact.
+    assert payload_codec.decode_payload(
+        encoded_client.calls[0]['payload'])['evidence_source_pool']==expanded_client.calls[0]['payload']['evidence_source_pool']

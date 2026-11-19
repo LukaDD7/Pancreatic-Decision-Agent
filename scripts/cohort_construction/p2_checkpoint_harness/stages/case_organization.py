@@ -1,38 +1,31 @@
-"""One case-level organization stage for located management spans and evidence.
+"""Relate located candidates and evidence; container assembly is not agent work.
 
-The former ``ordering`` module remains the legacy comparison baseline. This stage
-owns the full object graph before assembly: evidence is visible, evidence-use is
-directed from a previous artifact to a later management expression, and only a
-supported same-process relation merges a candidate container.
+The agent sees nodes and records supported edges with source citations. Program
+code derives containers and unresolved nodes afterwards. It does not ask the
+agent to preview containers, demote candidates, or copy object-id checklists.
 """
 from __future__ import annotations
 
+import json
+
 from ..tools import Tool, ToolError
+from .common import finish_tool
+from .episodes import EpisodeBuilder, audit
 from .ordering import EventIndex, compare
-from .episodes import EpisodeBuilder, audit, episode_finish_tool
 
-ORGANIZATION_SYSTEM_PROMPT = """你在一次病例级组织中整理发现阶段 LLM 提议的候选管理表述，以及程序建立的检查证据索引。
-这些都不是临床真值、专家Reference或已确认独立episode。你要尽量用原文完成可核对的组织，
-而不是把能在原文中解决的问题留给人工。不得重新执行发现阶段的范围分类；只有原文明确推翻候选
-解释时，才可降级并附引文。
+ORGANIZATION_SYSTEM_PROMPT = """你的唯一核心任务是：依据原始病历，为发现阶段 LLM 提议的候选管理表述和程序检查证据对象建立关系。
+输入是节点；你的输出是节点之间的边及边上的说明。不要重新发现候选，不改变原文范围，不组织episode或医生材料。
+候选与证据都不是临床真值、专家Reference或已确认独立Checkpoint。尽量用原文解决可核对的关系，无法确定就保留不确定，不强行连线。
 
-先用list_events查看全部对象；evidence_artifact与管理候选同样在本阶段可见。按需read_event、
-read_unit、read_source/search_sources核对完整来源。compare_clocks只比较资料检索时钟，不是临床选择时刻。
-source_event_id必须是既往evidence_artifact，target_event_id是后续管理候选，关系用evidence_used；
-时间可比时程序会拒绝反向，时间未知必须保留不确定，不能编造先后。
-
-same_event只用于严格重复身份。组合候选与原子候选分别用contains或overlap记录，不得冒充same_event；
-它们只保留组成/重叠信息，不自动合并过程。只有confidence=supported的same_management_process会
-合并候选过程容器；context_only保留为未解释的上下文关系，uncertain不合并。
-same_management_process须说明同一管理目标的原文依据，同日、同次查房、同标题或同住院本身不够。
-既有关系不可删除；否定某条直接过程边用none/no_link并附两端原文，其他证据路径和候选仍保留。
-
-先记录有依据的关系，再preview_episodes检查所有传递合并后的容器，必要时修正并再次预览。
-对全部管理候选和证据对象逐项声明覆盖；每个证据对象均须evidence_checks。最后调用finish。
-先加载case_organization技能。"""
+候选span已是定位好的原文。直接依据list_events中span比较候选；只有判断某条具体关系确有必要时才读取局部原文，不要逐份通读病历。
+先加载case_organization技能。看到明确关系立即record_relation，不要等读完所有来源才开始写边。每条边写清关系类型、置信度、简短理由；需要依据的关系必须附两端逐字原文。
+same_event只用于严格重复身份；contains/overlap保留组成/重叠，不是same_event；same_management_process只在原文支持同一管理目标时用supported。
+evidence_used的方向只能是既往evidence_artifact→后续管理候选。compare_clocks只比较资料检索时钟，不是临床选择时刻；未知或同刻不得编造先后。
+需要否定某条已记录的直接过程边时用none/no_link并附依据，不删除历史。证据和组成关系不合并过程；context_only/uncertain不合并过程。
+不要执行容器预览、候选降级或逐项ID覆盖清单，这些不是本环节Agent的职责。完成关系记录后调用finish。"""
 
 
-def organization_relation_tools(registry, *, events, source_index, allow_demote=True):
+def organization_relation_tools(registry, *, events, source_index):
     """Record typed relations; a citation check is not a semantic confirmation."""
     known = {event["event_id"]: event for event in events}
     relations, demotions = [], []
@@ -55,6 +48,13 @@ def organization_relation_tools(registry, *, events, source_index, allow_demote=
         target_evidence = target.get("object_kind") == "evidence_artifact"
         if relation in management_relations and (source_evidence or target_evidence):
             raise ToolError("EVIDENCE_ARTIFACT_NOT_MANAGEMENT_ENDPOINT")
+        if source.get("status") not in ("ACCEPTED", "SOURCE_INDEXED") \
+                or target.get("status") not in ("ACCEPTED", "SOURCE_INDEXED"):
+            raise ToolError("RELATION_ENDPOINT_SPAN_NOT_VERIFIED")
+        if source.get("object_kind") != "evidence_artifact" \
+                and source.get("record_function") == "execution" \
+                and target.get("record_function") == "new_decision":
+            raise ToolError("RELATION_DIRECTION_EXECUTION_TO_PLAN_INVALID")
         if relation == "evidence_used":
             if not source_evidence or target_evidence:
                 raise ToolError(
@@ -84,6 +84,20 @@ def organization_relation_tools(registry, *, events, source_index, allow_demote=
             if not basis_quotes or not explanation.strip():
                 raise ToolError("RELATION_REQUIRES_BASIS_AND_EXPLANATION")
             for endpoint in (source, target):
+                span = endpoint.get("span") or {}
+                quote = span.get("quote")
+                if not isinstance(quote, str) or not quote:
+                    raise ToolError("RELATION_BASIS_REQUIRES_EXACT_ENDPOINT_SPAN:"
+                                    + endpoint["event_id"])
+                # The quote must be the candidate/evidence object's own full
+                # located span. Another sentence in the same source can be
+                # clinically unrelated and is not sufficient relation support.
+                expected = (span.get("source_id"), quote)
+                if not any((citation.get("source_id"), citation.get("quote")) == expected
+                           for citation in basis_quotes):
+                    raise ToolError("RELATION_BASIS_NOT_ENDPOINT_SPAN:"
+                                    + endpoint["event_id"])
+            for endpoint in (source, target):
                 if not any(citation.get("source_id") in (endpoint.get("source_ids") or ())
                            for citation in basis_quotes):
                     raise ToolError("RELATION_BASIS_MISSING_ENDPOINT:" + endpoint["event_id"])
@@ -103,23 +117,6 @@ def organization_relation_tools(registry, *, events, source_index, allow_demote=
         return dict(recorded=True, index=len(relations) - 1, relation=entry,
                     note="程序已核验端点与引文；这不等于关系语义或episode边界已获临床确认。")
 
-    def demote(event_id, reason, basis_quotes=None, to_status="not_a_checkpoint"):
-        if not allow_demote:
-            raise ToolError("DEMOTION_NOT_PERMITTED_IN_THIS_TURN")
-        event = known.get(event_id)
-        if event is None or event.get("object_kind") == "evidence_artifact":
-            raise ToolError("MANAGEMENT_CANDIDATE_REQUIRED")
-        if not reason.strip() or not basis_quotes:
-            raise ToolError("DEMOTION_REQUIRES_BASIS")
-        for citation in basis_quotes:
-            verdict = source_index.check_quote(citation, label="demotion_basis")
-            if not verdict.get("ok"):
-                raise ToolError("DEMOTION_BASIS_NOT_VERIFIED:" + str(verdict.get("reason")))
-        entry = dict(event_id=event_id, reason=reason,
-                     basis_quotes=list(basis_quotes), to_status=to_status)
-        demotions.append(entry)
-        return dict(recorded=True, demotion=entry)
-
     quote_schema = dict(type="array", items=dict(
         type="object", additionalProperties=False, required=["source_id", "quote"],
         properties=dict(source_id=dict(type="string"), quote=dict(type="string"))))
@@ -137,31 +134,28 @@ def organization_relation_tools(registry, *, events, source_index, allow_demote=
                                   "supported", "context_only", "uncertain", "no_link"]),
                               explanation=dict(type="string"))),
         run=relation, writes=True))
-    if allow_demote:
-        registry.register(Tool(
-            name="demote_event", description="用可定位原文给候选管理表述添加降级标注，不删除候选。",
-            input_schema=dict(type="object", additionalProperties=False,
-                              required=["event_id", "reason"],
-                              properties=dict(event_id=dict(type="string"), reason=dict(type="string"),
-                                              basis_quotes=quote_schema,
-                                              to_status=dict(type="string", enum=[
-                                                  "not_a_checkpoint", "repeat", "out_of_scope", "uncertain"]))),
-            run=demote, writes=True))
     return dict(relations=relations, demotions=demotions)
 
 
 def build_prompt(events, *, case_id):
-    return """## 病例 %s 的一次病例级组织
+    return """## 病例 %s 的候选关系记录
 
-管理候选与程序证据索引共 %d 个对象。
-1. list_events(limit=200)查看全部对象，read_event/read_unit核对候选完整表述及上下文。
-2. 记录严格身份、包含/重叠、证据使用和支持型过程关系；不要把所有对象强行配对或强行连成一条路径。
-3. 只有原文支持同一管理目标时才用supported same_management_process；仅有上下文时用context_only。
-4. preview_episodes检查传递合并的实际结果；不合适的直接边用none/no_link修正后再次预览。
-5. 孤立候选须区分“没有记录到直接连接”和“与研究无关”；证据对象须逐项evidence_checks。
-6. 调用finish，列出全部reviewed_event_ids。finish是已执行审阅的程序回执，不是临床正确性证明。
+管理候选与程序证据索引共 %d 个对象。你的任务只是连边，不是组织episode。
+1. list_events(limit=200)读取候选span和证据索引；这些已是可直接比较的原文。
+2. 发现明确关系就立即record_relation，不要先逐份read_unit/read_source通读病历。
+3. 只有一条具体关系缺少必要上下文时才检索局部原文；不需要读每个对象的rationale或全部单位。
+4. 在边上写清关系meta：类型、confidence、理由和必要的两端原文。时间未知就保留unknown。
+5. 没有可支持连接的候选自然保留为孤立节点；记录完有依据的边后直接finish。
 """ % (case_id, len(events))
 
 
+def recovery_context(relations):
+    """Expose durable edge IDs, not a request to repeat all prior work."""
+    pairs = [[item["source_event_id"], item["target_event_id"], item["relation"]]
+             for item in relations]
+    return ("上一次网络传输失败。以下关系已由程序保存，不要重复记录；从其他候选继续：\n"
+            + json.dumps(pairs, ensure_ascii=False))
+
+
 __all__ = ["EventIndex", "ORGANIZATION_SYSTEM_PROMPT", "EpisodeBuilder", "audit",
-           "episode_finish_tool", "build_prompt", "organization_relation_tools"]
+           "finish_tool", "build_prompt", "organization_relation_tools", "recovery_context"]

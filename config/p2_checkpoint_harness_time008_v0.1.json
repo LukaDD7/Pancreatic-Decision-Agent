@@ -1,0 +1,16 @@
+{
+  "context_window": 1000000,
+  "output_reservation": 16000,
+  "threshold_ratio": 0.8,
+  "retain_ratio": 0.16,
+  "headroom_tokens": 65536,
+  "max_summary_tokens": 4096,
+  "max_inline_tool_tokens": 12000,
+  "max_inline_unit_tokens": 60000,
+  "max_turns": 12,
+  "max_requests": 300,
+  "max_total_tokens": 6000000,
+  "max_steps_per_turn": 14,
+  "model_temperature": 0,
+  "max_output_tokens": 16000
+}

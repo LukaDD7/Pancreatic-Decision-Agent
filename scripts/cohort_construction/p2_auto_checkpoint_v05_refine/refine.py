@@ -406,11 +406,24 @@ def original_payload(cache, request_hash, model, endpoint):
     user = json.loads(saved['request']['messages'][1]['content'])
     if user['task'] != 'document_checkpoint_review':
         raise ValueError('ORIGINAL_REQUEST_NOT_CHECKPOINT_REVIEW')
-    return deepcopy(user['input'])
+    # The cache holds the exact transmitted bytes. A lossless pool encoding may
+    # be part of that representation; every reader works on the expanded pool,
+    # so decode here and nowhere else. Digest domains do not move: a decoded
+    # pool hashes exactly as it did before the encoding existed.
+    from scripts.cohort_construction.p2_auto_checkpoint_v04.payload_codec import (
+        decode_payload,
+    )
+    return decode_payload(deepcopy(user['input']))
 
 
 def prepare_payload(payload, targets, names):
-    result = deepcopy(payload)
+    from scripts.cohort_construction.p2_auto_checkpoint_v04.payload_codec import (
+        decode_payload,
+    )
+    # Accept either representation so a caller may pass the transmitted payload
+    # without first decoding it; the repair contract is always built and hashed
+    # over the expanded pool.
+    result = decode_payload(deepcopy(payload))
     ids = {e['event_id'] for e in targets}
     result['events'] = [e for e in result['events'] if e['event']['event_id'] in ids]
     if {e['event']['event_id'] for e in result['events']} != ids:
@@ -447,10 +460,8 @@ def prepare_payload(payload, targets, names):
     result['validation_feedback'] = redact([feedback(e) for e in targets], names)
     result['original_proposals'] = redact([e['semantic_review'] for e in targets], names)
     result['repair_contract'] = dict(maximum_semantic_repair_rounds=1,
-        original_evidence_pool_sha256=digest(payload['evidence_source_pool']),
+        original_evidence_pool_sha256=digest(result['evidence_source_pool']),
         source_context_added=False, positive_result_required=False)
-    assert result['evidence_source_pool'] == payload['evidence_source_pool']
-    assert result['earlier_event_ledger'] == payload['earlier_event_ledger']
     return result
 
 
@@ -552,35 +563,60 @@ def revalidate(event, proposal, sources, all_events, names, receipt):
 
 def repair_group(targets, all_events, sources, cache, config, client):
     """One semantic call per original review, with no positive fallback."""
+    from scripts.cohort_construction.p2_auto_checkpoint_v04.review_feedback import (
+        _SAFE_ERROR_CODES, _bound_failure_receipt,
+    )
     original_hash = targets[0]['review_request_sha256']
     names = patient_names(sources)
     audit = dict(original_review_request_sha256=original_hash, target_event_ids=[e['event_id'] for e in targets],
                  original_proposals=[deepcopy(e['semantic_review']) for e in targets],
                  parent_proposal_sha256=digest([deepcopy(e['semantic_review']) for e in targets]),
                  semantic_rounds=1, result=None, receipt=None, status='PREPARING')
-    receipt_start = len(getattr(client, 'receipts', []))
+    receipt = None
+    attempted = False
+    provider_entered = False
     try:
         original = original_payload(cache, original_hash, config['semantic_model'], request_endpoint(client))
         audit['original_review_payload'] = deepcopy(original)
         payload = prepare_payload(original, targets, names)
         audit['repair_payload_sha256'] = digest(payload)
-        result, receipt = client.ask('document_checkpoint_review_repair', payload, REVIEW_SCHEMA)
-        if not _valid_success_receipt(receipt, payload, result):
+        # Same wire projection as the live feedback path: the canonical repair
+        # payload keeps its hash, the transmitted bytes lose only the repeated
+        # per-source metadata. An unencodable pool travels unchanged.
+        from scripts.cohort_construction.p2_auto_checkpoint_v04.payload_codec import (
+            transport_projection,
+        )
+        wire_payload, wire_format = transport_projection(
+            payload, config.get('review_payload_pool_encoding', 'expanded'))
+        audit.update(provider_payload_pool_encoding=wire_format,
+            provider_payload_sha256=digest(wire_payload),
+            provider_payload_characters=len(json.dumps(wire_payload, ensure_ascii=False)))
+        provider_entered = True
+        result, receipt = client.ask('document_checkpoint_review_repair', wire_payload, REVIEW_SCHEMA)
+        attempted = True
+        if not _valid_success_receipt(receipt, wire_payload, result):
             raise ValueError('REVIEW_FEEDBACK_RECEIPT_INVALID')
         audit.update(result=deepcopy(result), receipt=deepcopy(receipt),
-                     provenance=request_provenance(original_hash, original, payload, receipt, config))
+                     provenance=request_provenance(original_hash, original, wire_payload, receipt, config))
         Draft202012Validator(REVIEW_SCHEMA).validate(result)
     except Exception as exc:
-        new_receipts = getattr(client, 'receipts', [])[receipt_start:]
-        if new_receipts:
-            candidate = new_receipts[-1]
-            if (candidate.get('task', 'document_checkpoint_review_repair') == 'document_checkpoint_review_repair'
-                    and isinstance(candidate.get('request_sha256'), str)):
-                audit['receipt'] = deepcopy(candidate)
-        audit.update(status='REPAIR_NOT_APPLIED', error=type(exc).__name__)
-        return [dict(deepcopy(e), review_refinement=dict(attempted=True, rounds=1,
+        # Match the live path: only this invocation's exception-bound receipt
+        # can diagnose a failed request. A concurrent/shared receipt tail may
+        # belong to another original review and must never authenticate this one.
+        bound = _bound_failure_receipt(exc)
+        if bound:
+            audit['receipt'] = bound
+        elif receipt is not None:
+            # A result accompanied by a superficial FAILED receipt is not a
+            # transport success, but it did occur inside the provider attempt.
+            audit['receipt'] = deepcopy(receipt)
+        attempted = provider_entered or isinstance(bound, dict)
+        audit.update(status='REPAIR_NOT_APPLIED', attempted=attempted,
+                     error=type(exc).__name__, error_code=(
+                         str(exc) if type(exc) is ValueError and str(exc) in _SAFE_ERROR_CODES else None))
+        return [dict(deepcopy(e), review_refinement=dict(attempted=attempted, rounds=int(attempted),
             status='REPAIR_NOT_APPLIED', original_review_request_sha256=original_hash,
-            error=type(exc).__name__, triggers=repair_triggers(e))) for e in targets], audit
+            error=type(exc).__name__, triggers=repair_triggers(e) if attempted else [])) for e in targets], audit
     ids = set(audit['target_event_ids'])
     counts = Counter(x['event_id'] for x in result['items'])
     proposals = {r['event_id']: r for r in result['items'] if r['event_id'] in ids and counts[r['event_id']] == 1}

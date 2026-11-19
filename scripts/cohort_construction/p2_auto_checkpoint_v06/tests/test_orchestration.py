@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from scripts.cohort_construction.p2_auto_checkpoint.extract import digest
 from scripts.cohort_construction.p2_auto_checkpoint_v04 import engine
 from scripts.cohort_construction.p2_auto_checkpoint_v04.prompts import UNCERTAINTY_KEYS
 from scripts.cohort_construction.p2_auto_checkpoint_v04.tests.test_engine import source
@@ -33,7 +34,10 @@ class PipelineClient:
 
     def ask(self, task, payload, schema):
         self.calls.append((task,deepcopy(payload)))
-        receipt=dict(request_sha256='hash-'+str(len(self.calls)),cached=False,status='SUCCESS')
+        # This fake stands in for a synthetic adapter, whose documented receipt
+        # domain is the canonical payload itself. A fabricated string would make
+        # every repair receipt unverifiable rather than exercising orchestration.
+        receipt=dict(request_sha256=digest(payload),cached=False,status='SUCCESS')
         self.receipts.append(receipt)
         if task=='document_event_discovery':
             response=discovery_response('复查提示变化。决定补充检查。','原文不存在的决定')
@@ -48,6 +52,14 @@ class PipelineClient:
                 evidence_comparison=dict(previous_known_quotes=[],current_information_quotes=[],
                     change_kind='none',reinterpretation_quotes=[],explanation='虚构起始记录'),
                 evidence_connection='uncertain',observation_availability=[],
+                # The frozen REVIEW_SCHEMA registers these fields as required;
+                # this fixture lagged the schema and made the repair path fail
+                # with a schema error instead of exercising orchestration.
+                checkpoint_kind='not_applicable',evidence_relations=[],
+                proof_event_role='first_visible_management_choice',
+                temporal_channel_status='not_applicable',
+                semantic_channel_status='not_applicable',
+                key_management_predecessor_rationale='',
                 uncertainty_dimensions=discovery_response('x','x')['events'][0]['uncertainty_dimensions'])])
         else:
             raise AssertionError('Unexpected additional request: '+task)

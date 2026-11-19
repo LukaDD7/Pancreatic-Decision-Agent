@@ -415,11 +415,12 @@ class CaseRunner:
                     added_relations=len(additions))
 
     # -- one case-level organization -----------------------------------
-    def run_case_organization(self):
-        """Organize management spans and evidence in one agent session.
+    def run_case_organization(self, *, resume_sessions=False):
+        from . import session as S
+        """Let the agent record only edges; derive containers deterministically.
 
-        The legacy ordering + episodes path is deliberately kept as the comparison
-        baseline; it does not supply evidence artifacts to its ordering session.
+        Legacy ordering + episodes keeps its own review and coverage contract.
+        This path deliberately exposes no demotion, preview, or coverage tools.
         """
         from .stages import case_organization as C
 
@@ -436,12 +437,10 @@ class CaseRunner:
             recovery["sessions"].append(name)
             if attempt:
                 recovery["attempts"] = attempt
-            session = self.harness.session_for(name)
+            session = self.harness.session_for(name, resume=resume_sessions)
             registry = self.harness.new_registry(session=session)
             self.index.register(registry)
             for tool in C.EventIndex(active, source_index=self.index).tools():
-                registry.register(tool)
-            for tool in builder.tools():
                 registry.register(tool)
             recorded = C.organization_relation_tools(
                 registry, events=active, source_index=self.index)
@@ -450,12 +449,15 @@ class CaseRunner:
             try:
                 prompt = C.build_prompt(active, case_id=self.case_id)
                 if attempt:
-                    prompt += ("\n\n上一次网络传输失败，本恢复会话仍保留已记录关系；"
-                               "请继续核对尚未覆盖的对象，不删除旧记录。")
-                outcome = agent.act(prompt, final_tool=C.episode_finish_tool(
-                    events=active, builder=builder))
+                    prompt += "\n\n" + C.recovery_context(self.relations)
+                if resume_sessions and session.last(S.TURN_START) is not None:
+                    prompt += ("\n\n恢复此前中断的会话，保留其原文读取和工具记录；"
+                               "已保存关系不得重复写入，继续尚未完成的关系记录。")
+                outcome = agent.act(
+                    prompt, final_tool=C.finish_tool(label="候选关系记录"))
                 stop, final = outcome.stop, outcome.final
                 records.append(recorded)
+                self.relations = list(recorded["relations"])
                 recovery["recovered"] = bool(attempt)
                 break
             except Exception as exc:  # noqa: BLE001 - provider failure only
@@ -467,6 +469,7 @@ class CaseRunner:
                     item.get("reason_code") for item in exc.receipt.get("attempts", [])
                     if item.get("reason_code")}))
                 records.append(recorded)
+                self.relations = list(recorded["relations"])
                 from . import session as S
                 session.append(S.TURN_END, dict(stop=stop, steps=len(agent.tools.calls),
                                                 transport_failed=True, recovery_attempt=attempt),
@@ -478,27 +481,20 @@ class CaseRunner:
                 recovery["exhausted"] = True
                 break
         self.relations = []
-        self.demotions = []
         for record in records:
             self.relations.extend(relation for relation in record["relations"]
                                   if relation not in self.relations)
-            self.demotions.extend(demotion for demotion in record["demotions"]
-                                  if demotion not in self.demotions)
-        self._annotate_demotions()
-        # Preserve original relations as a declared history; a demoted candidate
-        # remains visible in artifacts but does not merge a downstream container.
-        builder.by_id = {event["event_id"]: event for event in self._organization_objects()}
         builder.relations = list(self.relations)
         result = builder.assemble()
         self.episodes = result
-        self.audit = C.audit(list(builder.by_id.values()), self.relations, result)
-        self._episode_review = dict(stage="case_organization", stop=stop, final=final,
-                                    recovery=recovery, added_relations=len(self.relations))
-        self._case_organization = self._episode_review
+        self.audit = C.audit(active, self.relations, result)
+        self._case_organization = dict(
+            stage="case_organization", stop=stop, final=final,
+            recovery=recovery, added_relations=len(self.relations),
+            agent_task="record_candidate_relations_only",
+            container_assembly="program_derived_not_agent_reviewed")
         self.stage_stops.append(dict(stage="case_organization", stop=stop))
-        return dict(episodes=len(result["episodes"]), relations=len(self.relations),
-                    demotions=len(self.demotions), singleton=result["singleton_episodes"],
-                    unresolved=len(result["unresolved_relations"]), stop=stop,
+        return dict(relations=len(self.relations), stop=stop,
                     failure=failure, recovery=recovery)
 
     # -- case-level checkpoint adjudication ----------------------------
@@ -536,12 +532,12 @@ class CaseRunner:
                 units=dict(sorted(self.discovery.items())),
                 units_total=len(self.units),
                 units_run=len(self.discovery)),
-            diagnostic_candidate_reviews=self.diagnostic_reviews,
-            diagnostic_candidate_review_revisions=self.diagnostic_review_revisions,
             candidate_spans=self.events,
             events=self.events,
             out_of_scope_candidates=self.rejected,
             evidence_inventory=self.evidence_inventory,
+            diagnostic_candidate_reviews=self.diagnostic_reviews,
+            diagnostic_candidate_review_revisions=self.diagnostic_review_revisions,
             checkpoint_adjudication=self.checkpoint_adjudication,
             rejected_mentions=self.rejected,
             relations=dict(
@@ -550,11 +546,15 @@ class CaseRunner:
                 unresolved=(self.episodes or {}).get("unresolved_relations", [])),
             episodes=self.episodes,
             episode_review=getattr(self, "_episode_review", None),
+            case_organization=getattr(self, "_case_organization", None),
             audit=self.audit,
             stage_stops=self.stage_stops,
             coverage=_coverage(self.units, self.discovery),
             counts=dict(
                 events=len(self.events),
+                candidate_spans=len(self.events),
+                out_of_scope=len(self.rejected),
+                evidence_artifacts=len(self.evidence_inventory),
                 diagnostic_candidate_reviews=len(self.diagnostic_reviews),
                 diagnostic_candidate_review_revisions=len(self.diagnostic_review_revisions),
                 checkpoint_adjudications=len(
@@ -565,9 +565,6 @@ class CaseRunner:
                                   if review["disposition"] == "no"),
                 diagnostic_uncertain=sum(1 for review in self.diagnostic_reviews
                                          if review["disposition"] == "uncertain"),
-                candidate_spans=len(self.events),
-                out_of_scope=len(self.rejected),
-                evidence_artifacts=len(self.evidence_inventory),
                 accepted=sum(1 for event in self.events
                              if event["status"] == "ACCEPTED"),
                 with_problems=sum(1 for event in self.events
@@ -580,7 +577,8 @@ class CaseRunner:
                   "被降级、未解析关系和带引文问题的候选均保留并计数。"
                   "程序证据索引不是管理判断或已确认临床决策点。"
                   "检查双候选审核只是Discovery LLM筛选，不是专家Reference；其当前记录和修订均保留。"
-                  "候选容器不是后续医生可见材料。"))
+                  "case organization由Agent记录候选关系，候选容器仅由程序派生，"
+                  "未经Agent容器审阅，不是后续医生可见材料。"))
 
 
 def _event(unit, entry):

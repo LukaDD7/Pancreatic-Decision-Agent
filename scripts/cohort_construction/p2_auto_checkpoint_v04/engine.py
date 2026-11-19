@@ -13,6 +13,7 @@ from .source_time import source_record_time
 from .prompts import DISCOVERY_INSTRUCTIONS, DISCOVERY_SCHEMA, REVIEW_INSTRUCTIONS, REVIEW_SCHEMA
 from .validation import resolve_citations
 from .evidence import compile_evidence_relations
+from .payload_codec import transport_projection
 from .semantic_proof import (
     compile_availability, combine_current_fact_coverage, proof_role_matches,
 )
@@ -119,8 +120,11 @@ def redact(value, names):
     if isinstance(value,dict):
         exact_keys={'source_id','source_ids','source_sha256','unit_id','event_id','candidate_id','local_id',
             'same_test_source_ids','block_id','block_ids','previous_event_id','same_process_previous_id',
-            'same_event_with','discovery_request_sha256','source_id_index_path'}
+            'same_event_with','discovery_request_sha256','source_id_index_path','evidence_object_id',
+            'evidence_object_ids','test_execution_anchor_id',
+            'provided_prior_event_ids','provided_identity_event_ids','eligible_previous_event_ids'}
         return {k:(v if k in exact_keys else redact(v,names)) for k,v in value.items()}
+
     return value
 
 
@@ -665,18 +669,29 @@ def review_unit(unit,unit_events,all_events,sources,config,client,names):
         type_prior=unit['type_prior'],current_full_document=unit['original_texts'],
         reconstruction_only_actual_choices_disclosed=True,earlier_event_ledger=ledger,
         events=event_inputs,evidence_source_pool=list(pool.values()))
-    # Apply the provider request budget to serialized text, not just raw source
-    # characters. Remove whole source ranges with per-event receipts, never
-    # silently truncate a document or claim omitted evidence was absent.
+    # Apply the provider request budget to the bytes actually transmitted. The
+    # pool's repeated per-source metadata is a wire representation, so encoding
+    # it first means fewer whole source ranges are dropped for a size reason
+    # that was never clinical. Encoding is lossless (see payload_codec), applied
+    # after redaction, and never changes a block, range or quotation. The
+    # canonical payload kept for auditing, repair and evaluation stays expanded.
+    encoding=config.get('review_payload_pool_encoding','expanded')
+    if encoding not in ('expanded','source_table'):
+        raise ValueError('REVIEW_PAYLOAD_POOL_ENCODING_INVALID')
+    def wire(value):
+        payload,format=transport_projection(redact(value,names),encoding)
+        return payload,format
+    def wire_size(value):
+        return len(json.dumps(wire(value)[0],ensure_ascii=False))
     limit=config.get('max_review_payload_characters',240000)
-    size=len(json.dumps(payload,ensure_ascii=False));removed=[]
+    size=wire_size(payload);removed=[]
     for block in sorted(pool.values(),key=lambda b:(b['priority'],b['clock'].get('value') or ''),reverse=True):
         if size<=limit-2000:break
         key=block['block_id'];del pool[key];removed.append(key)
         for inp in event_inputs:
             if key in inp['evidence_context']['block_ids']:inp['evidence_context']['block_ids'].remove(key)
         payload['evidence_source_pool']=list(pool.values())
-        size=len(json.dumps(payload,ensure_ascii=False))
+        size=wire_size(payload)
     if size>limit:raise ValueError('FULL_DOCUMENT_AND_EVENT_LEDGER_EXCEED_REVIEW_BUDGET')
     for e in unit_events:
         ctx=contexts[e['event_id']]
@@ -691,13 +706,17 @@ def review_unit(unit,unit_events,all_events,sources,config,client,names):
             else:
                 kept.append(b);allowed.setdefault(b['source_id'],[]).append(dict(start=b['start'],end=b['end']))
         ctx['blocks']=kept;ctx['allowed_spans']=allowed
-        ctx['actual_payload_characters']=size;ctx['provider_budget_omitted_blocks']=len(removed)
+        ctx['actual_payload_characters']=size
+        ctx['provider_budget_omitted_blocks']=len(removed)
         inp=next(i for i in event_inputs if i['event']['event_id']==e['event_id'])
         inp['evidence_context']['uncertainty']={k:v for k,v in ctx['uncertainty'].items() if k!='current_prechoice_context_preserved'}
-    final_size=len(json.dumps(payload,ensure_ascii=False))
+    wire_payload,wire_format=wire(payload)
+    final_size=len(json.dumps(wire_payload,ensure_ascii=False))
     if final_size>limit:raise ValueError('SERIALIZED_REVIEW_PAYLOAD_EXCEEDS_BUDGET')
-    for ctx in contexts.values():ctx['actual_payload_characters']=final_size
-    result,receipt=client.ask('document_checkpoint_review',redact(payload,names),REVIEW_SCHEMA)
+    for ctx in contexts.values():
+        ctx['actual_payload_characters']=final_size
+        ctx['provider_payload_pool_encoding']=wire_format
+    result,receipt=client.ask('document_checkpoint_review',wire_payload,REVIEW_SCHEMA)
     counts={eid:sum(r['event_id']==eid for r in result['items']) for eid in sibling_ids}
     reviewed={r['event_id']:r for r in result['items'] if counts.get(r['event_id'])==1};out=[]
     for event in unit_events:
@@ -754,7 +773,9 @@ def review_unit(unit,unit_events,all_events,sources,config,client,names):
         initial_review_id_audit=id_audit)
     if config.get('review_feedback_max_rounds',0):
         from .review_feedback import run_review_feedback
-        revised,audit=run_review_feedback(out,redact(payload,names),all_events,sources,names,client,config)
+        # Pass the exact payload the provider received; the repair path decodes
+        # the wire pool back to the canonical expanded form before hashing.
+        revised,audit=run_review_feedback(out,wire_payload,all_events,sources,names,client,config)
         output.update(events=revised,original_events=out,review_feedback_audit=audit)
     return output
 

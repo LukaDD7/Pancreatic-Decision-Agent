@@ -11,6 +11,7 @@ import json
 
 from scripts.cohort_construction.p2_pathway_replay.core import (
     release_time_provenance, _structured_clock, _compare_clocks,
+    availability_clock_role, VISIBILITY_ROLES,
 )
 from .semantic_proof import compile_proof_channels
 
@@ -34,6 +35,18 @@ def _publication_clock(clocks):
     # replaced by a document/exam clock or by the later management choice.
     return _clock(next((clocks.get(role) for role in ('report_time', 'report_date', 'issued')
                        if _clock(clocks.get(role)).get('value')), None))
+
+
+def _availability_clock(clocks):
+    """Audit time is visible time (user decision 2026-11-09).
+
+    The report-writing clock stays separately preserved as ``publication_time``;
+    this is the clock a clinician could have seen the report by. The role is
+    returned so a receipt can say which of 审核时间 / 报告时间 / 签发时间 it was,
+    rather than presenting all three as one undifferentiated "time".
+    """
+    role = availability_clock_role(clocks)
+    return role, _clock(clocks.get(role) if role else None)
 
 
 def _provided(event, context):
@@ -369,6 +382,16 @@ def report_objects(source):
         evidence_object_id='EO' + _digest(['evidence-object', identity])[:20])
     publication_errors = release_time_provenance(source)
     publication = _publication_clock(clocks) if not publication_errors else _clock(None)
+    # A conflict inside the report-writing family does not by itself invalidate a
+    # supplied audit clock: they answer different questions. It is still withheld
+    # when the audit clock itself is unreadable or contradicts the report.
+    visibility_unresolved = any(
+        'verified_time' in error or error.startswith('INVALID_STRUCTURED_VISIBILITY_CLOCK')
+        or error.startswith('VERIFIED_BEFORE_REPORT')
+        for error in publication_errors)
+    availability_role, availability = (_clock(None), _clock(None))
+    if not visibility_unresolved:
+        availability_role, availability = _availability_clock(clocks)
     evidence = dict(format='evidence-object-0.1.0',
         evidence_object_id=anchor['evidence_object_id'], **deepcopy(common),
         kind=source['kind'], title=source.get('title'),
@@ -378,6 +401,21 @@ def report_objects(source):
             if publication.get('value') else
             'PUBLICATION_TIME_UNRESOLVED_REVIEW_REQUIRED' if publication_errors else
             'PUBLICATION_TIME_UNKNOWN_NOT_PROVEN_ABSENT',
+        # Availability is a separate claim from publication: 审核时间 is when the
+        # report became visible, 报告时间 is when it was written. Neither proves
+        # anyone read it, which is why every object still says so explicitly.
+        availability_time=availability,
+        availability_role=availability_role,
+        availability_clock_basis=('VERIFIED_AUDIT_TIME_IS_VISIBILITY_CLOCK'
+            if availability_role in VISIBILITY_ROLES and availability.get('value') else
+            'REPORT_WRITING_CLOCK_AS_VISIBILITY_PROXY'
+            if availability.get('value') else 'AVAILABILITY_UNRESOLVED_NOT_PROVEN_ABSENT'),
+        availability_status='AVAILABILITY_TIME_PRESENT_NOT_READING_CERTIFIED'
+            if availability.get('value') else
+            'AVAILABILITY_TIME_UNRESOLVED_REVIEW_REQUIRED' if publication_errors else
+            'AVAILABILITY_TIME_UNKNOWN_NOT_PROVEN_ABSENT',
+        availability_establishes_reading=False,
+        availability_establishes_choice_time=False,
         publication_time_provenance_errors=publication_errors,
         reading_status='UNKNOWN', causal_role='not_established',
         permitted_use='EVIDENCE_FOR_LATER_MANAGEMENT_CHOICE_NOT_SELECTION_OF_ITSELF')

@@ -409,4 +409,122 @@ class TransportTests(unittest.TestCase):
                     provider.ask('synthetic',{'no_patient_data':True},schema)
             self.assertEqual(str(caught.exception),'PROVIDER_CACHE_TASK_MISMATCH')
             self.assertNotIn('credential-sentinel',str(caught.exception))
+
+    def _rejecting_session(self, status, text):
+        failure=Mock(status_code=status,text=text)
+        failure.raise_for_status.side_effect=requests.exceptions.HTTPError(response=failure)
+        session=Mock();session.post.return_value=failure
+        return session
+
+    def test_CE_NET005_a_non_retryable_4xx_is_not_repeated(self):
+        """A request the provider rejected as sent must not be resent verbatim."""
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=5)
+        with tempfile.TemporaryDirectory() as directory:
+            session=self._rejecting_session(422,'{"error":"unprocessable"}')
+            with patch.object(client._thread,'session',session,create=True), \
+                    patch.object(client.time,'sleep') as sleep:
+                provider=client.Client(Path(directory),cfg,settings)
+                with self.assertRaises(client.ModelRequestFailed) as caught:
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+            receipt=caught.exception.receipt
+            self.assertEqual(session.post.call_count,1)
+            self.assertEqual(len(receipt['attempts']),1)
+            self.assertEqual(receipt['attempts'][0]['retry_suppressed'],'NON_RETRYABLE_HTTP_STATUS')
+            self.assertIsNone(receipt['attempts'][0].get('retry_delay_seconds'))
+            self.assertEqual(receipt['attempts'][0]['http_status'],422)
+            sleep.assert_not_called()
+
+    def test_CE_NET005_a_retryable_429_is_still_retried(self):
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=3,
+                 retry_backoff_base_seconds=1,retry_backoff_max_seconds=2)
+        with tempfile.TemporaryDirectory() as directory:
+            session=self._rejecting_session(429,'{"error":"rate limited"}')
+            with patch.object(client._thread,'session',session,create=True), \
+                    patch.object(client.time,'sleep'):
+                provider=client.Client(Path(directory),cfg,settings)
+                with self.assertRaises(client.ModelRequestFailed) as caught:
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+            self.assertEqual(session.post.call_count,3)
+            self.assertEqual([row.get('retry_suppressed') for row in caught.exception.receipt['attempts']],
+                             [None,None,None])
+
+    def test_CE_NET006_an_input_overflow_rejection_is_terminal_and_labelled(self):
+        """Oversized input is a shrink-the-request condition, not a retry loop."""
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=10)
+        body='{"error":{"message":"This model maximum context length is 131072 tokens."}}'
+        with tempfile.TemporaryDirectory() as directory:
+            session=self._rejecting_session(400,body)
+            with patch.object(client._thread,'session',session,create=True), \
+                    patch.object(client.time,'sleep') as sleep:
+                provider=client.Client(Path(directory),cfg,settings)
+                with self.assertRaises(client.ModelRequestFailed) as caught:
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+            attempt=caught.exception.receipt['attempts'][0]
+            self.assertEqual(session.post.call_count,1)
+            self.assertEqual(attempt['reason'],'INPUT_OVERFLOW_SUSPECTED')
+            self.assertIs(attempt['input_overflow_suspected'],True)
+            self.assertEqual(attempt['retry_suppressed'],'PROVIDER_INPUT_OVERFLOW')
+            # The transport reason code still replays from the HTTP status.
+            self.assertEqual(attempt['reason_code'],'PROVIDER_HTTP_400')
+            sleep.assert_not_called()
+
+    def test_CE_NET007_a_server_error_is_still_retried(self):
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        cfg=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=2,
+                 retry_backoff_base_seconds=1,retry_backoff_max_seconds=2)
+        with tempfile.TemporaryDirectory() as directory:
+            session=self._rejecting_session(503,'{"error":"unavailable"}')
+            with patch.object(client._thread,'session',session,create=True), \
+                    patch.object(client.time,'sleep'):
+                provider=client.Client(Path(directory),cfg,settings)
+                with self.assertRaises(client.ModelRequestFailed):
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+            self.assertEqual(session.post.call_count,2)
+
+    def test_CE_NET008_read_timeout_is_configurable_and_defaults_to_history(self):
+        """A bigger payload needs a longer read timeout, without changing old runs.
+
+        The frozen 0.7.0 batch had four requests that ran past 180 s and one at
+        1112 s. Raising the payload cap without also raising this read timeout
+        would convert a large but answerable request into attempts that time
+        out, which spends the batch's HTTP allowance on nothing.
+        """
+        schema={'type':'object','required':['ok'],'properties':{'ok':{'type':'boolean'}}}
+        settings=ModelAPISettings('credential-sentinel','https://example.invalid/v1','test')
+        base=dict(model_temperature=0,max_output_tokens=32,max_http_attempts_per_request=1)
+        seen=[]
+        def session_for():
+            session=Mock()
+            def post(*args,**kwargs):
+                seen.append(kwargs.get('timeout'))
+                raise requests.exceptions.ConnectionError('synthetic transport failure')
+            session.post.side_effect=post
+            return session
+        with tempfile.TemporaryDirectory() as directory:
+            # No key at all keeps exactly the historical (20, 180) pair.
+            with patch.object(client._thread,'session',session_for(),create=True), \
+                    patch.object(client.time,'sleep'):
+                with self.assertRaises(client.ModelRequestFailed):
+                    client.Client(Path(directory),base,settings).ask(
+                        'synthetic',{'no_patient_data':True},schema)
+            # An explicit value is used verbatim and does not leak into others.
+            with patch.object(client._thread,'session',session_for(),create=True), \
+                    patch.object(client.time,'sleep'):
+                provider=client.Client(Path(directory),dict(base,provider_read_timeout_seconds=1800),settings)
+                self.assertEqual(provider.read_timeout_seconds,1800)
+                with self.assertRaises(client.ModelRequestFailed):
+                    provider.ask('synthetic',{'no_patient_data':True},schema)
+        self.assertEqual(seen,[(20,180),(20,1800)])
+        for invalid in (0,-1,True,'1800',3601,float('inf')):
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(ValueError,'MODEL_READ_TIMEOUT_INVALID'):
+                    client.Client(Path(directory),dict(base,provider_read_timeout_seconds=invalid),settings)
+
 if __name__=='__main__':unittest.main()

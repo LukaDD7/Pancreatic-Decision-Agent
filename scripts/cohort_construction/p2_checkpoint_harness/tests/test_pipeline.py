@@ -28,9 +28,11 @@ class StubTransport:
         self.answers = list(answers)
         self.seen = []
         self.receipts = []
+        self.tools_seen = set()
 
     def complete(self, messages, *, tools=None, task="agent_step", purpose=None):
         self.seen.append([dict(message) for message in messages])
+        self.tools_seen.update(tool.get("name") for tool in tools or ())
         if not self.answers:
             raise AssertionError("StubTransport ran out of answers (task=%s)" % task)
         answer = self.answers.pop(0)
@@ -72,8 +74,6 @@ def _units():
 
 def _proposal(local_id, quote, action=None, record_function="new_decision",
               source_id="S-A", scope="yes", **span_offsets):
-    # ``action`` is only the historical test scenario's readable label. The new
-    # discovery schema never asks the model to rewrite the original expression.
     arguments = dict(local_id=local_id, scope=scope,
                      record_function=record_function,
                      source_id=source_id, quote=quote, **span_offsets)
@@ -613,8 +613,8 @@ class PipelineTests(unittest.TestCase):
             runner.events[0])
         self.assertEqual(summary["source_ids"], ["S-A"])
         self.assertEqual(summary["origin_source_ids"], ["S-A"])
-        self.assertEqual(summary["discovery_source_ids"], ["S-A"])
-        self.assertEqual(summary["discovery_unit_id"], "DU-A")
+        self.assertNotIn("discovery_source_ids", summary)
+        self.assertNotIn("discovery_unit_id", summary)
         self.assertEqual(summary["origin_unit_id"], "DU-A")
 
     def test_HPL021_preview_episodes_is_registered_before_final_assembly(self):
@@ -798,8 +798,7 @@ class PipelineTests(unittest.TestCase):
         runner.run_discovery()
         failure = TransportFailed(dict(status="FAILED", attempts=[
             dict(attempt=1, reason_code="TRANSPORT_ERROR")]))
-        runner.harness.transport.answers = [failure, _preview("recovery-preview"),
-                                            failure, failure]
+        runner.harness.transport.answers = [failure, failure, failure]
         result = runner.run_case_organization()
         self.assertEqual(result["stop"], "request_failed")
         self.assertTrue(result["recovery"]["exhausted"])
@@ -823,17 +822,16 @@ class PipelineTests(unittest.TestCase):
                 source_event_id=evidence, target_event_id=target,
                 relation="evidence_used", confidence="uncertain",
                 explanation="报告可见性时点早于该文书；不推定实际选择时刻"))]),
-            _preview("preview"), _review_finish(
-                "complete", runner=other, evidence_checks=[dict(
-                    event_id=evidence, status="matched", source_ids=["S-I"],
-                    basis="交付中存在报告，只核对索引")])]
+            _finish("complete")]
         result = other.run_case_organization()
         self.assertEqual(result["stop"], "answered")
         self.assertEqual(other._case_organization["stop"], "answered")
         self.assertTrue(other._case_organization["recovery"]["recovered"])
         self.assertEqual(len(other.episodes["evidence_references"]), 1)
         self.assertEqual(other.episodes["relation_semantics"], "supported_only")
-        self.assertEqual(other.artifacts()["episode_review"]["final"]["note"], "done")
+        self.assertEqual(other.artifacts()["case_organization"]["final"]["note"], "done")
+        self.assertIsNone(other.artifacts()["episode_review"])
+        self.assertFalse(other.demotions)
 
     def _imaging_runner(self, answers=None, name="run"):
         sources = _sources()

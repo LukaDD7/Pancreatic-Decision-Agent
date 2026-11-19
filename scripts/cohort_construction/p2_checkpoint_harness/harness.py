@@ -24,7 +24,7 @@ from .agent import Agent, Budget
 from .skills import SkillRegistry
 from .spill import SpillStore
 from .tokens import TokenMeter
-from .tools import ToolRegistry
+from .tools import Tool, ToolError, ToolRegistry
 
 
 @dataclass
@@ -48,7 +48,10 @@ class HarnessConfig:
     max_turns: int = 12
     max_requests: int = 80
     max_total_tokens: int = 6_000_000
-    max_steps_per_turn: int = 14
+    # This bounds one whole agent task, not one tool batch. A case-level task
+    # needs list -> read -> record -> finish; fourteen total steps stopped the
+    # first real relation run before it could write its first edge.
+    max_steps_per_turn: int = 100
     max_transport_recovery_attempts: int = 2
     model_temperature: int = 0
     max_output_tokens: int = 8_000
@@ -103,8 +106,8 @@ class Harness:
         self._closed = False
 
     # -- sessions ------------------------------------------------------
-    def session_for(self, name):
-        """Return the session for one turn-series, creating it on first use."""
+    def session_for(self, name, *, resume=False):
+        """Return a session, optionally resuming its existing durable log."""
         if name in self._sessions:
             return self._sessions[name]
         slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", name)[:80] or "session"
@@ -115,7 +118,8 @@ class Harness:
             metadata=dict(case_id=self.case_id,
                           created_at=datetime.now(timezone.utc).isoformat(),
                           source_deidentification="FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY",
-                          config=_config_snapshot(self.config)))
+                          config=_config_snapshot(self.config)),
+            resume=resume)
         self._sessions[name] = session
         return session
 
@@ -190,9 +194,30 @@ class Harness:
         return approve
 
     def new_registry(self, *, session=None, approve=None, max_batch=16):
-        return ToolRegistry(
+        registry = ToolRegistry(
             approve=approve or self.approve_writes(session=session),
             max_batch=max_batch, parallel_reads=4, spill=self.spill)
+
+        def read_spilled(path, start=0, end=None):
+            from .spill import read_spilled as read
+            try:
+                return read(path, start, end, allowed_root=self.spill.directory)
+            except (OSError, PermissionError, ValueError) as exc:
+                raise ToolError(str(exc)) from exc
+
+        # Every locator produced by SpillStore must have a corresponding reader.
+        # Otherwise a large but valid result becomes an instruction to call an
+        # unavailable tool, as happened in SCALE-01 relations-r1.
+        registry.register(Tool(
+            name="read_spilled",
+            description="按字符区间读取本运行 spill 目录中的工具结果；path必须来自工具返回的locator。",
+            input_schema=dict(type="object", additionalProperties=False,
+                              required=["path"], properties=dict(
+                                  path=dict(type="string"),
+                                  start=dict(type="integer", minimum=0),
+                                  end=dict(type="integer", minimum=0))),
+            run=read_spilled))
+        return registry
 
     # -- close ---------------------------------------------------------
     def close(self):
@@ -236,7 +261,7 @@ def _config_snapshot(config):
         "context_window", "output_reservation", "threshold_ratio",
         "retain_ratio", "headroom_tokens", "max_turns", "max_requests",
         "max_total_tokens", "max_inline_tool_tokens", "max_inline_unit_tokens",
-        "max_transport_recovery_attempts")}
+        "max_transport_recovery_attempts", "max_steps_per_turn")}
 
 
 def _summary_text(result):

@@ -101,6 +101,24 @@
       ]
     },
     {
+      "id": "V04-Q013",
+      "problem": "Generic free-text identity-number masking changed structured event/prior/identity/EvidenceObject IDs, so submitted identifiers no longer matched saved authority. A real SCALE-04 parent payload masked DE214ae6c1a19453750438 to DE214ae6c1a***********; four SCALE-05 pre-provider repair preparations also failed ORIGINAL_EVIDENCE_OBJECT_BINDING_MISMATCH after EO06f14716898241b7f8ee was masked to EO06f***********b7f8ee. Names were not the cause.",
+      "fixture_origin": "real_counterexample_with_synthetic_regression_controls",
+      "clinical_gold": false,
+      "real_counterexample": {
+        "case_id": "SCALE-04",
+        "structured_event_id": "DE214ae6c1a19453750438",
+        "legacy_masked_submission": "DE214ae6c1a***********",
+        "mechanism": "Generic eighteen-digit identity-number regex matched the numeric suffix of a structured event ID."
+      },
+      "implementation": "New request preparation preserves values under established structured ID keys and adds provided_prior_event_ids, provided_identity_event_ids, eligible_previous_event_ids, evidence_object_id(s) and test_execution_anchor_id. Free-text rationale, names and identity numbers remain length-preservingly masked. Historical masked payloads remain immutable; compact compilation admits only a unique saved-ID pattern recovery and fails closed for ambiguity, omission or expansion.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::StructuredIdentifierRedactionTests::test_V04Q013_numeric_event_identity_is_not_free_text_redacted",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::StructuredIdentifierRedactionTests::test_V04Q013_names_and_free_text_identifiers_remain_masked",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::StructuredIdentifierRedactionTests::test_V04Q013_redaction_exception_does_not_expand_prior_authority"
+      ]
+    },
+    {
       "id": "V04-NET005",
       "problem": "Transport failure snapshots must be written before HTTP status, envelope JSON, content JSON and Schema handling; each invocation and attempt has immutable private evidence while operational receipts exclude raw bodies and credentials.",
       "fixture_origin": "synthetic_counterexamples",
@@ -168,6 +186,51 @@
         "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CEREM_ADV034_cached_result_retries_and_metadata_are_replayable",
         "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET006_structural_envelope_and_content_failures_have_bound_replayable_diagnostics",
         "scripts/cohort_construction/p2_checkpoint_material_governance/tests/test_chain_validation.py::test_CE_AMG033_real_client_material_schema_failure_preserves_private_evidence_and_replays"
+      ]
+    },
+    {
+      "id": "V04-NET008",
+      "problem": "复核请求的字符预算按整份 JSON 计入，而协商池里每条来源块重复携带相同的 source/池级元数据（kind、标题、时钟、发布/执行时间、可采性角色等）。结果是大量整段来源因传输表示而'超预算'被丢弃：冻结 0.7.0 批次里 204 个复核单元中 144 个发生丢弃，保留 21668/66038 个来源区间（32.8%），而每个丢失区间都记录为 omitted_provider_payload_budget。单纯提高上限没有依据，因为提供方上下文窗口没有可核实的官方数值。",
+      "fixture_origin": "real_counterexample_with_synthetic_regression_controls",
+      "clinical_gold": false,
+      "real_counterexample": {
+        "batch": "TIME008 fixed-ten r1 (frozen 0.7.0, deepseek-v4.1-flash)",
+        "review_units": 204,
+        "units_with_budget_omissions": 144,
+        "source_ranges_chars": [
+          21668,
+          44370
+        ],
+        "retention_fraction": 0.328,
+        "review_repair_groups_failing_budget_before_any_provider_call": 82,
+        "parent_payloads_over_budget_before_repair": 0,
+        "repair_payload_characters_median_expanded": 330820,
+        "repair_payload_characters_median_encoded": 276008,
+        "repair_groups_fitting_240000_after_encoding": 11,
+        "no_new_provider_requests_in_measurement": true
+      },
+      "implementation": "payload_codec 只改变交给 client.ask 的传输字节：池内 BLOCK_FIELDS 逐块保留，SOURCE_FIELDS 与 POOL_CONSTANT_FIELDS 折叠为索引表。规范负载、修复负载、评估输入与全部 hash 仍基于展开池；refine.original_payload、refine.prepare_payload、evaluate._input、review_feedback.run_review_feedback 在读取边界解码。未分类字段、非恒定 source/池属性、重复或空 block_id 一律报错并回退为原样发送；编码后不更小也回退，容量只增不减。三个 hash 域不混用：传输请求 identity=digest([url, HTTP body])，规范修复负载 identity=digest(prepared payload)，提供方声明负载 hash=canonical_sha256(payload)。同时修正传输重试分类：非可重试 4xx 直接终止本次调用并归还未使用的尝试次数，429/408/409/425 与 5xx 仍重试，疑似输入溢出另记字段而不改写 reason_code（保证 replay 仍按 HTTP 状态复核）。",
+      "controls": [
+        "编码前后展开池逐字节相等；round trip 精确（204/204 真实缓存负载）",
+        "编码不改变任何 block、区间、引文或 allowlist",
+        "未知编码名在发起任何请求前报错",
+        "编码不更小时发送展开形态，并如实记录实际发送的格式",
+        "非可重试 4xx 不重复发送，未用满的尝试次数退回批次预算",
+        "输入溢出标记不移除 PROVIDER_HTTP_<status> 的 reason_code"
+      ],
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC001_round_trip_is_exact_for_a_repeated_pool",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC002_encoding_shrinks_repetition_without_touching_text",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC006_unclassified_field_fails_closed",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC011_authority_fields_survive_round_trip_unchanged",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC014b_a_pool_too_small_to_benefit_is_sent_expanded",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC017_unknown_encoding_is_refused",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_payload_codec.py::PayloadCodecTests::test_ENC018_a_payload_without_a_pool_is_not_given_one",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::MappingAndReviewTests::test_ENG018_pool_encoding_changes_only_the_wire_and_keeps_every_block",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::MappingAndReviewTests::test_ENG019_encoding_lets_evidence_survive_a_budget_the_expanded_form_cannot_meet",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_engine.py::MappingAndReviewTests::test_ENG020_unknown_encoding_name_is_refused_before_any_request",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET005_a_non_retryable_4xx_is_not_repeated",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET006_an_input_overflow_rejection_is_terminal_and_labelled"
       ]
     }
   ],

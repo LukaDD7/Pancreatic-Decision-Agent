@@ -34,7 +34,135 @@
         "test_CEAUD007_revision_cannot_expand_source_object_event_or_time_authority",
         "test_CEAUD007_parent_and_repair_identities_are_recorded_without_invented_version",
         "test_CEAUD007_legacy_availability_field_error_is_localized_without_new_matrix",
-        "test_CEAUD007_issue_map_references_existing_required_tests"
+        "scripts/cohort_construction/p2_auto_checkpoint_v05_refine/test_refine.py::RefinementTests::test_CEREV001_preprovider_failure_is_not_a_provider_round_or_shared_receipt"
+      ]
+    },
+    {
+      "id": "CE-REV-001",
+      "problem": "Real parent review-feedback requests can exceed the 240,000-character preparation budget before any provider call. An uncontrolled retry would silently truncate clinical text, discard original source/EO/prior authority or bypass cached-request authentication.",
+      "change_type": "extraction_and_feedback_preparation_repair",
+      "implementation": "Explicitly opt-in version review-compact-repair-0.2.0 preserves the original full parent pool, allowlists, event inputs, current document, prior IDs, identity siblings, EvidenceObject and clock hashes as immutable authority. It renders selected exact source windows, including declared EO and selected previous-event comparison/action/connection quotations, while the ordinary full revalidator continues to resolve every returned quotation against the original raw sources and saved allowlists. Compact coordinate/ledger receipts are hashes rather than duplicate narrative; omitted display is not absence or a negative finding. No text is truncated to fit a budget. Legacy full-pool behavior and independent authentication remain distinct. External repair calls require separate scope authorization and are not enabled by this code change.",
+      "real_counterexamples": [
+        {
+          "case_id": "SCALE-01",
+          "preprovider_budget_failure_group_count": 13,
+          "provider_call_for_failed_parent_repairs": 0,
+          "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-01-r12-20261108/compilation-receipt.json",
+          "offline_compact_fitting_group_count": 13,
+          "compact_size_range_characters": [
+            145285,
+            195339
+          ],
+          "no_provider_calls_in_compilation": true
+        },
+        {
+          "case_id": "SCALE-02",
+          "preprovider_budget_failure_group_count": 24,
+          "provider_call_for_failed_parent_repairs": 0,
+          "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-02-r2-20261108/compilation-receipt.json",
+          "offline_compact_fitting_group_count": 24,
+          "compact_size_range_characters": [
+            62747,
+            184628
+          ],
+          "no_provider_calls_in_compilation": true
+        },
+        {
+          "case_id": "SCALE-03",
+          "preprovider_budget_failure_group_count": 8,
+          "provider_call_for_failed_parent_repairs": 0,
+          "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-03-r1-20261108/compilation-receipt.json",
+          "offline_compact_fitting_group_count": 8,
+          "compact_size_range_characters": [
+            153980,
+            194286
+          ],
+          "no_provider_calls_in_compilation": true
+        },
+        {
+          "case_id": "SCALE-04",
+          "preprovider_budget_failure_group_count": 14,
+          "provider_call_for_failed_parent_repairs": 0,
+          "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-04-r2-20261108/compilation-receipt.json",
+          "offline_compact_fitting_group_count": 14,
+          "compact_size_range_characters": [
+            134255,
+            196354
+          ],
+          "no_provider_calls_in_compilation": true
+        },
+        {
+          "case_id": "SCALE-05",
+          "preprovider_budget_failure_group_count": 10,
+          "provider_call_for_failed_parent_repairs": 0,
+          "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-05-r1-20261108-20261108/compilation-receipt.json",
+          "offline_compact_fitting_group_count": 10,
+          "compact_size_range_characters": [
+            78390,
+            170426
+          ],
+          "no_provider_calls_in_compilation": true
+        },
+        {
+          "case_id": "SCALE-06",
+          "preprovider_budget_failure_group_count": 8,
+          "provider_call_for_failed_parent_repairs": 0,
+          "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-06-r1-20261108/compilation-receipt.json",
+          "offline_compact_fitting_group_count": 8,
+          "compact_size_range_characters": [
+            159379,
+            232823
+          ],
+          "no_provider_calls_in_compilation": true
+        }
+      ],
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "preprovider_budget_failure_group_count": 13,
+        "provider_call_for_failed_parent_repairs": 0,
+        "private_receipt": "/private/tmp/p2-recovery-20261107/private-time008-joint-20261108/time008-complete-r1-20261108/compact-repair-compile-scale-01-r12-20261108/compilation-receipt.json",
+        "offline_compact_fitting_group_count": 13,
+        "compact_size_range_characters": [
+          145285,
+          195339
+        ],
+        "no_provider_calls_in_compilation": true
+      },
+      "limitations": "Selected windows are not complete evidence visibility and are not equivalent to a complete fresh clinical review. Offline compilation does not prove model semantic repair success, clinical recall, accuracy or release. SCALE-01 through SCALE-06 provide 77 real pre-provider budget-failure groups, all 77 of which compiled within 240,000 characters offline; SCALE-05 also has four preparation ValueErrors whose stable error codes were not preserved by the frozen implementation, now independently reproduced as structured EvidenceObject ID redaction defects under V04-Q013 rather than capacity failures. New external sends are separately scoped and authorized.",
+      "test_file": "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_compact_review_feedback.py",
+      "required_tests": [
+        "test_CEREV001_opt_in_compacts_feedback_and_exact_windows_without_narrowing_authority",
+        "test_CEREV001_submitted_prior_authority_and_same_unit_identity_are_distinct",
+        "test_CEREV001_compact_rejects_outside_source_event_time_and_unrendered_legal_quote",
+        "test_CEREV001_preprovider_failure_is_not_a_provider_second_round",
+        "test_CEREV001_compact_mode_is_explicitly_opt_in_and_boolean",
+        "test_CEREV001_issue_map_has_real_counterexample_and_existing_regressions"
+      ],
+      "clinical_gold": false
+    },
+    {
+      "id": "CE-REV-002",
+      "problem": "修复请求的预算失败来自附加开销，而不是父负载本身。冻结 0.7.0 批次 82 个修复分组全部在发起任何提供方请求前失败于 REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET；同一批 77 个匹配父复核负载没有一个超过 240000（中位数 237283、最大 238000），而修复负载中位数为 330820：original_proposals、validation_feedback 与 REPAIR_INSTRUCTIONS 把已接近上限的父负载推出了预算。",
+      "change_type": "transport_projection_and_retry_classification",
+      "implementation": "只把交给 client.ask 的字节做无损池编码（payload_codec.transport_projection），规范修复负载与其 hash 不变；original_payload、prepare_payload、evaluate._input、run_review_feedback 在读取边界解码。编码失败、字段未分类或编码不更小时回退为原样发送并如实记录格式。同时把非可重试 4xx 视为本次调用终止并归还未使用的尝试次数，输入溢出另记字段而不改写 PROVIDER_HTTP_<status> 的 reason_code。",
+      "real_counterexample": {
+        "batch": "TIME008 fixed-ten r1 (frozen 0.7.0, deepseek-v4.1-flash)",
+        "budget_failed_repair_groups": 82,
+        "provider_calls_for_failed_groups": 0,
+        "matched_parent_payloads_over_budget": 0,
+        "parent_payload_characters_median": 237283,
+        "parent_payload_characters_max": 238000,
+        "repair_payload_characters_median_expanded": 330820,
+        "repair_payload_characters_median_encoded": 276008,
+        "groups_fitting_240000_after_encoding": 11,
+        "no_provider_calls_in_measurement": true
+      },
+      "clinical_gold": false,
+      "required_tests": [
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_review_feedback.py::test_AI_BUDGET_003_a_wire_encoded_parent_reaches_the_provider_in_the_same_canonical_domain",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET005_a_non_retryable_4xx_is_not_repeated",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET006_an_input_overflow_rejection_is_terminal_and_labelled",
+        "scripts/cohort_construction/p2_auto_checkpoint_v04/tests/test_client_transport.py::TransportTests::test_CE_NET007_a_server_error_is_still_retried"
       ]
     }
   ]

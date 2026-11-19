@@ -105,6 +105,24 @@ class RefinementTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(refine.repair_triggers(repaired), [])
 
+    def test_CEREV001_preprovider_failure_is_not_a_provider_round_or_shared_receipt(self):
+        e, prev, sources, corrected, payload = setup()
+        payload['evidence_source_pool'][0]['text'] = 'tampered before provider'
+        unrelated = dict(request_sha256='another-concurrent-request', task='document_checkpoint_review_repair',
+                         status='SUCCESS')
+        client = FakeClient(dict(items=[corrected]))
+        client.receipts.append(unrelated)
+        with patch.object(refine, 'original_payload', return_value=payload):
+            revised, audit = refine.repair_group([e], [prev, e], sources, 'unused',
+                dict(semantic_model='qwen3.8-max'), client)
+        self.assertFalse(client.calls)
+        self.assertIsNone(audit['receipt'])
+        self.assertFalse(audit['attempted'])
+        self.assertEqual(audit['error_code'], 'ORIGINAL_EVIDENCE_TEXT_MISMATCH')
+        self.assertEqual(revised[0]['review_refinement']['status'], 'REPAIR_NOT_APPLIED')
+        self.assertFalse(revised[0]['review_refinement']['attempted'])
+        self.assertEqual(revised[0]['review_refinement']['rounds'], 0)
+
     def test_duplicate_or_missing_target_preserves_original(self):
         e, prev, sources, corrected, payload = setup()
         for items in [[], [corrected, corrected]]:
@@ -261,6 +279,7 @@ class RefinementTests(unittest.TestCase):
         self.assertEqual(revised[0]['review_refinement']['status'], 'REPAIR_NOT_APPLIED')
         self.assertEqual(audit['receipt']['request_sha256'], refine.digest(client.calls[0]['payload']))
         self.assertEqual(audit['receipt']['status'], 'FAILED')
+        self.assertEqual(audit['error_code'], 'REVIEW_FEEDBACK_RECEIPT_INVALID')
 
     def test_cache_failure_preserves_original_state_without_model_call(self):
         e, prev, sources, corrected, payload = setup()

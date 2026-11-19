@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import hashlib
+import importlib
 import json
 from pathlib import Path
 import unittest
@@ -222,7 +223,12 @@ class CitationValidationTests(unittest.TestCase):
             self.assertTrue(issue["required_tests"])
             if issue["id"].startswith("V04-Q"):
                 for name in issue["required_tests"]:
-                    self.assertIn(name, test_names)
+                    if "::" in name:
+                        module_name, class_name, method_name = name.split("::")
+                        module = importlib.import_module(module_name.removesuffix(".py").replace("/", "."))
+                        self.assertTrue(hasattr(getattr(module, class_name), method_name), name)
+                    else:
+                        self.assertIn(name, test_names)
 
 
 if __name__ == "__main__":

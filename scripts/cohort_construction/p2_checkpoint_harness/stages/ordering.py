@@ -1,9 +1,8 @@
-"""Stage 2 — organize candidate expressions; do not rediscover their scope.
+"""Legacy comparison stage for located candidates; not the new edges-only path.
 
-Discovery has already supplied located spans and a three-state research-relevance
-judgment. ``scope=no`` is retained in the discovery artifact and never reaches
-this stage. Organization may still demote a located candidate when original text
-overturns its proposed interpretation; that annotation never deletes the span.
+Discovery supplies spans and a scope judgment. This module retains the old
+ordering tools and legacy demotion contract for baseline replay only. New case
+organization does not expose demotion or episode review tools.
 """
 from __future__ import annotations
 
@@ -43,16 +42,15 @@ class EventIndex:
         clock = (event.get("clock") or {}).get("value")
         return dict(
             event_id=event["event_id"],
-            discovery_unit_id=event.get("discovery_unit_id"),
             origin_unit_id=event.get("origin_unit_id"),
             origin_source_ids=list(event.get("origin_source_ids") or ()),
             span=dict(event.get("span") or {}),
             record_function=event.get("record_function"), scope=event.get("scope"),
             candidate_kind=event.get("candidate_kind", "management_expression"),
             object_kind=event.get("object_kind"),
+            status=event.get("status"),
             clock=clock, clock_basis=event.get("clock_basis"),
             source_ids=list(event.get("source_ids") or ()),
-            discovery_source_ids=list(event.get("discovery_source_ids") or ()),
             attribution_problems=list(event.get("attribution_problems") or ()))
 
     def tools(self):

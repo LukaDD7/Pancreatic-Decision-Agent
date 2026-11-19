@@ -168,12 +168,39 @@ class SpillIntegrationTests(unittest.TestCase):
         self.assertIn(S.TOOL_CALL, kinds)
         self.assertIn(S.TOOL_RESULT, kinds)
 
-    def test_HTR017_spill_read_refuses_path_outside_store(self):
-        from scripts.cohort_construction.p2_checkpoint_harness.spill import read_spilled
-        outside = self.dir / "outside.txt"
+    def test_HTR018_registry_provides_the_reader_promised_by_every_spill_locator(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.harness import Harness, HarnessConfig
+
+        class NoProvider:
+            receipts = []
+
+        harness = Harness(case_id="SPILL", run_dir=self.dir / "run",
+                          cache_dir=self.dir / "cache", transport=NoProvider(),
+                          config=HarnessConfig(max_inline_tool_tokens=10))
+        registry = harness.new_registry()
+        registry.register(_tool("big", run=lambda value="": "字" * 500))
+        result = registry.execute([dict(id="1", name="big", arguments={})])[0]
+        locator = result.metadata["locator"]
+        read = registry.get("read_spilled").run(path=locator, start=0, end=20)
+        self.assertEqual(read["text"], "字" * 20)
+        with self.assertRaisesRegex(Exception, "SPILLED_PATH_MISSING"):
+            registry.get("read_spilled").run(path=str(self.dir / "secret"))
+        harness.close()
+
+    def test_HTR019_spill_read_refuses_existing_path_outside_store(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.harness import Harness
+
+        class NoProvider:
+            receipts = []
+
+        harness = Harness(case_id="SPILL", run_dir=self.dir / "run",
+                          cache_dir=self.dir / "cache", transport=NoProvider())
+        registry = harness.new_registry()
+        outside = self.dir / "secret"
         outside.write_text("secret", encoding="utf-8")
-        with self.assertRaises(PermissionError):
-            read_spilled(outside, allowed_root=self.dir / "spill")
+        with self.assertRaisesRegex(Exception, "OUTSIDE_STORE"):
+            registry.get("read_spilled").run(path=str(outside))
+        harness.close()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import json
 
 from scripts.cohort_construction.p2_pathway_replay.core import (
     release_time_provenance, _structured_clock, _compare_clocks,
+    availability_clock_role, VISIBILITY_ROLES,
 )
 
 
@@ -33,6 +34,21 @@ def _publication_clock(clocks):
     # replaced by a document/exam clock or by the later management choice.
     return _clock(next((clocks.get(role) for role in ('report_time', 'report_date', 'issued')
                        if _clock(clocks.get(role)).get('value')), None))
+
+
+def _availability(clocks, errors):
+    """Audit time is visible time; the writing clock stays a named proxy.
+
+    Kept identical to ``evidence._availability_clock`` on purpose: two evidence
+    builders that disagree about which clock means "visible" is exactly the
+    defect this change removes. Visibility is withheld only when the visibility
+    clock itself is unreadable or precedes the report it audits.
+    """
+    if any('verified_time' in error or error.startswith('INVALID_STRUCTURED_VISIBILITY_CLOCK')
+           or error.startswith('VERIFIED_BEFORE_REPORT') for error in errors):
+        return _clock(None), _clock(None)
+    role = availability_clock_role(clocks)
+    return role, _clock(clocks.get(role) if role else None)
 
 
 def _provided(event, context):
@@ -227,6 +243,7 @@ def report_objects(source):
         evidence_object_id='EO' + _digest(['evidence-object', identity])[:20])
     publication_errors = release_time_provenance(source)
     publication = _publication_clock(clocks) if not publication_errors else _clock(None)
+    availability_role, availability = _availability(clocks, publication_errors)
     evidence = dict(format='evidence-object-0.1.0',
         evidence_object_id=anchor['evidence_object_id'], **deepcopy(common),
         kind=source['kind'], title=source.get('title'),
@@ -236,6 +253,18 @@ def report_objects(source):
             if publication.get('value') else
             'PUBLICATION_TIME_UNRESOLVED_REVIEW_REQUIRED' if publication_errors else
             'PUBLICATION_TIME_UNKNOWN_NOT_PROVEN_ABSENT',
+        availability_time=availability,
+        availability_role=availability_role,
+        availability_clock_basis=('VERIFIED_AUDIT_TIME_IS_VISIBILITY_CLOCK'
+            if availability_role in VISIBILITY_ROLES and availability.get('value') else
+            'REPORT_WRITING_CLOCK_AS_VISIBILITY_PROXY'
+            if availability.get('value') else 'AVAILABILITY_UNRESOLVED_NOT_PROVEN_ABSENT'),
+        availability_status='AVAILABILITY_TIME_PRESENT_NOT_READING_CERTIFIED'
+            if availability.get('value') else
+            'AVAILABILITY_TIME_UNRESOLVED_REVIEW_REQUIRED' if publication_errors else
+            'AVAILABILITY_TIME_UNKNOWN_NOT_PROVEN_ABSENT',
+        availability_establishes_reading=False,
+        availability_establishes_choice_time=False,
         publication_time_provenance_errors=publication_errors,
         reading_status='UNKNOWN', causal_role='not_established',
         permitted_use='EVIDENCE_FOR_LATER_MANAGEMENT_CHOICE_NOT_SELECTION_OF_ITSELF')

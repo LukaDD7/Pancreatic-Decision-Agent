@@ -14,14 +14,19 @@ from scripts.cohort_construction.p2_checkpoint_harness.tests.test_pipeline impor
 def _objects():
     return [
         dict(event_id="E-old", object_kind="evidence_artifact", source_ids=["S-A"],
+             status="SOURCE_INDEXED", span=dict(source_id="S-A", quote="复查增强CT示胰头占位"),
              clock=dict(value="2026-03-01", precision="date")),
         dict(event_id="E-late", object_kind="evidence_artifact", source_ids=["S-B"],
+             status="SOURCE_INDEXED", span=dict(source_id="S-B", quote="讨论后拟行胰十二指肠切除术"),
              clock=dict(value="2026-03-05", precision="date")),
         dict(event_id="M1", candidate_kind="management_expression", source_ids=["S-B"],
+             status="ACCEPTED", span=dict(source_id="S-B", quote="讨论后拟行胰十二指肠切除术"),
              clock=dict(value="2026-03-05", precision="date")),
         dict(event_id="M2", candidate_kind="management_expression", source_ids=["S-A"],
+             status="ACCEPTED", span=dict(source_id="S-A", quote="复查增强CT示胰头占位"),
              clock=dict(value="2026-03-01", precision="date")),
         dict(event_id="M3", candidate_kind="management_expression", source_ids=["S-C"],
+             status="ACCEPTED", span=dict(source_id="S-C", quote="生命体征平稳，继续观察"),
              clock=dict(value="2026-03-02", precision="date")),
     ]
 
@@ -35,6 +40,15 @@ class CaseOrganizationTests(unittest.TestCase):
         self.tool = self.registry.get("record_relation")
         self.quotes = [dict(source_id="S-A", quote="复查增强CT示胰头占位"),
                        dict(source_id="S-B", quote="讨论后拟行胰十二指肠切除术")]
+
+    def test_HCO010_list_contains_exact_spans_without_repeated_reading_metadata(self):
+        index = C.EventIndex(self.objects, source_index=None)
+        tool = next(tool for tool in index.tools() if tool.name == "list_events")
+        result = tool.run(limit=200)
+        self.assertEqual(result["returned"], len(self.objects))
+        self.assertIn("span", result["events"][2])
+        self.assertNotIn("discovery_unit_id", result["events"][2])
+        self.assertNotIn("discovery_source_ids", result["events"][2])
 
     def test_HCO001_evidence_is_a_first_class_directed_previous_to_later_object(self):
         result = self.tool.run(source_event_id="E-old", target_event_id="M1",
@@ -126,6 +140,57 @@ class CaseOrganizationTests(unittest.TestCase):
         self.assertEqual(artifact["clock_basis"], "verified_time_proxy")
         self.assertEqual(unit["exam_clock"]["value"], "2026-03-01 08:00:00")
         self.assertNotEqual(unit["time_upper_bound"], unit["clock"])
+
+    def test_HCO009_agent_surface_is_relation_recording_only(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.harness import Harness
+        from scripts.cohort_construction.p2_checkpoint_harness.pipeline import CaseRunner
+        from scripts.cohort_construction.p2_checkpoint_harness.tests.test_pipeline import (
+            StubTransport,
+        )
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            harness = Harness(case_id="RELATION-ONLY", run_dir=Path(tmp) / "run",
+                              cache_dir=Path(tmp) / "cache",
+                              transport=StubTransport([dict(tool_calls=[dict(
+                id="relations-done", name="finish", arguments=dict(note="done"))])]))
+            runner = CaseRunner(harness=harness, sources=_sources(), units=_units(),
+                                case_id="RELATION-ONLY")
+            runner.events = [dict(self.objects[2], status="ACCEPTED", demoted=False,
+                                  scope="yes", event_id="M1")]
+            runner.evidence_inventory = [self.objects[0]]
+            result = runner.run_case_organization()
+            self.assertEqual(result["stop"], "answered")
+            schemas = harness.transport.tools_seen
+            self.assertNotIn("preview_episodes", schemas)
+            self.assertNotIn("event_episode", schemas)
+            self.assertNotIn("demote_event", schemas)
+            self.assertIn("record_relation", schemas)
+            self.assertIn("finish", schemas)
+            called = [event["payload"].get("name") for event in
+                      harness.sessions()["case_organization"].events()
+                      if event["type"] == "tool/call"]
+            self.assertEqual(called, ["finish"])
+            self.assertIsNone(runner.artifacts()["episode_review"])
+            self.assertEqual(runner.artifacts()["case_organization"]["agent_task"],
+                             "record_candidate_relations_only")
+            harness.close()
+        with self.assertRaisesRegex(ToolError, "RELATION_BASIS_NOT_ENDPOINT_SPAN"):
+            self.tool.run(source_event_id="E-old", target_event_id="M1",
+                          relation="evidence_used", confidence="supported",
+                          basis_quotes=[dict(source_id="S-A", quote="患者腹痛加重"),
+                                        dict(source_id="S-B", quote="讨论后拟行胰十二指肠切除术")],
+                          explanation="同文书另一句不是本证据span")
+        bad = dict(self.objects[0], status="PROPOSED_WITH_PROBLEMS")
+        bad_registry = ToolRegistry(approve=lambda *args: True)
+        self.recorded = C.organization_relation_tools(
+            bad_registry, events=[bad, self.objects[2]], source_index=SourceIndex(_sources(), units=_units()))
+        with self.assertRaisesRegex(ToolError, "RELATION_ENDPOINT_SPAN_NOT_VERIFIED"):
+            bad_registry.get("record_relation").run(
+                source_event_id="E-old", target_event_id="M1",
+                relation="evidence_used", confidence="uncertain",
+                basis_quotes=[], explanation="问题候选不能组织")
+        self.assertEqual(self.recorded["relations"], [])
 
     def test_HCO005_same_input_legacy_cannot_see_evidence_new_stage_can(self):
         from scripts.cohort_construction.p2_checkpoint_harness.stages.ordering import relation_tools

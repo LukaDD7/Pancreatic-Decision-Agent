@@ -86,6 +86,52 @@ def integration_fixture(review_result):
     return current, e, [previous, current, future], old, context, unit, client
 
 
+class StructuredIdentifierRedactionTests(unittest.TestCase):
+    def test_V04Q013_numeric_event_identity_is_not_free_text_redacted(self):
+        # Synthetic analogue of the real SCALE-04 failure: the last 18 digits
+        # of an internal event ID matched the generic identity-number regex.
+        identity = "DE214ae6c1a19453750438"
+        evidence_object = "EO06f14716898241b7f8ee"
+        original = {
+            "event_id": identity,
+            "previous_event_id": identity,
+            "same_process_previous_id": identity,
+            "eligible_previous_event_ids": [identity],
+            "provided_prior_event_ids": [identity],
+            "provided_identity_event_ids": [identity, "SIBLING"],
+            "same_event_with": [identity],
+            "evidence_object_id": evidence_object,
+            "evidence_object_ids": [evidence_object],
+            "test_execution_anchor_id": evidence_object,
+        }
+        self.assertEqual(engine.redact(original, ["夏新生"]), original)
+        self.assertNotEqual(identity, engine.mask_text(identity, []))
+
+    def test_V04Q013_names_and_free_text_identifiers_remain_masked(self):
+        value = engine.redact({
+            "event_id": "DE19453750438",
+            "rationale": "夏新生，证件11010519491231002X，住院号：ABC123",
+        }, ["夏新生"])
+        self.assertEqual(value["event_id"], "DE19453750438")
+        self.assertNotIn("夏新生", value["rationale"])
+        self.assertNotIn("11010519491231002X", value["rationale"])
+        self.assertNotIn("ABC123", value["rationale"])
+        self.assertEqual(len(value["rationale"]), len("夏新生，证件11010519491231002X，住院号：ABC123"))
+
+    def test_V04Q013_redaction_exception_does_not_expand_prior_authority(self):
+        identity = "DE214ae6c1a19453750438"
+        value = engine.redact({
+            "eligible_previous_event_ids": [identity],
+            "provided_prior_event_ids": [identity],
+            "provided_identity_event_ids": [identity, "SIBLING"],
+            "validation_reasons": ["原文夏新生11010519491231002X"],
+        }, ["夏新生"])
+        self.assertEqual(value["eligible_previous_event_ids"], [identity])
+        self.assertEqual(value["provided_prior_event_ids"], [identity])
+        self.assertEqual(value["provided_identity_event_ids"], [identity, "SIBLING"])
+        self.assertNotIn("11010519491231002X", value["validation_reasons"][0])
+
+
 class EngineAuthorityTests(unittest.TestCase):
     def test_ENG001_semantic_scope_veto_overrides_discovery_positive(self):
         status, _ = select(r=review(scope="no"))
@@ -359,6 +405,95 @@ class MappingAndReviewTests(unittest.TestCase):
         self.assertEqual(outputs["E1"]["validated_observation_citations"]["invalid"][0]["status"], "QUOTE_OUTSIDE_ALLOWED_SPANS")
         self.assertEqual(outputs["E2"]["checkpoint_status"], "CANDIDATE_NEW_EVIDENCE")
         self.assertIn("新所见：乙。", [block["text"] for block in client.requests[0]["payload"]["evidence_source_pool"]])
+
+    def test_ENG018_pool_encoding_changes_only_the_wire_and_keeps_every_block(self):
+        from scripts.cohort_construction.p2_auto_checkpoint_v04 import payload_codec
+        r = review(observation_quotes=[{"source_id": "D", "quote": "静脉受侵"}],
+                   connection_quotes=[{"source_id": "D", "quote": "静脉受侵。遂决定切除重建。"}])
+        _, e, sources, old, _, unit, _ = integration_fixture(r)
+        e.update(time_basis="record_time_proxy", phase="当前评估")
+        context = engine.build_evidence_context(e, sources, [old, e], budget=100000)
+        base = {"review_context_characters": 100000, "max_review_payload_characters": 1000000}
+        expanded, encoded = FakeClient({"items": [r]}), FakeClient({"items": [r]})
+        with patch.object(engine, "build_evidence_context", return_value=deepcopy(context)):
+            plain = engine.review_unit(unit, [e], [old, e], sources, dict(base), expanded, [])
+        with patch.object(engine, "build_evidence_context", return_value=deepcopy(context)):
+            wire = engine.review_unit(unit, [e], [old, e], sources,
+                                      dict(base, review_payload_pool_encoding="source_table"), encoded, [])
+        sent_plain = expanded.requests[0]["payload"]
+        sent_wire = encoded.requests[0]["payload"]
+        self.assertEqual(sent_wire["evidence_source_pool"]["encoding"], payload_codec.POOL_ENCODING)
+        # The wire pool decodes to exactly the expanded pool, block for block.
+        self.assertEqual(payload_codec.decode_payload(sent_wire)["evidence_source_pool"],
+                         sent_plain["evidence_source_pool"])
+        # No block is added or removed for a size reason, and the resulting
+        # ledger, allowed spans and event outputs are identical.
+        self.assertEqual(plain["events"][0]["evidence_context"]["allowed_spans"],
+                         wire["events"][0]["evidence_context"]["allowed_spans"])
+        self.assertEqual(plain["events"][0]["actual_model_evidence"],
+                         wire["events"][0]["actual_model_evidence"])
+        self.assertEqual(plain["events"][0]["checkpoint_status"], wire["events"][0]["checkpoint_status"])
+        self.assertEqual(wire["events"][0]["evidence_context"]["provider_payload_pool_encoding"],
+                         payload_codec.POOL_ENCODING)
+        self.assertLessEqual(len(json.dumps(sent_wire, ensure_ascii=False)),
+                             len(json.dumps(sent_plain, ensure_ascii=False)))
+
+    def test_ENG019_encoding_lets_evidence_survive_a_budget_the_expanded_form_cannot_meet(self):
+        # Repeated per-source metadata, not clinical text, is what pushes this
+        # payload over the limit. The encoded request keeps a whole source that
+        # the expanded form must drop, so the budget no longer deletes evidence
+        # for a representation reason.
+        r = review(observation_quotes=[{"source_id": "D", "quote": "静脉受侵"}],
+                   connection_quotes=[{"source_id": "D", "quote": "静脉受侵。遂决定切除重建。"}])
+        _, e, sources, old, _, unit, _ = integration_fixture(r)
+        e.update(time_basis="record_time_proxy", phase="当前评估")
+        context = engine.build_evidence_context(e, sources, [old, e], budget=100000)
+        sources.append(source("BULK", "第二份记录。" * 60 + "独有证据", "2022-01-01 08:00"))
+        context = engine.build_evidence_context(e, sources, [old, e], budget=100000)
+        plain_client, wire_client = FakeClient({"items": [r]}), FakeClient({"items": [r]})
+        with patch.object(engine, "build_evidence_context", return_value=deepcopy(context)):
+            engine.review_unit(unit, [e], [old, e], sources,
+                               {"review_context_characters": 100000, "max_review_payload_characters": 1000000},
+                               plain_client, [])
+        full = len(json.dumps(plain_client.requests[0]["payload"], ensure_ascii=False))
+        encoded_full_client = FakeClient({"items": [r]})
+        with patch.object(engine, "build_evidence_context", return_value=deepcopy(context)):
+            engine.review_unit(unit, [e], [old, e], sources,
+                               {"review_context_characters": 100000, "max_review_payload_characters": 1000000,
+                                "review_payload_pool_encoding": "source_table"}, encoded_full_client, [])
+        encoded_full = len(json.dumps(encoded_full_client.requests[0]["payload"], ensure_ascii=False))
+        self.assertLess(encoded_full, full)
+        # The engine keeps 2000 characters of headroom, so a limit just above
+        # the encoded size plus that headroom is satisfiable only by the
+        # encoded wire; the expanded request must drop a whole range.
+        limit = encoded_full + 2100
+        with patch.object(engine, "build_evidence_context", return_value=deepcopy(context)):
+            result = engine.review_unit(unit, [e], [old, e], sources,
+                                        {"review_context_characters": 100000, "max_review_payload_characters": limit,
+                                         "review_payload_pool_encoding": "source_table"}, wire_client, [])
+        expanded_result = FakeClient({"items": [r]})
+        with patch.object(engine, "build_evidence_context", return_value=deepcopy(context)):
+            plain_at_limit = engine.review_unit(unit, [e], [old, e], sources,
+                                                {"review_context_characters": 100000,
+                                                 "max_review_payload_characters": limit}, expanded_result, [])
+        self.assertGreater(
+            plain_at_limit["events"][0]["evidence_context"]["provider_budget_omitted_blocks"], 0)
+        self.assertEqual(
+            result["events"][0]["evidence_context"]["provider_budget_omitted_blocks"], 0)
+        self.assertLessEqual(len(json.dumps(wire_client.requests[0]["payload"], ensure_ascii=False)), limit)
+
+    def test_ENG020_unknown_encoding_name_is_refused_before_any_request(self):
+        r = review()
+        _, e, sources, old, _, unit, _ = integration_fixture(r)
+        client = FakeClient({"items": [r]})
+        with patch.object(engine, "build_evidence_context",
+                          return_value=engine.build_evidence_context(e, sources, [old, e], budget=100000)):
+            with self.assertRaises(ValueError) as raised:
+                engine.review_unit(unit, [e], [old, e], sources,
+                                   {"review_context_characters": 100000,
+                                    "review_payload_pool_encoding": "gzip"}, client, [])
+        self.assertEqual(str(raised.exception), "REVIEW_PAYLOAD_POOL_ENCODING_INVALID")
+        self.assertEqual(client.requests, [])
 
 
 if __name__ == "__main__":

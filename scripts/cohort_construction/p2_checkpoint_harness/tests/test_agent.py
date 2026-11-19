@@ -122,7 +122,7 @@ class LoopTests(unittest.TestCase):
             dict(id="c%d" % n, name="missing", arguments={})]) for n in range(5)])
         agent = self._agent(transport, budget=Budget(max_steps_per_turn=2))
         result = agent.act("go")
-        self.assertEqual(result.stop, STOP_MAX_TURNS)
+        self.assertEqual(result.stop, "max_steps")
 
     def test_HAG009_usage_accumulates_from_receipts(self):
         transport = StubTransport([dict(final={})],
@@ -351,6 +351,74 @@ class LoopTests(unittest.TestCase):
         kinds = [record["payload"].get("kind")
                  for record in self.session.events(kind=S.POLICY_EVENT)]
         self.assertIn("oversized_batch_prefix_recovered", kinds)
+
+    def test_HAG025_repair_context_is_durable_before_the_billed_request(self):
+        # SCALE-01 relations-r1 had billed repair calls with only request_sent
+        # in the session. The repair prompt must be replayable, not reconstructed
+        # from a transient local variable after the fact.
+        transport = StubTransport(["not json", dict(final=dict(ok=True))])
+        result = self._agent(transport).act("go")
+        self.assertEqual(result.stop, STOP_ANSWERED)
+        repair = [event for event in self.session.events(kind=S.POLICY_EVENT)
+                  if event["payload"].get("kind") == "request_sent"
+                  and event["payload"].get("repair")]
+        self.assertEqual(len(repair), 1)
+        context = self.session.derive_messages()
+        self.assertTrue(any(message["content"] == "not json" for message in context))
+        self.assertTrue(any("不是可解析的 JSON" in message["content"]
+                            for message in context))
+        repair_seq = next(event["seq"] for event in self.session.events()
+                          if event["type"] == S.USER_MESSAGE
+                          and "不是可解析的 JSON" in event["payload"]["text"])
+        self.assertEqual(self.session.derive_messages()[:repair_seq - 3], transport.seen[-1])
+
+    def test_HAG026_bounded_repairs_do_not_consume_the_outer_tool_step(self):
+        # A case-level task may need many source reads; one additional protocol
+        # repair is part of that model exchange, not a reason to forbid finish.
+        registry = ToolRegistry()
+        registry.register(_finish := Tool(
+            name="finish", description="d", input_schema=dict(type="object"),
+            run=lambda: dict(done=True), terminal=True))
+        transport = StubTransport([
+            "not json",
+            dict(tool_calls=[dict(name="finish", arguments={})]),
+        ])
+        agent = self._agent(transport, registry,
+                            budget=Budget(max_steps_per_turn=1))
+        result = agent.act("go", final_tool=_finish)
+        self.assertEqual(result.stop, STOP_ANSWERED)
+        self.assertEqual(len(transport.seen), 2)
+
+    def test_HAG027_complete_calls_survive_unclosed_envelope_without_guessing_tail(self):
+        # SCALE-01 relations-r2 returned 16 valid read_event calls followed by
+        # an unclosed list. Execute only those verified calls, not a 17th guess.
+        calls = [dict(name="echo", arguments=dict(v=str(n))) for n in range(16)]
+        raw = json.dumps(dict(tool_calls=calls), ensure_ascii=False)[:-2]
+        transport = StubTransport([
+            raw,
+            dict(tool_calls=[dict(name="finish", arguments={})]),
+        ])
+        agent = self._agent(transport, self._echo_registry())
+        result = agent.act("go", final_tool=self._finish_tool())
+        self.assertEqual(result.stop, STOP_ANSWERED)
+        self.assertEqual([call["name"] for call in agent.tools.calls],
+                         ["echo"] * 16 + ["finish"])
+        kinds = [event["payload"].get("kind")
+                 for event in self.session.events(kind=S.POLICY_EVENT)]
+        self.assertIn("complete_calls_recovered_from_unclosed_envelope", kinds)
+
+    def test_HAG028_partial_call_is_never_executed_or_completed_by_guessing(self):
+        raw = '{"tool_calls": [{"name": "echo", "arguments": {"v": "safe"}}, {"name": "echo", "arguments": {"v": "incomplete"'
+        transport = StubTransport([raw, dict(final=dict(ok=True))])
+        result = self._agent(transport, self._echo_registry()).act("go")
+        self.assertEqual(result.stop, STOP_ANSWERED)
+        self.assertEqual([call["task"] for call in transport.calls],
+                         ["agent_step", "agent_step"])
+        # The partial tail is never turned into an echo tool call.
+        self.assertFalse(any(event["type"] == S.TOOL_RESULT
+                             and event["payload"].get("name") == "echo"
+                             and '"incomplete"' in event["payload"].get("content", "")
+                             for event in self.session.events()))
 
     def test_HAG023_a_repaired_prefix_may_not_smuggle_in_another_oversized_batch(self):
         calls = [dict(name="echo", arguments=dict(v=str(n))) for n in range(17)]

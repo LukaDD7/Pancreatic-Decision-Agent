@@ -347,21 +347,51 @@ def _available_clock(source):
     return role, value
 
 
+# Two distinct time families, not one list of aliases.
+#
+# ``VISIBILITY_ROLES`` is when the report became available to the ordering
+# clinician. The user's 2026-11-09 decision is explicit: **审核时间是可见时间**
+# (the audit/verified clock is the visible clock), so it is the availability
+# clock whenever it is supplied. ``RELEASE_ROLES`` is the report-writing family
+# (written / dated / issued). Disagreement *within* that family still requires
+# review (CE-REM-ADV-011); disagreement *between* the two families is expected
+# and is not a conflict, because a report is written before it is audited.
+#
+# Keeping them in one tuple is what let a parsed 审核时间 be silently ignored:
+# the role existed in ``IMAGING_TIME_FIELDS`` but no resolver ever read it.
+VISIBILITY_ROLES = ('verified_time',)
 RELEASE_ROLES = ('report_time', 'report_date', 'issued')
 RELEASE_UNRESOLVED_STATUSES = {
     'NAMED_EXPORT_FIELD_INVALID', 'CONFLICTING_NAMED_EXPORT_FIELDS_REVIEW_REQUIRED'}
 
 
 def release_time_provenance(source):
-    """Keep populated-but-invalid release fields distinct from absent aliases.
+    """Keep populated-but-invalid clocks distinct from absent aliases.
 
-    An exam clock may be a weak proxy only when no supplied release value was
+    An exam clock may be a weak proxy only when no supplied clock was
     invalidated or contradicted. Otherwise time gating must remain unresolved;
     the full report and its execution anchor are still preserved.
+
+    A supplied-but-unreadable visibility clock is fail-closed: falling back to
+    the report-writing clock would move availability earlier than the evidence
+    supports, which is the direction that lets later evidence leak into an
+    earlier checkpoint.
     """
     clocks = source.get('clocks') or {}
     provenance = source.get('time_provenance') or {}
     unresolved = []
+    visibility_values = {}
+    for role in VISIBILITY_ROLES:
+        supplied = clocks.get(role)
+        c = _structured_clock(supplied)
+        if (supplied or {}).get('precision') == 'invalid' \
+                or ((supplied or {}).get('value') is not None and c['value'] is None):
+            unresolved.append('INVALID_STRUCTURED_VISIBILITY_CLOCK:' + role)
+        elif c['value'] is not None:
+            visibility_values[role] = c['value']
+        status = (provenance.get(role) or {}).get('status')
+        if status in RELEASE_UNRESOLVED_STATUSES:
+            unresolved.append(status + ':' + role)
     release_values = {}
     for role in RELEASE_ROLES:
         supplied = clocks.get(role)
@@ -377,7 +407,34 @@ def release_time_provenance(source):
     if len(set(release_values.values())) > 1:
         unresolved.append('CONFLICTING_RELEASE_ROLES_REVIEW_REQUIRED:' +
                           ','.join(sorted(release_values)))
+    # An audit clock that precedes the report it audits is internally
+    # contradictory; do not use either one to gate availability.
+    for role in VISIBILITY_ROLES:
+        if not visibility_values.get(role):
+            continue
+        for release_role in RELEASE_ROLES:
+            if (clocks.get(release_role) or {}).get('value') is None:
+                continue
+            if _compare_clocks(clocks[release_role], clocks[role]) == 'AFTER':
+                unresolved.append('VERIFIED_BEFORE_REPORT_REVIEW_REQUIRED:'
+                                  + release_role + '>' + role)
     return unresolved
+
+
+AVAILABILITY_ROLE_ORDER = VISIBILITY_ROLES + RELEASE_ROLES
+
+
+def availability_clock_role(clocks):
+    """The single role that governs when this source became available.
+
+    审核时间 first (user decision 2026-11-09: audit time *is* visible time),
+    then the report-writing family as the older, weaker proxy. Callers must not
+    re-derive this order locally: three copies of a release-role tuple is how
+    the audit clock came to be parsed into every source and read by none.
+    """
+    clocks = clocks or {}
+    return next((role for role in AVAILABILITY_ROLE_ORDER
+                 if (clocks.get(role) or {}).get('value')), None)
 
 
 def _structured_clock(value):
@@ -440,7 +497,7 @@ def available_source_clock(source, *, document_record_time=None):
         unresolved = release_time_provenance(source)
         if unresolved:
             return None, clock(None), 'release_time_unresolved_exam_fallback_forbidden', unresolved
-        for role in RELEASE_ROLES:
+        for role in AVAILABILITY_ROLE_ORDER:
             if (clocks.get(role) or {}).get('value'):
                 return role, _structured_clock(clocks[role]), role + '_proxy', []
         if source.get('kind') == 'imaging':
@@ -509,6 +566,11 @@ def resource_selection(source,cutoff,interval_start,document_decision=None):
     if c['value'][:10]<interval_start[:10]:
         return dict(base,disposition='REVIEW',reason='EARLIER_CONTEXT_NOT_SILENTLY_DISCARDED')
     if kind=='imaging':
+        # The reason must name the clock that was actually used. A verified
+        # (audit) clock is availability evidence, not an exam-time proxy; saying
+        # otherwise would misreport what the inclusion rests on.
+        if basis in VISIBILITY_ROLES:
+            return dict(base,disposition='INCLUDE',reason='VERIFIED_VISIBILITY_CLOCK_BEFORE_TARGET_NOT_READING_CERTIFICATION')
         return dict(base,disposition='INCLUDE',reason='EXAM_BEFORE_TARGET_RECONSTRUCTION_PROXY_NOT_RELEASE_CERTIFICATION')
     return dict(base,disposition='INCLUDE',reason='ORIGINAL_REPORT_CLOCK_BEFORE_TARGET_NOT_ACCESS_CERTIFICATION')
 
@@ -517,9 +579,11 @@ def exact_duplicate_groups(sources):
     groups=collections.defaultdict(list)
     for s in sources:
         if s['kind']=='imaging':
+            # Availability roles are part of the key: two byte-identical texts
+            # with different audit clocks are not interchangeable for timeline.
             key=(s['kind'],s['source_sha256'],
                  tuple((role, s['clocks'].get(role, {}).get('value'))
-                       for role in ('exam_time',) + RELEASE_ROLES),s['title'])
+                       for role in ('exam_time',) + AVAILABILITY_ROLE_ORDER),s['title'])
         else:key=(s['source_id'],)
         groups[key].append(s['source_id'])
     return [v for v in groups.values() if len(v)>1]

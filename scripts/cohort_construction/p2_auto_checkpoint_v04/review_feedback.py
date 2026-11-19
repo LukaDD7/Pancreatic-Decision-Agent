@@ -21,6 +21,7 @@ _SAFE_ERROR_CODES = {
     'TARGET_NOT_IN_ORIGINAL_REQUEST', 'ORIGINAL_EVIDENCE_CONTEXT_MISMATCH',
     'ORIGINAL_ALLOWED_SPANS_MISMATCH', 'ORIGINAL_EVIDENCE_COORDINATES_MISMATCH',
     'ORIGINAL_EVIDENCE_TEXT_MISMATCH', 'REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET',
+    'REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET', 'COMPACT_REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET',
     'REVIEW_FEEDBACK_CLIENT_MUTATED_PAYLOAD', 'REVIEW_FEEDBACK_RECEIPT_INVALID',
 }
 
@@ -72,6 +73,8 @@ def validate_feedback_config(config):
         value = config.get(field, 0)
         if type(value) is not int or value not in (0, 1):
             raise ValueError(field.upper() + '_MUST_BE_ZERO_OR_ONE')
+    if type(config.get('review_feedback_compact_repair_enabled', False)) is not bool:
+        raise ValueError('REVIEW_FEEDBACK_COMPACT_REPAIR_ENABLED_MUST_BE_BOOLEAN')
     if type(config.get('final_graph_validation', False)) is not bool:
         raise ValueError('FINAL_GRAPH_VALIDATION_MUST_BE_BOOLEAN')
     if type(config.get('include_support_documents', False)) is not bool:
@@ -89,6 +92,13 @@ def run_review_feedback(events, original_payload, discovery_events, sources,
     )
     output = deepcopy(events)
     targets = [e for e in events if review_repair_triggers(e)]
+    # AI-BUDGET-002: the parent payload may arrive in the exact wire form the
+    # provider received. Decode once so every recorded parent hash, derived
+    # feedback and repair contract refers to the canonical expanded pool.
+    from scripts.cohort_construction.p2_auto_checkpoint_v04.payload_codec import (
+        decode_payload,
+    )
+    original_payload = decode_payload(original_payload)
     audit = dict(issue_id='CE-AUD-007', attempted=False, maximum_rounds=1,
                  target_event_ids=[e['event_id'] for e in targets],
                  original_payload_sha256=digest(original_payload),
@@ -111,17 +121,51 @@ def run_review_feedback(events, original_payload, discovery_events, sources,
         for item in payload['validation_feedback']:
             item['triggers'] = triggers_by_id[item['event_id']]
         audit['repair_payload_sha256'] = digest(payload)
-        if len(json.dumps(payload, ensure_ascii=False)) > config.get('max_review_payload_characters', 240000):
-            raise ValueError('REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET')
+        size = len(json.dumps(payload, ensure_ascii=False))
+        compact_eligible = config.get('review_feedback_compact_repair_enabled', False) is True
+        parent_budget_exceeded = size > config.get('max_review_payload_characters', 240000)
+        audit['parent_repair_payload_characters'] = size
+        audit['parent_repair_payload_exceeds_budget'] = parent_budget_exceeded
+        if compact_eligible:
+            from scripts.cohort_construction.p2_auto_checkpoint_v05_refine.compact_repair import (
+                REPAIR_CONTRACT_VERSION, prepare_compact_payload,
+            )
+            payload = prepare_compact_payload(
+                original_payload, targets, names, sources, discovery_events)
+            audit.update(repair_contract_version=REPAIR_CONTRACT_VERSION,
+                full_parent_repair_payload_sha256=audit['repair_payload_sha256'],
+                repair_payload_sha256=digest(payload),
+                repair_evidence_availability=payload['repair_contract']['repair_evidence_availability'],
+                source_authority_expanded=False)
+            size = len(json.dumps(payload, ensure_ascii=False))
+            audit['compact_payload_characters'] = size
+        # The budget is enforced on the bytes actually transmitted. The pool
+        # encoding is a lossless wire representation (see payload_codec), so the
+        # canonical repair payload above keeps its original hash, while the
+        # request the provider receives may be smaller by repeated metadata
+        # alone. A compact repair's windows are a different registered shape and
+        # are explicitly left unencoded rather than approximated.
+        from scripts.cohort_construction.p2_auto_checkpoint_v04.payload_codec import (
+            transport_projection,
+        )
+        wire_payload, wire_format = transport_projection(
+            payload, config.get('review_payload_pool_encoding', 'expanded'))
+        wire_size = len(json.dumps(wire_payload, ensure_ascii=False))
+        audit.update(provider_payload_pool_encoding=wire_format,
+            provider_payload_characters=wire_size,
+            provider_payload_sha256=digest(wire_payload))
+        if wire_size > config.get('max_review_payload_characters', 240000):
+            raise ValueError('COMPACT_REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET'
+                if compact_eligible else 'REVIEW_FEEDBACK_PAYLOAD_EXCEEDS_BUDGET')
         audit['attempted'] = True
-        result, receipt = client.ask(_TASK, payload, REVIEW_SCHEMA)
+        result, receipt = client.ask(_TASK, wire_payload, REVIEW_SCHEMA)
         if digest(payload) != audit['repair_payload_sha256']:
             raise ValueError('REVIEW_FEEDBACK_CLIENT_MUTATED_PAYLOAD')
-        if not _valid_success_receipt(receipt, payload, result):
+        if not _valid_success_receipt(receipt, wire_payload, result):
             raise ValueError('REVIEW_FEEDBACK_RECEIPT_INVALID')
         audit.update(result=deepcopy(result), receipt=deepcopy(receipt),
                      provenance=request_provenance(audit['original_review_request_sha256'],
-                                                   original_payload, payload, receipt, config))
+                                                   original_payload, wire_payload, receipt, config))
         Draft202012Validator(REVIEW_SCHEMA).validate(result)
     except Exception as exc:
         # Never pick a shared last receipt: other unit requests run concurrently.

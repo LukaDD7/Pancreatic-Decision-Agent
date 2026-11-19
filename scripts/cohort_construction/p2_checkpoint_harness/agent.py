@@ -60,8 +60,8 @@ REPLY_PROTOCOL = """## 回复格式（必须遵守）
 结束本轮：
 {"final": {"note": "说明"}}
 
-`arguments` 必须是对象。可以一次给出多个 tool_calls，但每次最多 16 个；先做少量调用，
-看工具结果后再决定下一批，不要枚举所有事件对。请用上面的标准形状——
+`arguments` 必须是对象。每个回复只调用1个工具，完成必要的读取后尽快record_relation，再逐条继续。
+JSON必须完整闭合；不要为了凑数量把许多调用写成长列表。请用上面的标准形状——
 `{"skill": ...}`、`{"action": ...}`、`{"name": ..., "arguments": ...}` 这样的简写需要额外归一化。"""
 
 
@@ -234,9 +234,6 @@ class Agent:
             messages = self.session.derive_messages()
             self.requests += 1
             self.budget.take_request()
-            self.session.append(S.STEP_START, dict(request_index=self.requests,
-                                                   message_count=len(messages)),
-                                turn=turn, step=step)
             request = self._request(messages, step=step, turn=turn)
             if request["stop"] is not None:
                 return self._stop(request["stop"], request.get("text", ""),
@@ -279,7 +276,7 @@ class Agent:
                 return self._stop(STOP_ANSWERED, text, parsed_final, turn, steps)
             if self.budget.exhausted() is not None:
                 return self._stop(self.budget.exhausted(), "", {}, turn, steps)
-        return self._stop(STOP_MAX_TURNS, "", {}, turn, steps)
+        return self._stop("max_steps", "", {}, turn, steps)
 
     def _request(self, messages, *, step, turn):
         """One model request plus, if needed, exactly one format repair.
@@ -293,11 +290,24 @@ class Agent:
         finished when the model had never called a single tool.
         """
         tools = self.tools.schemas()
+        self.session.append(S.STEP_START, dict(
+            request_index=self.requests, message_count=len(messages)),
+            turn=turn, step=step)
         attempt = self._send(messages, tools, turn=turn, step=step)
         if attempt["stop"] is not None:
             return attempt
         parsed, problem, shape = _read_reply(attempt["text"], self.tools)
         recovery = _complete_tool_prefix(attempt["text"], self.tools)
+        if problem is not None:
+            calls = _complete_tool_calls(attempt["text"], self.tools)
+            if calls and len(calls) <= self.tools.max_batch:
+                # Only fully closed, schema-valid calls may be recovered. The
+                # original raw response remains in the session; this is not JSON
+                # repair by bracket completion and never guesses a partial tail.
+                self.session.append(S.POLICY_EVENT, dict(
+                    kind="complete_calls_recovered_from_unclosed_envelope",
+                    recovered_calls=len(calls)), turn=turn, step=step)
+                return dict(stop=None, final=dict(tool_calls=calls), text=attempt["text"])
         if problem is not None and recovery is not None:
             calls, remainder = recovery
             self.session.append(S.POLICY_EVENT, dict(
@@ -307,7 +317,7 @@ class Agent:
             self.session.append(S.POLICY_EVENT, dict(
                 kind="oversized_batch_repair", recovered_calls=len(calls),
                 maximum_batch=self.tools.max_batch), turn=turn, step=step)
-            repair = messages + [
+            self._repair_context(turn=turn, step=step, messages=[
                 dict(role="assistant", content=json.dumps(
                     dict(tool_calls=calls), ensure_ascii=False)
                     + "\n[INCOMPLETE_TOOL_CALL_OMITTED]"),
@@ -317,12 +327,13 @@ class Agent:
                     + " 上面是完整的调用前缀和程序拒绝回执；未写完的调用不能猜测。"
                     "此前给出的调用均未执行，请给出仍需要的第一小批，不要跳过后续工作。\n\n"
                     + REPLY_PROTOCOL)),
-            ]
+            ])
             if self.budget.exhausted() is not None:
                 return dict(stop=self.budget.exhausted(), text=attempt["text"])
             self.requests += 1
             self.budget.take_request()
-            second = self._send(repair, tools, turn=turn, step=step, repair=True)
+            second = self._send(self.session.derive_messages(), tools,
+                                turn=turn, step=step, repair=True)
             if second["stop"] is not None:
                 return second
             parsed, problem, shape = _read_reply(second["text"], self.tools)
@@ -346,25 +357,26 @@ class Agent:
                 kind="oversized_batch", proposed_calls=count,
                 maximum_batch=self.tools.max_batch, executed=False),
                 turn=turn, step=step)
-            repair = messages + [
+            self._repair_context(turn=turn, step=step, messages=[
                 dict(role="assistant", content=attempt["text"]),
                 _batch_refusal(count, self.tools.max_batch),
                 dict(role="user", content=(
                     problem + " 给出仍需要的第一小批，不要跳过其余工作。\n\n"
                     + REPLY_PROTOCOL)),
-            ]
+            ])
         else:
-            repair = messages + [
+            self._repair_context(turn=turn, step=step, messages=[
                 dict(role="assistant", content=attempt["text"]),
                 dict(role="user", content=(
                     problem + "\n\n" + REPLY_PROTOCOL + "\n"
                     "请按上面的格式重新给出这一次回复，不要重复解释。")),
-            ]
+            ])
         if self.budget.exhausted() is not None:
             return dict(stop=self.budget.exhausted(), text=attempt["text"])
         self.requests += 1
         self.budget.take_request()
-        second = self._send(repair, tools, turn=turn, step=step, repair=True)
+        second = self._send(self.session.derive_messages(), tools,
+                            turn=turn, step=step, repair=True)
         if second["stop"] is not None:
             return second
         parsed, problem, shape = _read_reply(second["text"], self.tools)
@@ -377,6 +389,13 @@ class Agent:
                 text=second["text"][:400]), turn=turn, step=step)
             return dict(stop=STOP_FORMAT_FAILED, text=second["text"])
         return dict(stop=None, final=parsed, text=attempt["text"])
+
+    def _repair_context(self, *, turn, step, messages):
+        """Persist exactly what the repair request will see."""
+        for message in messages:
+            kind = S.ASSISTANT_MESSAGE if message["role"] == "assistant" else S.USER_MESSAGE
+            self.session.append(kind, dict(text=message["content"]),
+                                turn=turn, step=step)
 
     def _note_shape(self, shape, *, turn, step, repair=False):
         """Record a reply that had to be normalised before it could be executed.
@@ -453,6 +472,31 @@ def _oversize_problem(count, maximum):
     return ("上一条回复有 %d 个 tool_calls，超过一次最多 %d 个；本批均未执行。"
             "请用少量必要调用继续，不要一次枚举所有事件对。"
             % (count, maximum))
+
+
+def _complete_tool_calls(text, tools):
+    """Read only complete calls from an unclosed top-level JSON envelope."""
+    if not isinstance(text, str):
+        return []
+    match = re.match(r'\s*\{\s*"tool_calls"\s*:\s*\[', text)
+    if match is None:
+        return []
+    decoder, position, calls = json.JSONDecoder(), match.end(), []
+    while position < len(text):
+        while position < len(text) and text[position] in " \t\r\n,":
+            position += 1
+        if position >= len(text) or text[position] == "]":
+            break
+        try:
+            call, end = decoder.raw_decode(text, position)
+        except ValueError:
+            break
+        if (not isinstance(call, dict) or call.get("name") not in tools
+                or not isinstance(call.get("arguments"), dict)):
+            return []
+        calls.append(call)
+        position = end
+    return calls
 
 
 def _complete_tool_prefix(text, tools):

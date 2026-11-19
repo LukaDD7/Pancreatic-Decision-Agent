@@ -10,7 +10,7 @@ from jsonschema import Draft6Validator
 
 from scripts.cohort_construction.p2_fhir_replay.core import pack_event, source_bundle
 from scripts.cohort_construction.p2_pathway_replay.core import (
-    clock as source_clock, available_source_clock,
+    clock as source_clock, available_source_clock, availability_clock_role,
 )
 from .extract import digest, body_clock, clock
 
@@ -27,8 +27,11 @@ def build(sources, patient_alias, decisions, episodes):
         # whitespace character used in exported Chinese form titles. Only the
         # display label is normalized; the raw title/text remain in provenance.
         display_title=re.sub(r'[^\S \r\n\t]',' ',str(s['title'] or s['kind']))
-        release_role = next((role for role in ('report_time', 'report_date', 'issued')
-                             if s['clocks'].get(role, {}).get('value')), None)
+        # ``issued`` is R4's release instant. 审核时间 is the audit/verification
+        # time and, by the user's 2026-11-09 decision, the time the report became
+        # visible; it therefore takes precedence over the writing clock when both
+        # are supplied. The writing clock remains in the lossless extension.
+        release_role = availability_clock_role(s['clocks'])
         # A document date is not a report release timestamp. Keep the generic
         # FHIR issued field empty rather than relabeling source_create_time.
         if kind == 'document':
@@ -49,10 +52,12 @@ def build(sources, patient_alias, decisions, episodes):
                 family=s['family'], clocks=s['clocks'], provenance=s['provenance'],
                 source_id=s['source_id'], source_kind=s['kind'], source_title=s['title'],
                 source_fields=s.get('original_fields', {}), clock=s.get('clock'), clock_basis=s.get('clock_basis'),
+                release_role=release_role,
                 time_provenance=s.get('time_provenance', {}),
                 original_observation_text=s['text'] if s['kind']=='lab' else None,
                 display_title_whitespace_normalized=display_title!=s['title'],
-                flags=s.get('flags', []), source_sha256=s['source_sha256'], availability_certified=False), ensure_ascii=True)))
+                flags=s.get('flags', []), source_sha256=s['source_sha256'],
+                original_source_sha256=s.get('original_source_sha256'), availability_certified=False), ensure_ascii=True)))
         if s['kind'] == 'quarantine':
             event['resource']['meta'] = {'tag': [{'system': 'urn:pdac:research', 'code': 'source-quarantine'}]}
         events.append(event)
@@ -133,6 +138,7 @@ def import_sources(bundle, *, deidentify=True):
             if source_hash!=meta['source_sha256']:raise ValueError('FHIR_ATTACHMENT_SOURCE_HASH_MISMATCH')
             sources.append(dict(source_id=meta['source_id'],patient_uid=patient,kind=meta['source_kind'],
                                 family=meta['family'],title=meta['source_title'],text=text,source_sha256=source_hash,
+                                original_source_sha256=meta.get('original_source_sha256'),
                                 clocks=meta['clocks'],clock=meta.get('clock'),clock_basis=meta.get('clock_basis'),
                                 time_provenance=meta.get('time_provenance', {}),
                                 provenance=meta['provenance'],original_fields=meta['source_fields'],flags=meta['flags']))
@@ -194,7 +200,7 @@ def _deidentify_imported_sources(bundle, sources, patient, skipped):
         for field in ('original_fields', 'provenance', 'flags'):
             source[field] = deidentify_value(source.get(field), values)
         source['deidentified_text_sha256'] = hashlib.sha256(source['text'].encode()).hexdigest()
-        source['original_source_sha256'] = source['source_sha256']
+        source['original_source_sha256'] = source.get('original_source_sha256') or source['source_sha256']
         source['source_sha256'] = source['deidentified_text_sha256']
         source['direct_identifier_deidentification'] = dict(
             stage='FHIR_SOURCE_IMPORT_BEFORE_EPISODE_DISCOVERY',

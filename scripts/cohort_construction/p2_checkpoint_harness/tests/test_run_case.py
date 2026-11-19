@@ -101,7 +101,7 @@ class RunCaseTests(unittest.TestCase):
         self.assertIn("EXECUTION_AUTHORIZATION_REQUIRED", str(caught.exception))
 
     def test_HRC005_authorization_must_bind_this_exact_run(self):
-        contract = run_case.run_contract(_Namespace(self._args()), run_case.build_plan(self.sources))
+        contract, _ = run_case.run_contract(_Namespace(self._args()), run_case.build_plan(self.sources))
         bad = dict(run_case.AUTH_REQUIRED, execution_scope=run_case.EXECUTION_SCOPES["legacy"],
                    sources_sha256="0" * 64,
                    config_sha256=None, case_id="SYN-01",
@@ -112,7 +112,7 @@ class RunCaseTests(unittest.TestCase):
         self.assertIn("BINDING_MISMATCH", str(caught.exception))
 
     def test_HRC006_authorization_cannot_claim_clinical_release(self):
-        contract = run_case.run_contract(_Namespace(self._args()), run_case.build_plan(self.sources))
+        contract, _ = run_case.run_contract(_Namespace(self._args()), run_case.build_plan(self.sources))
         authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
                              sources_sha256=contract["sources_sha256"],
                              config_sha256=contract["config_sha256"],
@@ -125,7 +125,7 @@ class RunCaseTests(unittest.TestCase):
         self.assertIn("GOVERNANCE_MISMATCH", str(caught.exception))
 
     def test_HRC007_limits_are_required(self):
-        contract = run_case.run_contract(_Namespace(self._args()), run_case.build_plan(self.sources))
+        contract, _ = run_case.run_contract(_Namespace(self._args()), run_case.build_plan(self.sources))
         authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
                              sources_sha256=contract["sources_sha256"],
                              config_sha256=contract["config_sha256"],
@@ -155,7 +155,7 @@ class RunCaseTests(unittest.TestCase):
                                      dict(max_requests=5, max_total_tokens=100))
         self.assertIn("HARNESS_CONFIG_UNKNOWN_FIELDS", str(caught.exception))
     def test_HRC013_scope_is_bound_to_selected_stages_and_wrong_type_cannot_pass(self):
-        contract = run_case.run_contract(
+        contract, _ = run_case.run_contract(
             _Namespace(self._args("--stages", "discovery")), run_case.build_plan(self.sources))
         self.assertEqual(contract["execution_scope"], run_case.EXECUTION_SCOPES["discovery"])
         authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
@@ -206,6 +206,24 @@ class RunCaseTests(unittest.TestCase):
         runner._case_organization["stop"] = "request_failed"
         self.assertFalse(run_case._latest_stage_succeeded(runner, recovered))
 
+    def test_HRC015_organization_only_binds_frozen_discovery(self):
+        frozen = self.dir / "frozen.json"
+        frozen.write_text(json.dumps(dict(candidate_spans=[], out_of_scope_candidates=[],
+                                         evidence_inventory=[], discovery=dict(units={}))))
+        args = _Namespace(self._args("--stages", "organization",
+                                     "--discovery-result", str(frozen)))
+        contract, binding = run_case.run_contract(args, run_case.build_plan(self.sources))
+        self.assertEqual(contract["discovery_result_sha256"], run_case.file_hash(frozen))
+        self.assertIn("discovery_result_sha256", binding)
+        authorization = dict(run_case.AUTH_REQUIRED, execution_scope=contract["execution_scope"],
+                             sources_sha256=contract["sources_sha256"], config_sha256=None,
+                             case_id="SYN-01", code_sha256=run_case._code_digest(contract["code_hashes"]),
+                             discovery_result_sha256="0" * 64,
+                             limits=dict(max_requests=10, max_total_tokens=1000))
+        with self.assertRaisesRegex(SystemExit, "BINDING_MISMATCH:discovery_result_sha256"):
+            run_case.validate_authorization(authorization, contract, binding)
+        authorization["discovery_result_sha256"] = contract["discovery_result_sha256"]
+        run_case.validate_authorization(authorization, contract, binding)
 
 class _Namespace:
     """argparse-shaped stand-in for the fields run_contract reads."""
@@ -215,7 +233,8 @@ class _Namespace:
         self.case_id = argv[7]
         self.config = None
         self.stages = argv[argv.index("--stages") + 1] if "--stages" in argv else "legacy"
-
+        self.discovery_result = argv[argv.index("--discovery-result") + 1] \
+            if "--discovery-result" in argv else None
 
 if __name__ == "__main__":
     unittest.main()
