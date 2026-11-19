@@ -105,6 +105,13 @@ def build_diagnostic_events(sources, evidence_inventory):
             visibility_clock = _unknown_clock()
             visibility_basis = "unknown"
 
+        placeholder_only_source_ids = []
+        for source in resolved_sources:
+            normalized_text = re.sub(r"\s+", "", source.get("text") or "")
+            if re.fullmatch(
+                    r"\[original_findings\]已写/?\[original_impression\]已写",
+                    normalized_text):
+                placeholder_only_source_ids.append(source["source_id"])
         events.append(dict(
             event_id=item.get("event_id"),
             discovery_unit_id=item.get("discovery_unit_id"),
@@ -122,8 +129,28 @@ def build_diagnostic_events(sources, evidence_inventory):
                 missing_source_ids=missing_ids,
                 clock_inconsistent_flags=inconsistent,
                 clock_missing_flags=missing_clocks,
+                placeholder_only_source_ids=placeholder_only_source_ids,
+                placeholder_only_event=bool(resolved_sources) and len(
+                    placeholder_only_source_ids) == len(resolved_sources),
             ),
         ))
+    events_by_exam_time = {}
+    for event in events:
+        exam_time = event["exam_time"].get("value")
+        if exam_time:
+            events_by_exam_time.setdefault(exam_time, []).append(event)
+    for same_time_events in events_by_exam_time.values():
+        if len(same_time_events) < 2:
+            continue
+        event_ids = sorted(event["event_id"] for event in same_time_events)
+        for event in same_time_events:
+            event["audit"]["same_exam_time_event_ids"] = event_ids
+            event["audit"].setdefault("content_review_flags", []).append(
+                "SAME_EXAM_TIME_MULTIPLE_EVENTS_REVIEW_REQUIRED")
+    for event in events:
+        if event["audit"]["placeholder_only_source_ids"]:
+            event["audit"].setdefault("content_review_flags", []).append(
+                "PLACEHOLDER_ONLY_REPORT_CONTENT_REVIEW_REQUIRED")
     return events
 
 

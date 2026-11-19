@@ -15,10 +15,12 @@ from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_material
 
 def action_space():
     return dict(
+        schema_version="management-action-plan-0.2.0",
         modes=["ADVANCE", "HOLD_FOR_EVIDENCE", "REDIRECT"],
+        plan_statuses=["ACTIONS_PROPOSED", "NO_NEW_ACTION", "ABSTAIN"],
         action_plan_schema=dict(
-            required=["mode", "actions", "rationale"],
-            properties=dict(actions=dict(minItems=1)),
+            required=["plan_status", "actions", "rationale"],
+            properties=dict(actions=dict(items=dict(required=["action_type", "target"]))),
         ),
         answer_prefilled=False,
         note="动作空间不是程序推荐答案。",
@@ -97,7 +99,7 @@ def material(packets):
 _DOM_SHIM = r"""
 const assert=require('node:assert/strict');
 class Element {
- constructor(){this.value='';this.children=[];this.dataset={};this.disabled=false;this.listeners={};}
+ constructor(){this.value='';this.children=[];this.dataset={};this.disabled=false;this.hidden=false;this.required=false;this.listeners={};}
  addEventListener(type,listener){(this.listeners[type]||(this.listeners[type]=[])).push(listener);}
  append(child){this.children.push(child);}
  replaceChildren(){this.children=[];}
@@ -122,12 +124,21 @@ Object.defineProperty(elements.material,'innerHTML',{
   }
  }
 });
-const actionForm=new Element();
+const actionForm=new Element(),actionFields={},actionsElement=new Element();
+actionsElement.querySelectorAll=selector=>selector==='.action-row'?actionsElement.children:[];
+for(const name of ['plan_status','mode','rationale','evidence_to_obtain']){
+ const field=new Element();field.value=name==='plan_status'?'ACTIONS_PROPOSED':name==='mode'?'ADVANCE':'';
+ actionFields[`[name="${name}"]`]=field;
+}
+actionForm.querySelector=selector=>selector==='.actions'?actionsElement:actionFields[selector]||null;
+actionForm.querySelectorAll=selector=>selector==='.action-row'?actionsElement.children:[];
+actionForm.checkValidity=()=>true;actionForm.reportValidity=()=>{};
 const document={
  createElement(){return new Element();},
  querySelector(selector){
   if(selector.startsWith('#'))return elements[selector.slice(1)]||null;
   if(selector==='.action-form')return actionForm;
+  if(selector==='.actions')return actionsElement;
   return null;
  },
  querySelectorAll(selector){
@@ -139,8 +150,23 @@ const document={
 };
 const location={hash:''};
 const history={replaceState(_state,_title,hash){location.hash=hash;}};
-const localStorage={getItem(){return null;},setItem(){}};
+const storage=new Map();
+const localStorage={getItem(key){return storage.has(key)?storage.get(key):null;},setItem(key,value){storage.set(key,value);}};
 const window={scrollTo(){}};
+function testField(value=''){const field=new Element();field.value=value;return field;}
+function testActionRow(action={}){
+ const row=new Element(),fields={};
+ for(const name of ['action_type','target','timing','action_id','uncertainty_addressed','dependencies','conditions'])
+  fields[`[name="${name}"]`]=testField(Array.isArray(action[name])?action[name].join('\n'):action[name]||'');
+ row.querySelector=selector=>fields[selector]||null;return row;
+}
+function testResponseForm(status='ACTIONS_PROPOSED',actions=[]){
+ const form=new Element(),fields={
+  '[name="plan_status"]':testField(status),'[name="mode"]':testField('ADVANCE'),
+  '[name="rationale"]':testField('合成理由'),'[name="evidence_to_obtain"]':testField('')};
+ const rows=actions.map(testActionRow);form.querySelector=selector=>fields[selector]||null;
+ form.querySelectorAll=selector=>selector==='.action-row'?rows:[];return form;
+}
 """
 
 
@@ -177,6 +203,44 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn("S-CONTEXT", packet_page)
         self.assertNotIn("pre_exam_evaluation", packet_page)
 
+    def test_task_header_shows_upstream_fields_actual_sources_and_pending_review(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")
+        pre["task_header"] = dict(
+            next_key_surgical_step="上游手术步骤",
+            allowed_time_precision=["date", "minute"],
+            knowledge_version="SYNTHETIC-KNOWLEDGE-V1")
+        packet_page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        header = packet_page.split('id="workflow-original"', 1)[0]
+        self.assertIn("下一关键手术步骤", header)
+        self.assertIn("上游手术步骤", header)
+        self.assertIn("允许时间精度", header)
+        self.assertIn("date, minute", header)
+        self.assertIn("知识版本", header)
+        self.assertIn("SYNTHETIC-KNOWLEDGE-V1", header)
+        self.assertIn("实际 included source IDs", header)
+        self.assertIn("CP-PRE-SOURCE, CP-PRE-CONTEXT", header)
+
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据状态",
+            text="合成报告", original="合成报告", index=2)
+        missing = rendered_packet_html(render_html(material([post]), "manifest-sha"), "CP-POST")
+        self.assertIn("下一关键手术步骤", missing)
+        self.assertGreaterEqual(missing.count("待核"), 3)
+
+    def test_clock_degradation_and_same_report_clock_are_visible(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")
+        pre["evaluation"]["clock_degradation"] = dict(
+            degraded=True, basis="report_time_fallback_for_pre_exam_evaluation",
+            same_clock_as_evidence_arrival=True,
+            reason="REPORT_VISIBILITY_USED_FOR_PRE_EXAM_EVALUATION")
+        page = rendered_packet_html(render_html(material([pre]), "manifest-sha"))
+        self.assertIn("时钟降级：report_time_fallback_for_pre_exam_evaluation", page)
+        self.assertIn("与证据到达评价同钟：是", page)
+
     def test_non_primary_checkpoint_is_explicitly_excluded_from_main_scoring(self):
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="术后新证据状态",
@@ -209,6 +273,79 @@ const partitioned=partitionResponses([
 ]);
 assert.deepEqual(partitioned.responses.map(item=>item.checkpoint_id),['PRE']);
 assert.deepEqual(partitioned.non_primary_p2_review_responses.map(item=>item.checkpoint_id),['POST']);
+""")
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for DOM execution")
+    def test_response_supports_optional_action_semantics_no_new_action_and_abstain(self):
+        pre = packet(
+            "CP-PRE", "pre_exam_evaluation", title="检查前管理评价",
+            text="[已遮蔽]", original="合成研究原文")
+        page = render_html(material([pre]), "manifest-sha")
+        execute_page(page, r"""
+const proposed=response(testResponseForm('ACTIONS_PROPOSED',[{
+ action_type:'MANAGE',target:'合成目标',action_id:'A-1',uncertainty_addressed:'待明确问题',
+ dependencies:['前置动作'],conditions:['适用条件']
+}]));
+assert.equal(proposed.response_status,'SUBMITTED');
+assert.equal(proposed.plan_status,'ACTIONS_PROPOSED');
+assert.equal(proposed.actions.length,1);
+assert.equal('timing' in proposed.actions[0],false);
+assert.equal(proposed.actions[0].action_id,'A-1');
+assert.deepEqual(proposed.actions[0].dependencies,['前置动作']);
+const noNew=response(testResponseForm('NO_NEW_ACTION',[{action_type:'OLD',target:'不得导出'}]));
+assert.deepEqual(noNew.actions,[]);assert.equal(noNew.mode,'ADVANCE');
+const abstain=response(testResponseForm('ABSTAIN',[{action_type:'OLD',target:'不得导出'}]));
+assert.deepEqual(abstain.actions,[]);assert.equal('mode' in abstain,false);
+assert.equal(abstain.plan_status,'ABSTAIN');
+actionFields['[name="plan_status"]'].value='NO_NEW_ACTION';
+for(const listener of actionFields['[name="plan_status"]'].listeners.change||[])listener();
+assert.equal(actionsElement.hidden,true);assert.equal(elements['add-action'].hidden,true);
+actionFields['[name="plan_status"]'].value='ABSTAIN';
+for(const listener of actionFields['[name="plan_status"]'].listeners.change||[])listener();
+assert.equal(actionFields['[name="mode"]'].disabled,true);
+assert.equal(actionFields['[name="mode"]'].required,false);
+actionFields['[name="plan_status"]'].value='ACTIONS_PROPOSED';
+for(const listener of actionFields['[name="plan_status"]'].listeners.change||[])listener();
+assert.equal(actionsElement.hidden,false);assert.equal(actionFields['[name="mode"]'].disabled,false);
+""")
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for DOM execution")
+    def test_export_and_restore_require_matching_manifest_and_form_version(self):
+        post = packet(
+            "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="术后新证据状态",
+            text="合成术后复查报告。", original="合成术后复查报告。", index=2)
+        post["evaluation"].update(
+            primary_evaluation_eligible=False,
+            scope="NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY",
+            scope_reason="AFTER_OPERATION_START_NON_PRIMARY_P2_TRAJECTORY")
+        page = render_html(material([post]), "manifest-sha")
+        execute_page(page, r"""
+assert(key(current.checkpoint_id).includes(manifestSha));
+let output=exportData();
+assert.deepEqual(output.responses,[]);
+assert.deepEqual(output.non_primary_p2_review_responses,[]);
+assert.equal(output.unsubmitted_checkpoints.length,1);
+assert.equal(output.unsubmitted_checkpoints[0].response_status,'UNSUBMITTED');
+const saved=response(testResponseForm('NO_NEW_ACTION'));
+assert(key(current.checkpoint_id).includes(saved.form_version));
+localStorage.setItem(key(current.checkpoint_id),JSON.stringify(saved));
+output=exportData();
+assert.equal(output.non_primary_p2_review_responses.length,1);
+assert.equal(output.non_primary_p2_review_responses[0].response_status,'SUBMITTED');
+assert.deepEqual(output.unsubmitted_checkpoints,[]);
+localStorage.setItem(key(current.checkpoint_id),JSON.stringify({...saved,material_manifest_sha256:'old-material'}));
+actionFields['[name="rationale"]'].value='不得恢复';restore(current.checkpoint_id);
+assert.equal(actionFields['[name="rationale"]'].value,'不得恢复');
+assert.equal(exportData().non_primary_p2_review_responses.length,0);
+assert.equal(exportData().unsubmitted_checkpoints.length,1);
+localStorage.setItem(key(current.checkpoint_id),JSON.stringify({...saved,form_version:'old-form'}));
+assert.equal(exportData().non_primary_p2_review_responses.length,0);
+localStorage.setItem('candidate-action-draft-'+caseId+'-'+current.checkpoint_id,JSON.stringify(saved));
+assert.equal(exportData().non_primary_p2_review_responses.length,0);
+localStorage.setItem(key(current.checkpoint_id),JSON.stringify(saved));restore(current.checkpoint_id);
+assert.equal(actionFields['[name="plan_status"]'].value,'NO_NEW_ACTION');
+assert.equal(actionFields['[name="rationale"]'].value,'合成理由');
+assert.equal(exportData().non_primary_p2_review_responses.length,1);
 """)
 
     def test_evidence_adjudication_shows_comparator_reason_quotes_and_merged_support(self):
@@ -330,9 +467,15 @@ assert.deepEqual(partitioned.non_primary_p2_review_responses.map(item=>item.chec
         self.assertIn("exam_time", packet_page)
         self.assertIn("MASK 范围、理由与遮蔽后全文", packet_page)
         self.assertIn('name="mode"', packet_page)
+        self.assertIn('name="plan_status"', packet_page)
         self.assertIn('name="action_type"', packet_page)
         self.assertIn('name="target"', packet_page)
-        self.assertIn('name="timing"', packet_page)
+        self.assertIn('name="action_id"', packet_page)
+        self.assertIn('name="uncertainty_addressed"', packet_page)
+        self.assertIn('name="dependencies"', packet_page)
+        timing = re.search(r'<input name="timing"[^>]*>', packet_page).group(0)
+        self.assertNotIn("required", timing)
+        self.assertIn("ABSTAIN 仅表示技术拒答，不是第四种临床 Mode", packet_page)
         self.assertIn("研究审核，不是医生投影", page)
         self.assertIn("私有研究审核：含未遮原文，不是医生盲评文件。", page)
         self.assertNotIn("class='notice'", page)

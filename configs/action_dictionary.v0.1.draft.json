@@ -1,0 +1,128 @@
+{
+  "schema_version": "action-dictionary-0.1.0-draft",
+  "status": "DRAFT_NOT_CLINICAL_REFERENCE",
+  "engineering_use_only": true,
+  "clinical_reference": false,
+  "answer_prefilled": false,
+  "prefill_blind_review_answers": false,
+  "required_patient_bundle": false,
+  "usage_note": "仅用于动作字段工程联调与术语对齐；不是每位患者必做套餐，不是临床推荐、可接受动作集合或盲评预填答案。具体动作、目标和条件由评审者依据当时可见资料填写。",
+  "freeze_requirements": {
+    "historical_usage": "PENDING_FREEZE",
+    "current_usage": "PENDING_FREEZE",
+    "center_availability": "PENDING_FREEZE",
+    "note": "历史动作、当前动作及各中心实际可得性均须经研究方案和中心流程核对后冻结；本草案不作临床适用性断言。"
+  },
+  "actions": [
+    {
+      "action_id": "DRAFT-DIAG-CT",
+      "action_type": "ORDER_DIAGNOSTIC_TEST",
+      "label": "CT",
+      "target": "增强CT；解剖范围与扫描方案待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-DIAG-MR",
+      "action_type": "ORDER_DIAGNOSTIC_TEST",
+      "label": "MR / MRI",
+      "target": "胰腺或腹部MR；序列与扫描方案待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-DIAG-EUS",
+      "action_type": "ORDER_DIAGNOSTIC_TEST",
+      "label": "EUS",
+      "target": "超声内镜；是否联合取材由具体动作另行明确",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-DIAG-EUS-FNA",
+      "action_type": "ORDER_DIAGNOSTIC_TEST",
+      "label": "EUS ± FNA",
+      "target": "EUS引导下细针穿刺；针型与取材方式待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-DIAG-BIOPSY",
+      "action_type": "OBTAIN_TISSUE_DIAGNOSIS",
+      "label": "biopsy",
+      "target": "组织或细胞学取材；病灶、路径与取材方式待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-DIAG-STAGING-LAPAROSCOPY",
+      "action_type": "STAGING_PROCEDURE",
+      "label": "staging laparoscopy",
+      "target": "分期腹腔镜探查；是否联合冲洗细胞学等待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-LAB-CA19-9",
+      "action_type": "ORDER_LABORATORY_TEST",
+      "label": "CA19-9",
+      "target": "CA19-9检测或复查；采样条件与复查时点待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-TREAT-NAT",
+      "action_type": "NEOADJUVANT_THERAPY",
+      "label": "NAT",
+      "target": "新辅助治疗；方案、周期与再评估安排待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-SURG-RESECTION",
+      "action_type": "SURGICAL_RESECTION",
+      "label": "surgery",
+      "target": "根治性切除路径中的手术评估或实施；具体术式待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-SUPPORT-BILIARY-DRAINAGE",
+      "action_type": "BILIARY_DRAINAGE",
+      "label": "biliary drainage",
+      "target": "胆道引流；适应证、路径与方式待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    },
+    {
+      "action_id": "DRAFT-SUPPORT-NUTRITION",
+      "action_type": "NUTRITION_SUPPORT",
+      "label": "nutrition",
+      "target": "营养评估或支持；途径与目标待评审填写",
+      "required_for_every_patient": false,
+      "historical_usage": "PENDING_FREEZE",
+      "current_usage": "PENDING_FREEZE",
+      "center_availability": "PENDING_FREEZE"
+    }
+  ]
+}

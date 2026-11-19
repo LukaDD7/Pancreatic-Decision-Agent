@@ -538,6 +538,34 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                 evolution="DIFFERENT_TASK", comparator_checkpoint_id="CP-FIRST",
                 rationale="不同任务不能作为同轮支持归并。")
 
+    def test_future_exam_plan_overlapping_current_action_requires_review(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "拟下周复查增强CT后再评估手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-FUTURE-PLAN", "S-PLAN", second_text, second_text,
+                           clock="2026-03-02", action_type="ORDER_DIAGNOSTIC_TEST",
+                           target="下周复查增强CT")
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-FUTURE-PLAN", [second], clock="2026-03-02")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-PLAN", second_text, "2026-03-02")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        with self.assertRaisesRegex(ToolError, "EVIDENCE_OVERLAPS_CURRENT_MEMBER"):
+            store.adjudicate(
+                checkpoint_id="CP-FUTURE-PLAN", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
+                evidence_supports=[citation("S-PLAN", second_text, "拟下周复查增强CT")],
+                rationale="错误地把未来检查计划冒充已到达结果。")
+        self.assertNotIn("CP-FUTURE-PLAN", store.items)
+        item = store.adjudicate(
+            checkpoint_id="CP-FUTURE-PLAN", disposition="REVIEW_REQUIRED",
+            evolution="UNCERTAIN", comparator_checkpoint_id="CP-FIRST",
+            evidence_supports=[], rationale="未来计划与结果关系需人工复核。")["item"]
+        self.assertEqual(item["review_status"], "REVIEW_REQUIRED")
+        self.assertEqual(item["evidence_supports"], [])
+
     def test_current_action_quote_cannot_support_new_evidence_round(self):
         first_text = "拟行胰十二指肠切除术。"
         second_text = "再次讨论后仍拟行胰十二指肠切除术。"

@@ -1,5 +1,7 @@
 """Offline candidate Checkpoint reprojection; all records are synthetic."""
 from copy import deepcopy
+import json
+from pathlib import Path
 import unittest
 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_checkpoints import (
@@ -7,8 +9,9 @@ from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_checkpoi
 )
 
 
-def source(source_id, text, *, profile="preoperative_course", clock="2026-03-01"):
-    return dict(source_id=source_id, text=text, document_profile=profile,
+def source(source_id, text, *, profile="preoperative_course", clock="2026-03-01",
+           kind="document"):
+    return dict(source_id=source_id, text=text, document_profile=profile, kind=kind,
                 title=source_id + "-标题", clock=dict(value=clock),
                 clock_basis="body_record_time")
 
@@ -121,6 +124,56 @@ class CandidateCheckpointTests(unittest.TestCase):
         pre = result["candidate_checkpoints"][0]
         self.assertEqual(pre["clock"]["value"], "2026-03-02 12:00")
         self.assertEqual(pre["time_basis"], "report_time_fallback_for_pre_exam_evaluation")
+        self.assertTrue(pre["clock_degradation"]["degraded"])
+        self.assertTrue(pre["clock_degradation"]["same_clock_as_evidence_arrival"])
+
+    def test_pathology_pre_exam_uses_specimen_before_report_fallback(self):
+        event = diagnostic(
+            source_ids=["PATH-1"], exam_time=None,
+            source_clocks={"PATH-1": {"specimen_time": dict(
+                value="2026-03-02 09:30", precision="minute")}})
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("PATH-1", "合成病理报告。", kind="pathology")],
+            events=[event])
+        pre = result["candidate_checkpoints"][0]
+        self.assertEqual(pre["clock"]["value"], "2026-03-02 09:30")
+        self.assertEqual(pre["time_basis"], "specimen_time_fallback_for_pre_exam_evaluation")
+        self.assertEqual(pre["evaluation_time_role"], "before_pathology_specimen_collection")
+        self.assertEqual(pre["clock_degradation"], dict(
+            degraded=True, basis="specimen_time_fallback_for_pre_exam_evaluation",
+            same_clock_as_evidence_arrival=False,
+            reason="SPECIMEN_TIME_USED_FOR_MISSING_PATHOLOGY_EXAM_TIME"))
+        self.assertEqual(result["diagnostic_events"][0]["specimen_time"]["value"],
+                         "2026-03-02 09:30")
+
+    def test_ct_mr_does_not_use_specimen_time_fallback(self):
+        event = diagnostic(
+            source_ids=["CT-1"], exam_time=None,
+            source_clocks={"CT-1": {"specimen_time": dict(
+                value="2026-03-02 09:30", precision="minute")}})
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("CT-1", "合成CT报告。", kind="imaging")],
+            events=[event])
+        pre = result["candidate_checkpoints"][0]
+        self.assertEqual(pre["clock"]["value"], "2026-03-02 12:00")
+        self.assertEqual(pre["time_basis"], "report_time_fallback_for_pre_exam_evaluation")
+        self.assertIsNone(result["diagnostic_events"][0]["specimen_time"]["value"])
+
+    def test_pathology_exam_time_takes_precedence_over_specimen_time(self):
+        event = diagnostic(
+            source_ids=["PATH-1"],
+            source_clocks={"PATH-1": {"specimen_time": dict(
+                value="2026-03-02 07:30", precision="minute")}})
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往临床资料。"),
+                     source("PATH-1", "合成病理报告。", kind="pathology")],
+            events=[event])
+        pre = result["candidate_checkpoints"][0]
+        self.assertEqual(pre["clock"]["value"], "2026-03-02 08:00")
+        self.assertEqual(pre["time_basis"], "exam_time")
+        self.assertFalse(pre["clock_degradation"]["degraded"])
 
     def test_post_report_checkpoint_requires_separate_agent_acceptance(self):
         result = self.project(events=[diagnostic()], reviews=[
@@ -190,21 +243,60 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(result["summary"]["candidate_migration_count"], 38)
         self.assertFalse(result["summary"]["clinical_accuracy_assessed"])
 
-    def test_every_retained_checkpoint_has_concrete_action_plan_schema(self):
+    def test_action_plan_0_2_separates_plan_status_from_three_clinical_modes(self):
+        from jsonschema import validate, ValidationError
+
         text = "拟行手术。"
         result = self.project([candidate("EV-A", "S", text, text)],
                               [source("S", text)], [diagnostic()])
         self.assertEqual(len(result["candidate_checkpoints"]), 2)
         for checkpoint in result["candidate_checkpoints"]:
             space = checkpoint["action_space"]
+            self.assertEqual(space["schema_version"], "management-action-plan-0.2.0")
             self.assertEqual(space["modes"],
                              ["ADVANCE", "HOLD_FOR_EVIDENCE", "REDIRECT"])
+            self.assertEqual(space["plan_statuses"],
+                             ["ACTIONS_PROPOSED", "NO_NEW_ACTION", "ABSTAIN"])
             schema = space["action_plan_schema"]
-            self.assertEqual(schema["required"], ["mode", "actions", "rationale"])
-            self.assertEqual(schema["properties"]["actions"]["minItems"], 1)
+            self.assertEqual(schema["required"], ["plan_status", "actions", "rationale"])
             self.assertEqual(schema["properties"]["actions"]["items"]["required"],
-                             ["action_type", "target", "timing"])
+                             ["action_type", "target"])
+            proposed = dict(plan_status="ACTIONS_PROPOSED", mode="ADVANCE", rationale="合成理由",
+                            actions=[dict(action_id="A-1", action_type="MANAGE", target="目标",
+                                          uncertainty_addressed="待明确问题",
+                                          dependencies=["前置条件"], conditions=["适用条件"])])
+            validate(proposed, schema)
+            validate(dict(plan_status="NO_NEW_ACTION", mode="HOLD_FOR_EVIDENCE",
+                          actions=[], rationale="无需新增动作"), schema)
+            validate(dict(plan_status="ABSTAIN", actions=[], rationale="技术拒答"), schema)
+            with self.assertRaises(ValidationError):
+                validate(dict(plan_status="ACTIONS_PROPOSED", mode="ADVANCE", actions=[],
+                              rationale="缺少动作"), schema)
+            with self.assertRaises(ValidationError):
+                validate(dict(plan_status="NO_NEW_ACTION", mode="ADVANCE",
+                              actions=proposed["actions"], rationale="应为空"), schema)
+            with self.assertRaises(ValidationError):
+                validate(dict(plan_status="ABSTAIN", mode="ABSTAIN", actions=[],
+                              rationale="不得成为第四Mode"), schema)
+            self.assertTrue(space["abstain_is_technical_status_not_mode"])
             self.assertFalse(space["answer_prefilled"])
+
+    def test_action_dictionary_is_engineering_draft_not_prefilled_reference(self):
+        path = Path(__file__).parents[4] / "configs" / "action_dictionary.v0.1.draft.json"
+        dictionary = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(dictionary["status"], "DRAFT_NOT_CLINICAL_REFERENCE")
+        self.assertFalse(dictionary["clinical_reference"])
+        self.assertFalse(dictionary["required_patient_bundle"])
+        self.assertFalse(dictionary["prefill_blind_review_answers"])
+        self.assertEqual(set(dictionary["freeze_requirements"][key] for key in
+                             ("historical_usage", "current_usage", "center_availability")),
+                         {"PENDING_FREEZE"})
+        labels = " ".join(item["label"] for item in dictionary["actions"])
+        for expected in ("CT", "MR", "EUS", "FNA", "biopsy", "staging laparoscopy",
+                         "CA19-9", "NAT", "surgery", "biliary drainage", "nutrition"):
+            self.assertIn(expected, labels)
+        self.assertTrue(all(not item["required_for_every_patient"]
+                            for item in dictionary["actions"]))
 
     def test_missing_management_clock_cannot_create_empty_checkpoint(self):
         text = "拟行手术。"
@@ -213,6 +305,19 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(result["candidate_checkpoints"], [])
         self.assertEqual(result["migrations"][0]["migration_status"], "REVIEW_REQUIRED")
         self.assertEqual(result["migrations"][0]["reason"], "MISSING_EVALUATION_CLOCK")
+
+    def test_placeholder_only_report_cannot_create_evidence_arrival_checkpoint(self):
+        event = diagnostic(audit=dict(placeholder_only_event=True))
+        result = self.project(
+            events=[event],
+            reviews=[review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+                     review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR")])
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][1]["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(result["migrations"][1]["reason"],
+                         "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL")
+        self.assertIsNone(result["diagnostic_events"][0]["candidate_checkpoint_ids"].get(
+            "evidence_arrival_reassessment"))
 
     def test_operation_start_separates_preoperative_and_postoperative_diagnostic_nodes(self):
         event = diagnostic(
@@ -389,6 +494,25 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(pre_migration["migration_status"], "SUPPORT_ONLY")
         self.assertEqual(pre_migration["to_checkpoint_id"],
                          result["candidate_checkpoints"][0]["checkpoint_id"])
+
+    def test_pathology_management_claim_uses_the_same_specimen_anchor(self):
+        text = "讨论后拟行病理活检。"
+        item = candidate(
+            "EV-PATH", "S-PLAN", text, text, clock="2026-03-02 10:00",
+            candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST", target="病理活检"))
+        event = diagnostic(
+            source_ids=["PATH-1"], exam_time=None,
+            source_clocks={"PATH-1": {"specimen_time": dict(
+                value="2026-03-02 09:30", precision="minute")}})
+        result = self.project(
+            [item], [source("S-CONTEXT", "既往资料。"), source("S-PLAN", text),
+                     source("PATH-1", "病理报告。", kind="pathology")], [event], reviews=[
+                review("pre_exam_evaluation", diagnostic_event_id="DE-MR",
+                       candidate_action=dict(action_type="ORDER_DIAGNOSTIC_TEST", target="病理活检"))])
+        pre = next(cp for cp in result["candidate_checkpoints"] if cp["kind"] == "pre_exam_evaluation")
+        self.assertEqual(pre["time_basis"], "specimen_time_fallback_for_pre_exam_evaluation")
+        self.assertEqual(result["diagnostic_events"][0]["generation_audits"][0]["reason"],
+                         "specimen_time_fallback_for_pre_exam_evaluation")
 
     def test_one_management_action_does_not_suppress_later_distinct_ct(self):
         text = "讨论后拟行胰腺增强CT。"

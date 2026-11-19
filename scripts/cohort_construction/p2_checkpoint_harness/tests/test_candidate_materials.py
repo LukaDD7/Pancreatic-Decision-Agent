@@ -309,6 +309,28 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertEqual(edge["direction"], "outgoing")
         self.assertEqual(edge["relation"], "same_management_process")
 
+    def test_task_header_uses_only_upstream_values_and_actual_included_source_ids(self):
+        projection = deepcopy(self.projection)
+        management = next(item for item in projection["candidate_checkpoints"]
+                          if item["kind"] == "management_decision")
+        management.update(next_key_surgical_step="上游提供的手术评估步骤",
+                          allowed_time_precision=["date", "minute"],
+                          knowledge_version="SYNTHETIC-KNOWLEDGE-V1")
+        material = self.material(projection)
+        packet = next(item for item in material["packets"]
+                      if item["kind"] == "management_decision")
+        self.assertEqual(packet["task_header"], dict(
+            next_key_surgical_step="上游提供的手术评估步骤",
+            allowed_time_precision=["date", "minute"],
+            knowledge_version="SYNTHETIC-KNOWLEDGE-V1",
+            included_source_ids=["S-M"]))
+        self.assertEqual(packet["included_source_ids"],
+                         [item["source_id"] for item in packet["included_sources"]])
+        pre = next(item for item in material["packets"] if item["kind"] == "pre_exam_evaluation")
+        self.assertIsNone(pre["task_header"]["next_key_surgical_step"])
+        self.assertIsNone(pre["task_header"]["allowed_time_precision"])
+        self.assertIsNone(pre["task_header"]["knowledge_version"])
+
     def test_global_navigation_does_not_depend_on_episode(self):
         material = self.material()
         ordered = sorted(material["packets"], key=lambda item: item["display_order"]["index"])

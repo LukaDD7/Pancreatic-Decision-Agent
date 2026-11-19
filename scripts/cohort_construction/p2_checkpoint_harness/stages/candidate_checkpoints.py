@@ -12,7 +12,7 @@ import hashlib
 import json
 
 
-PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.3.0"
+PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.4.0"
 PRIMARY_EVALUATION_SCOPE = "PRIMARY_TASK_PREOPERATIVE_OR_NAT_REASSESSMENT"
 NON_PRIMARY_EVALUATION_SCOPE = "NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY"
 SUPPORT_FUNCTIONS = {"repeat", "execution", "generic", "uncertain"}
@@ -34,6 +34,45 @@ def _clock(value):
 
 def _has_clock(value):
     return bool(_clock(value).get("value"))
+
+
+def _is_pathology_event(event, source_by_id):
+    resolved = [source_by_id[source_id] for source_id in event.get("source_ids") or []
+                if source_id in source_by_id]
+    if resolved:
+        return all(source.get("kind") == "pathology" for source in resolved)
+    return (event.get("kind") or event.get("event_kind")
+            or event.get("modality")) == "pathology"
+
+
+def _pathology_specimen_clock(event, source_by_id):
+    if not _is_pathology_event(event, source_by_id):
+        return _clock(None)
+    if "specimen_time" in (event.get("audit") or {}).get("clock_inconsistent_flags", []):
+        return _clock(None)
+    direct = _clock(event.get("specimen_time"))
+    if direct.get("value"):
+        return direct
+    clocks = [_clock((event.get("source_clocks") or {}).get(source_id, {}).get("specimen_time"))
+              for source_id in event.get("source_ids") or []]
+    present = [clock for clock in clocks if clock.get("value")]
+    if not present:
+        return _clock(None)
+    signatures = {(clock.get("value"), clock.get("precision")) for clock in present}
+    return deepcopy(present[0]) if len(signatures) == 1 else _clock(None)
+
+
+def _pre_clock_degradation(pre_time_basis):
+    is_specimen = pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation"
+    is_report = pre_time_basis == "report_time_fallback_for_pre_exam_evaluation"
+    return dict(
+        degraded=bool(is_specimen or is_report),
+        basis=pre_time_basis,
+        same_clock_as_evidence_arrival=is_report,
+        reason=("SPECIMEN_TIME_USED_FOR_MISSING_PATHOLOGY_EXAM_TIME" if is_specimen else
+                "REPORT_VISIBILITY_USED_FOR_PRE_EXAM_EVALUATION" if is_report else
+                "NO_CLOCK_DEGRADATION"),
+    )
 
 
 def _evaluation_scope(clock, operation_start):
@@ -64,23 +103,29 @@ def _operation_day_order_unknown(clock, operation_start):
 
 
 def _action_space():
+    plan_statuses = ["ACTIONS_PROPOSED", "NO_NEW_ACTION", "ABSTAIN"]
     return dict(
-        schema_version="management-action-plan-0.1.0",
+        schema_version="management-action-plan-0.2.0",
         modes=list(MODES),
+        plan_statuses=plan_statuses,
         action_plan_schema=dict(
             type="object", additionalProperties=False,
-            required=["mode", "actions", "rationale"],
+            required=["plan_status", "actions", "rationale"],
             properties=dict(
+                plan_status=dict(type="string", enum=plan_statuses),
                 mode=dict(type="string", enum=list(MODES)),
                 actions=dict(
-                    type="array", minItems=1,
+                    type="array",
                     items=dict(
                         type="object", additionalProperties=False,
-                        required=["action_type", "target", "timing"],
+                        required=["action_type", "target"],
                         properties=dict(
+                            action_id=dict(type="string", minLength=1),
                             action_type=dict(type="string", minLength=1),
                             target=dict(type="string", minLength=1),
                             timing=dict(type="string", minLength=1),
+                            uncertainty_addressed=dict(type="string", minLength=1),
+                            dependencies=dict(type="array", items=dict(type="string")),
                             conditions=dict(type="array", items=dict(type="string")),
                         ),
                     ),
@@ -88,9 +133,25 @@ def _action_space():
                 rationale=dict(type="string", minLength=1),
                 evidence_to_obtain=dict(type="array", items=dict(type="string")),
             ),
+            allOf=[
+                dict(
+                    **{"if": dict(properties=dict(plan_status=dict(const="ACTIONS_PROPOSED")))},
+                    then=dict(required=["mode"], properties=dict(actions=dict(minItems=1))),
+                ),
+                dict(
+                    **{"if": dict(properties=dict(plan_status=dict(const="NO_NEW_ACTION")))},
+                    then=dict(required=["mode"], properties=dict(actions=dict(maxItems=0))),
+                ),
+                dict(
+                    **{"if": dict(properties=dict(plan_status=dict(const="ABSTAIN")))},
+                    then=dict(properties=dict(actions=dict(maxItems=0))),
+                ),
+            ],
         ),
+        clinical_mode_count=3,
+        abstain_is_technical_status_not_mode=True,
         answer_prefilled=False,
-        note="动作空间是待评审作答schema，不是程序推荐或医生Reference。",
+        note="动作空间是待评审作答schema，不是程序推荐或医生Reference；ABSTAIN仅表示技术拒答。",
     )
 
 
@@ -136,7 +197,7 @@ def _normalized_action_target(value):
     return normalized.removesuffix("检查")
 
 
-def _diagnostic_management_claims(checkpoints, events, reviews_by_unit):
+def _diagnostic_management_claims(checkpoints, events, reviews_by_unit, source_by_id):
     claims = {}
     for checkpoint in checkpoints:
         if checkpoint["kind"] != "management_decision":
@@ -154,6 +215,7 @@ def _diagnostic_management_claims(checkpoints, events, reviews_by_unit):
                     or set(checkpoint.get("source_ids") or []) & set(event["source_ids"]):
                 continue
             anchor = (_clock(event.get("exam_time")).get("value")
+                      or _pathology_specimen_clock(event, source_by_id).get("value")
                       or _clock(event.get("visibility_clock")).get("value"))
             diagnostic_target = _normalized_action_target(
                 (review.get("candidate_action") or {}).get("target"))
@@ -320,9 +382,12 @@ def _management_checkpoint(case_id, group, source):
 def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=None,
                            operation_start=None):
     source_ids = sorted(event.get("source_ids") or [])
-    evaluation_clock = (event.get("exam_time")
-                        if node_kind == "pre_exam_evaluation" and pre_time_basis == "exam_time"
-                        else event.get("visibility_clock"))
+    evaluation_clock = (
+        event.get("exam_time") if node_kind == "pre_exam_evaluation"
+        and pre_time_basis == "exam_time" else
+        event.get("specimen_time") if node_kind == "pre_exam_evaluation"
+        and pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation" else
+        event.get("visibility_clock"))
     checkpoint_id = "CP-D-" + _digest([case_id, event["event_id"], node_kind])
     action = _candidate_action(review, event_id=event["event_id"])
     common = dict(
@@ -349,17 +414,25 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
             management_question=(review.get("management_question") or
                                  "在此时点，是否应安排%s？请给出 Mode 和具体管理动作。" %
                                  action["target"]),
-            clock=_clock(event.get("exam_time") if pre_time_basis == "exam_time"
-                         else event.get("visibility_clock")),
+            clock=_clock(
+                event.get("exam_time") if pre_time_basis == "exam_time" else
+                event.get("specimen_time")
+                if pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation"
+                else event.get("visibility_clock")),
             time_basis=pre_time_basis,
-            evaluation_time_role=("before_exam_execution" if pre_time_basis == "exam_time"
-                                  else "report_visibility_fallback_for_exam_choice_evaluation"),
+            evaluation_time_role=(
+                "before_exam_execution" if pre_time_basis == "exam_time" else
+                "before_pathology_specimen_collection"
+                if pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation"
+                else "report_visibility_fallback_for_exam_choice_evaluation"),
+            clock_degradation=_pre_clock_degradation(pre_time_basis),
             mask_whole_diagnostic_event=True,
             show_complete_diagnostic_event=False,
             masked_spans=[],
             provenance=_provenance(
                 diagnostic_event_id=event["event_id"],
                 diagnostic_clock=pre_time_basis,
+                clock_degradation=_pre_clock_degradation(pre_time_basis),
                 source_clocks=deepcopy(event.get("source_clocks") or {}),
                 no_documented_choice_process_inferred=True),
         )
@@ -496,9 +569,10 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                                     for source_id in event.get("source_ids") or []}
     projected_diagnostics = []
     management_claims = _diagnostic_management_claims(
-        candidate_checkpoints, diagnostic_events, reviews_by_unit)
+        candidate_checkpoints, diagnostic_events, reviews_by_unit, source_by_id)
     for original in diagnostic_events:
         event = deepcopy(original)
+        event["specimen_time"] = _pathology_specimen_clock(event, source_by_id)
         event["candidate_checkpoint_ids"] = {}
         event["generation_audits"] = []
         if event.get("visibility_basis") is None:
@@ -516,13 +590,19 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
         report_available = _has_clock(event.get("visibility_clock"))
         clock_flags = (event.get("audit") or {}).get("clock_inconsistent_flags") or []
         exam_usable = exam_available and "exam_time" not in clock_flags
+        specimen_usable = (not exam_available and "exam_time" not in clock_flags
+                           and _has_clock(event.get("specimen_time")))
         report_time_usable = (_has_clock(event.get("report_time"))
                               and "report_time" not in clock_flags)
-        pre_time_basis = ("exam_time" if exam_usable else
-                          "report_time_fallback_for_pre_exam_evaluation"
-                          if report_time_usable else None)
-        pre_clock = (event.get("exam_time") if pre_time_basis == "exam_time"
-                     else event.get("visibility_clock"))
+        pre_time_basis = (
+            "exam_time" if exam_usable else
+            "specimen_time_fallback_for_pre_exam_evaluation" if specimen_usable else
+            "report_time_fallback_for_pre_exam_evaluation" if report_time_usable else None)
+        pre_clock = (
+            event.get("exam_time") if pre_time_basis == "exam_time" else
+            event.get("specimen_time")
+            if pre_time_basis == "specimen_time_fallback_for_pre_exam_evaluation"
+            else event.get("visibility_clock"))
         pre_value = _clock(pre_clock).get("value")
         context_source_ids = []
         if pre_value:
@@ -539,6 +619,9 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                    ("pre_exam_evaluation", "evidence_arrival_reassessment")}
 
         def gate_reason(node_kind, clock_available):
+            if node_kind == "evidence_arrival_reassessment" \
+                    and (event.get("audit") or {}).get("placeholder_only_event"):
+                return "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL"
             review = reviews[node_kind]
             if review is None:
                 return "DISCOVERY_REVIEW_REQUIRED"
@@ -563,7 +646,9 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
             return pre_time_basis if node_kind == "pre_exam_evaluation" else visibility_basis
 
         pre_gate = gate_reason("pre_exam_evaluation", bool(pre_time_basis))
-        pre_available = pre_gate in ("exam_time", "report_time_fallback_for_pre_exam_evaluation")
+        pre_available = pre_gate in (
+            "exam_time", "specimen_time_fallback_for_pre_exam_evaluation",
+            "report_time_fallback_for_pre_exam_evaluation")
         specifications = [
             ("pre_exam_evaluation", pre_available, pre_gate),
             ("evidence_arrival_reassessment", False, None),

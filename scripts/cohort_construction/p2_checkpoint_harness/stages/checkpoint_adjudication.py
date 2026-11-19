@@ -44,7 +44,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 
 RETAIN_CP+NEW_EVIDENCE_ROUND必须有严格晚于comparator、且不晚于当前CP的新患者证据。新动作、新计划、转科、复述和执行不是证据演化；comparator已有报告及其副本、后续文书旧复述和未来报告都不能作为新增证据。时间或关系不确定时用REVIEW_REQUIRED+UNCERTAIN，不要猜测。
 
-evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、时间、报告身份、引文和span重叠。逐项提交后立即继续，不要反复重新列出全部CP。"""
+evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、时间、报告身份、引文和span重叠；未来检查计划等与当前目标管理动作重叠的引文必须拒绝，不能靠关键词改判临床真值。逐项提交后立即继续，不要反复重新列出全部CP。"""
 
 
 def _event_id(candidate, index):
@@ -366,7 +366,8 @@ class CheckpointAdjudicationStore:
                 if span["source_id"] == member["source_id"] and max(
                         span["start"], member["start"]) < min(span["end"], member["end"]):
                     raise ToolError(
-                        "EVIDENCE_OVERLAPS_CURRENT_MEMBER: 当前动作或管理句不能作为新增患者证据。")
+                        "EVIDENCE_OVERLAPS_CURRENT_MEMBER: 当前目标管理动作span（包括未来检查计划）"
+                        "不能作为新增患者证据；请移除该引文，关系不清时改REVIEW_REQUIRED+UNCERTAIN。")
             if evolution == "NEW_EVIDENCE_ROUND":
                 for member_checkpoint_id, members in self.checkpoints.management_member_spans.items():
                     if member_checkpoint_id == checkpoint["checkpoint_id"]:

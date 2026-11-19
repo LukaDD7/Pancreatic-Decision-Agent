@@ -26,9 +26,10 @@ from .candidate_checkpoints import (
     _valid_span,
     validate_candidate_spans,
 )
+from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.2.0"
+PROJECTION_VERSION = "management-trajectory-0.3.0"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
@@ -38,6 +39,7 @@ PHASES = {
     "NAT_OR_CONVERSION",
     "POST_TREATMENT_REASSESSMENT",
     "SURGICAL_EXPLORATION",
+    "POSTOPERATIVE_TRAJECTORY",
 }
 REVIEW_KINDS = {
     "pre_exam_evaluation": BEFORE,
@@ -71,6 +73,16 @@ def _provenance(**values):
     )
 
 
+def _task_header_fields():
+    return dict(
+        knowledge_version="2026-11-09",
+        allowed_time_precisions=["date", "minute", "second"],
+        unknown_time_precision_requires_review=True,
+        next_key_surgical_step="REVIEW_REQUIRED",
+        next_key_surgical_step_basis="NOT_INFERRED_WITHOUT_EXPLICIT_SOURCE_FACT",
+    )
+
+
 def _value(clock):
     return _clock(clock).get("value")
 
@@ -89,19 +101,33 @@ def _question_signature(action):
     return target, timing, conditions
 
 
+def _deduplicable_diagnostic_action(action):
+    if not _is_diagnostic_action(action):
+        return False
+    text = " ".join(((action.get("action_type") or ""),
+                     (action.get("target") or ""))).lower()
+    return not any(term in text for term in CURATIVE_ACTION_TERMS)
+
+
 def _unique_candidate_actions(actions):
     unique = {}
     for action in actions:
         if not action:
             continue
         signature = _action_signature(action)
+        if _deduplicable_diagnostic_action(action):
+            signature = ("DIAGNOSTIC_ACTION",) + signature[1:]
         if signature not in unique:
             unique[signature] = deepcopy(action)
             unique[signature]["merged_event_ids"] = sorted({
                 action.get("event_id")} - {None})
+            unique[signature]["merged_action_types"] = sorted({
+                action.get("action_type")} - {None})
         else:
             unique[signature]["merged_event_ids"] = sorted(set(
                 unique[signature]["merged_event_ids"] + [action.get("event_id")]) - {None})
+            unique[signature]["merged_action_types"] = sorted(set(
+                unique[signature]["merged_action_types"] + [action.get("action_type")]) - {None})
     return list(unique.values())
 
 
@@ -161,6 +187,17 @@ def _routine_postoperative(item, operation_start):
     if any(term in curative_action for term in CURATIVE_ACTION_TERMS):
         return False
     return any(term in text for term in ROUTINE_POSTOPERATIVE_TERMS)
+
+
+def _preoperative_action_conflict(candidate):
+    action = candidate.get("candidate_action") or {}
+    if action.get("phase") in PHASES - {"POSTOPERATIVE_TRAJECTORY"}:
+        return True
+    text = " ".join((action.get("action_type") or "",
+                     action.get("target") or "")).lower()
+    return any(term in text for term in (
+        "start_nat", "neoadjuvant", "conversion", "新辅助", "转化治疗", "术前",
+        "根治", "切除", "resect", "explor", "探查"))
 
 
 def _migration(case_id, item, status, reason):
@@ -237,6 +274,9 @@ def _management_checkpoint(case_id, group):
             for item in items),
         action_space=_action_space(),
         task_scope=_task_scope(),
+        **_task_header_fields(),
+        review_flags=sorted({item["reason"] for item in items
+                             if item.get("postoperative_trajectory")}),
         provenance=_provenance(
             grouping_rule="adjacent_unresolved_question_and_normalized_action",
             group_id=group["group_id"],
@@ -246,7 +286,8 @@ def _management_checkpoint(case_id, group):
 
 def _group_management(case_id, prepared, migration_by_event, evidence_arrivals):
     retained = sorted((item for item in prepared
-                       if item["migration_status"] == "RETAINED"),
+                       if item["migration_status"] == "RETAINED"
+                       or item.get("postoperative_trajectory")),
                       key=lambda item: (_candidate_clock(item) or "", item["event_id"]))
     groups = []
     source_clock_groups = {}
@@ -273,10 +314,13 @@ def _group_management(case_id, prepared, migration_by_event, evidence_arrivals):
             current and not increment and not evidence_arrived
             and question_signature[0]
             and current["question_signature"] == question_signature
+            and current["postoperative_trajectory"] == bool(
+                item.get("postoperative_trajectory"))
             and current["state_token"] == state_token)
         if current is None or not adjacent_same_question:
             current = dict(signature=signature, question_signature=question_signature,
                            state_token=state_token,
+                           postoperative_trajectory=bool(item.get("postoperative_trajectory")),
                            has_state_increment=increment, items=[item])
             groups.append(current)
             if item["source_id"] and projection_key[1]:
@@ -297,7 +341,7 @@ def _group_management(case_id, prepared, migration_by_event, evidence_arrivals):
             migration = migration_by_event[item["event_id"]]
             migration["group_id"] = group_id
             migration["migration_status"] = migration["status"] = (
-                "RETAINED" if index == 0 else "MERGED")
+                item["migration_status"] if index == 0 else "MERGED")
             migration["reason"] = (
                 item["reason"] if index == 0
                 else "MERGED_SAME_UNRESOLVED_MANAGEMENT_QUESTION")
@@ -485,14 +529,45 @@ def _operation_day_order_unknown(clock, operation_start):
             or precision in coarse or operation_precision in coarse)
 
 
-def _diagnostic_gate(event, kind, review, operation_start, context_source_ids,
-                     operation_start_clock=None):
+def _is_pathology_event(event, source_by_id):
+    values = [event.get(key) for key in (
+        "event_type", "diagnostic_type", "modality", "category")]
+    for source_id in event.get("source_ids") or []:
+        source = source_by_id.get(source_id) or {}
+        values.extend((source.get("kind"), source.get("document_profile"),
+                       source.get("title")))
+    text = " ".join(str(value or "") for value in values).lower()
+    return "patholog" in text or "病理" in text
+
+
+def _pre_exam_anchor(event, source_by_id):
     flags = (event.get("audit") or {}).get("clock_inconsistent_flags") or []
     exam_usable = _has_clock(event.get("exam_time")) and "exam_time" not in flags
     report_usable = _has_clock(event.get("report_time")) and "report_time" not in flags
-    pre_basis = ("exam_time" if exam_usable else
-                 "report_time_fallback_for_pre_exam_evaluation" if report_usable else None)
-    pre_clock = event.get("exam_time") if pre_basis == "exam_time" else event.get("visibility_clock")
+    if exam_usable:
+        return dict(basis="exam_time", clock=event.get("exam_time"), proxy=False)
+    if _is_pathology_event(event, source_by_id):
+        raw_clocks = [event.get("specimen_time")]
+        raw_clocks.extend((event.get("source_clocks") or {}).get(source_id, {}).get(
+            "specimen_time") for source_id in event.get("source_ids") or [])
+        clocks = [_clock(raw) for raw in raw_clocks if _has_clock(raw)]
+        signatures = {(clock.get("value"), clock.get("precision")) for clock in clocks}
+        if len(signatures) == 1:
+            return dict(basis="specimen_time_proxy_for_pre_exam_evaluation",
+                        clock=clocks[0], proxy=True)
+    if report_usable:
+        return dict(basis="report_time_fallback_for_pre_exam_evaluation",
+                    clock=event.get("visibility_clock"), proxy=True)
+    return dict(basis=None, clock=None, proxy=False)
+
+
+def _diagnostic_gate(event, kind, review, operation_start, context_source_ids,
+                     operation_start_clock=None, pre_anchor=None):
+    if kind == AFTER and (event.get("audit") or {}).get("placeholder_only_event"):
+        return False, "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL", None, None
+    pre_anchor = pre_anchor or _pre_exam_anchor(event, {})
+    pre_basis = pre_anchor["basis"]
+    pre_clock = pre_anchor["clock"]
     if review is None:
         return False, "DISCOVERY_REVIEW_REQUIRED", None, None
     if review.get("disposition") == "no":
@@ -522,7 +597,7 @@ def _diagnostic_gate(event, kind, review, operation_start, context_source_ids,
 
 
 def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
-                           operation_start=None):
+                           operation_start=None, specifications=None):
     event_ids = sorted(event["event_id"] for event in event_group)
     source_ids = sorted({source_id for event in event_group
                          for source_id in event.get("source_ids") or []})
@@ -534,6 +609,13 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
     question = ("在目标证据获取前，针对PDAC根治性切除路径，下一步应推进、暂缓补证还是调整管理方向？"
                 if before else "该批新证据可见后，下一步管理应如何安排？")
     basis = bases[0] if len(set(bases)) == 1 else "joint_projection_with_distinct_source_clocks"
+    specifications = specifications or []
+    review_flags = sorted({flag for spec in specifications
+                           for flag in spec.get("review_flags") or []})
+    evaluation_time_role = "before_acquisition_not_confirmed_choice_time" if before \
+        else "after_report_visibility_proxy"
+    if before and basis == "specimen_time_proxy_for_pre_exam_evaluation":
+        evaluation_time_role = "before_specimen_collection_proxy_not_confirmed_choice_time"
     return dict(
         checkpoint_id=checkpoint_id,
         kind=kind,
@@ -544,8 +626,12 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
         clock=_clock(clocks[0]),
         clock_basis=basis,
         time_basis=basis,
-        evaluation_time_role=("before_acquisition_not_confirmed_choice_time" if before
-                              else "after_report_visibility_proxy"),
+        evaluation_time_role=evaluation_time_role,
+        clock_proxy_basis=basis if before and any(
+            spec.get("clock_proxy") for spec in specifications) else None,
+        review_flags=review_flags,
+        temporal_order_status=("DEGRADED_REVIEW_REQUIRED" if review_flags
+                               else "NOT_DEGRADED"),
         source_ids=source_ids,
         support_source_ids=source_ids,
         member_event_ids=[],
@@ -558,6 +644,7 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
         candidate_actions=[action for action in actions if action],
         action_space=_action_space(),
         task_scope=_task_scope(),
+        **_task_header_fields(),
         **_evaluation_scope(clocks[0], operation_start),
         diagnostic_event_id=event_ids[0],
         diagnostic_event_ids=event_ids,
@@ -599,9 +686,10 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
         unit_id = event.get("discovery_unit_id") or event["event_id"]
         event["candidate_checkpoint_ids"] = {}
         event["generation_audits"] = []
+        pre_anchor = _pre_exam_anchor(event, source_by_id)
         for kind in (BEFORE, AFTER):
             review = reviews_by_unit.get((unit_id, kind))
-            pre_value = _value(event.get("exam_time")) or _value(event.get("visibility_clock"))
+            pre_value = _value(pre_anchor["clock"])
             context_source_ids = []
             if kind == BEFORE and pre_value:
                 for source in sources:
@@ -614,9 +702,11 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
                         context_source_ids.append(source_id)
             available, reason, clock, basis = _diagnostic_gate(
                 event, kind, review, operation_start, context_source_ids,
-                operation_start_clock=operation_start_clock)
+                operation_start_clock=operation_start_clock, pre_anchor=pre_anchor)
             specifications[(event["event_id"], kind)] = dict(
-                available=available, reason=reason, clock=clock, basis=basis, review=review)
+                available=available, reason=reason, clock=clock, basis=basis, review=review,
+                clock_proxy=pre_anchor["proxy"] if kind == BEFORE else True,
+                review_flags=[])
             if available:
                 group_key = (_value(clock),
                              _action_signature(review.get("candidate_action") or {}))
@@ -626,6 +716,17 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
                     group_key += (("joint", joint_group_id) if joint_group_id
                                   else ("event", event["event_id"]),)
                 grouped[kind].setdefault(group_key, []).append(event)
+        before_spec = specifications[(event["event_id"], BEFORE)]
+        after_spec = specifications[(event["event_id"], AFTER)]
+        same_pre_post_clock = compare(
+            dict(clock=before_spec["clock"]), dict(clock=after_spec["clock"])
+        )["relation"] == "same_time_unresolved" or (
+            _value(before_spec["clock"]) is not None
+            and _value(before_spec["clock"]) == _value(after_spec["clock"]))
+        if before_spec["available"] and after_spec["available"] and same_pre_post_clock:
+            for spec in (before_spec, after_spec):
+                spec["review_flags"].append(
+                    "DEGRADED_PRE_POST_SAME_CLOCK_REVIEW_REQUIRED")
 
     drafts = []
     destinations = {}
@@ -636,7 +737,7 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
             checkpoint = _diagnostic_checkpoint(
                 case_id, event_group, kind, [spec["review"] for spec in specs],
                 [spec["clock"] for spec in specs], [spec["basis"] for spec in specs],
-                operation_start=operation_start)
+                operation_start=operation_start, specifications=specs)
             draft = dict(checkpoint=checkpoint, items=[], attached_items=[],
                          diagnostic_event_ids=[event["event_id"] for event in event_group],
                          events=event_group, has_state_increment=True)
@@ -668,7 +769,8 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
             event["candidate_checkpoint_ids"][kind] = checkpoint_id
             event["generation_audits"].append(dict(
                 node_kind=kind, generated=bool(checkpoint_id), checkpoint_id=checkpoint_id,
-                reason=reason, discovery_disposition=(spec["review"] or {}).get("disposition")))
+                reason=reason, discovery_disposition=(spec["review"] or {}).get("disposition"),
+                review_flags=list(spec["review_flags"])))
             migrations.append(_diagnostic_migration(
                 case_id, event, kind, checkpoint_id, status, reason))
     return projected, drafts, migrations
@@ -678,7 +780,8 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
                                       migration_by_event):
     retained = []
     for draft in management_drafts:
-        if draft.get("global_adjudication_retain"):
+        if draft.get("global_adjudication_retain") \
+                or any(item.get("postoperative_trajectory") for item in draft["items"]):
             retained.append(draft)
             continue
         checkpoint = draft["checkpoint"]
@@ -798,6 +901,56 @@ def _phase(checkpoint, seen_nat, source_text=""):
     return "INITIAL_RESECTABILITY_ASSESSMENT"
 
 
+def _new_diagnostic_events(diagnostic_events, comparator, checkpoint):
+    if comparator is None:
+        return []
+    result = []
+    for event in diagnostic_events:
+        visibility = event.get("visibility_clock")
+        if not _has_clock(visibility):
+            continue
+        projected = dict(clock=visibility)
+        if compare(comparator, projected)["relation"] != "before":
+            continue
+        relation_to_current = compare(projected, checkpoint)["relation"]
+        same_value = _value(visibility) == _value(checkpoint.get("clock"))
+        if relation_to_current == "before" or (
+                relation_to_current == "same_time_unresolved" and same_value):
+            result.append(event["event_id"])
+    return sorted(result)
+
+
+def _agent_evidence_projection(adjudication, diagnostic_events):
+    supports = (adjudication or {}).get("evidence_supports") or []
+    diagnostic_by_id = {event["event_id"]: event for event in diagnostic_events}
+    cited_event_ids = set()
+    assertions = []
+    for support in supports:
+        if isinstance(support, str):
+            if support in diagnostic_by_id:
+                cited_event_ids.add(support)
+            else:
+                assertions.append(dict(
+                    reference=support, assertion_role="AGENT_CITED_NON_DIAGNOSTIC_FACT",
+                    clinical_truth_confirmed=False))
+            continue
+        if not isinstance(support, dict):
+            continue
+        source_id = support.get("source_id")
+        matched = [event["event_id"] for event in diagnostic_events
+                   if source_id in (event.get("source_ids") or [])]
+        if matched:
+            cited_event_ids.update(matched)
+            continue
+        assertions.append(dict(
+            source_id=source_id, quote=support.get("quote"),
+            start=support.get("start"), end=support.get("end"),
+            assertion_role="AGENT_CITED_SOURCE_FACT_NOT_CONFIRMED_CLINICAL_TRUTH",
+            temporal_projection="SOURCE_CITATION_NOT_DETERMINISTIC_DIAGNOSTIC_AVAILABILITY",
+            clinical_truth_confirmed=False))
+    return sorted(cited_event_ids), assertions
+
+
 def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
               migration_by_event, support_records, operation_start=None):
     drafts = management_drafts + diagnostic_drafts
@@ -806,6 +959,8 @@ def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
         _value(draft["checkpoint"]["clock"]) or "9999",
         kind_order.get(draft["checkpoint"]["kind"], 1),
         draft["checkpoint"]["checkpoint_id"]))
+    checkpoint_by_id = {draft["checkpoint"]["checkpoint_id"]: draft["checkpoint"]
+                        for draft in drafts}
     episode_id = "ME-" + _digest([case_id, "PDAC_CURATIVE_RESECTION_PATH"])
     checkpoints, cycles, states = [], [], []
     seen_nat = False
@@ -834,32 +989,77 @@ def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
                            and _value(event["visibility_clock"]) <= cutoff
                            and (checkpoint["kind"] == AFTER
                                 or event["event_id"] not in event_ids))
+        discovery_input_evidence = sorted({
+            evidence_id for item in own_items
+            for evidence_id in item["candidate"].get("input_evidence_ids") or []})
         if checkpoint["kind"] == AFTER:
             input_evidence = sorted(event_ids)
-        elif checkpoint["kind"] == BEFORE:
-            input_evidence = available
         else:
-            input_evidence = sorted({evidence_id for item in own_items
-                                     for evidence_id in item["candidate"].get("input_evidence_ids") or []})
+            input_evidence = available
+        adjudication = checkpoint.get("global_adjudication") or {}
+        comparator = checkpoint_by_id.get(adjudication.get("comparator_checkpoint_id"))
+        if checkpoint["kind"] == AFTER:
+            new_evidence = sorted(event_ids)
+        elif checkpoint["kind"] == REASSESSMENT \
+                and adjudication.get("evolution") == "NEW_EVIDENCE_ROUND":
+            new_evidence = _new_diagnostic_events(
+                diagnostic_events, comparator, checkpoint)
+        else:
+            new_evidence = []
+        agent_cited_events, non_diagnostic_assertions = _agent_evidence_projection(
+            adjudication, diagnostic_events)
+        evolution_status = "NO_NEW_EVIDENCE_EVOLUTION_CLAIM"
+        if adjudication.get("evolution") == "FIRST_VISIBLE":
+            evolution_status = "FIRST_VISIBLE_NOT_AN_EVOLUTION"
+        elif adjudication.get("evolution") == "NEW_EVIDENCE_ROUND":
+            if comparator is None:
+                evolution_status = "REVIEW_REQUIRED_MISSING_COMPARATOR_STATE"
+            elif not new_evidence and not non_diagnostic_assertions:
+                evolution_status = "REVIEW_REQUIRED_EMPTY_NEW_EVIDENCE_STATE"
+            else:
+                evolution_status = "AGENT_ADJUDICATED_EVIDENCE_REVIEW_REQUIRED"
         source_text = "\n".join((item["candidate"].get("span") or {}).get("quote") or ""
                                 for item in all_items)
-        phase = _phase(checkpoint, seen_nat, source_text)
+        evaluation_scope = _evaluation_scope(cutoff, operation_start)
+        phase = ("POSTOPERATIVE_TRAJECTORY"
+                 if not evaluation_scope["primary_evaluation_eligible"]
+                 else _phase(checkpoint, seen_nat, source_text))
         seen_nat = seen_nat or phase == "NAT_OR_CONVERSION"
-        state_id = "ES-" + _digest([case_id, checkpoint["checkpoint_id"], available, input_evidence])
+        state_id = "ES-" + _digest([
+            case_id, checkpoint["checkpoint_id"], available, input_evidence, new_evidence])
         cycle_id = "AC-" + _digest([case_id, checkpoint["checkpoint_id"]])
+        review_flags = set(checkpoint.get("review_flags") or [])
+        if evolution_status.startswith("REVIEW_REQUIRED"):
+            review_flags.add(evolution_status)
         checkpoint.update(episode_id=episode_id, phase=phase, evidence_state_id=state_id,
                           management_goal="PDAC_CURATIVE_RESECTION_PATH",
-                          input_evidence_ids=input_evidence, action_cycle_id=cycle_id,
-                          **_evaluation_scope(cutoff, operation_start))
+                          input_evidence_ids=input_evidence,
+                          new_evidence_event_ids=new_evidence,
+                          agent_cited_diagnostic_event_ids=agent_cited_events,
+                          non_diagnostic_evidence_assertions=non_diagnostic_assertions,
+                          evidence_evolution_status=evolution_status,
+                          review_flags=sorted(review_flags),
+                          action_cycle_id=cycle_id, **evaluation_scope)
         states.append(dict(
             evidence_state_id=state_id, episode_id=episode_id, phase=phase,
             clock=deepcopy(checkpoint["clock"]),
             available_diagnostic_event_ids=available,
-            new_evidence_event_ids=sorted(event_ids) if checkpoint["kind"] == AFTER else [],
+            new_evidence_event_ids=new_evidence,
             input_evidence_ids=input_evidence,
+            agent_cited_diagnostic_event_ids=agent_cited_events,
+            agent_evidence_use_status=("AGENT_CITED_REVIEW_REQUIRED" if agent_cited_events
+                                       or non_diagnostic_assertions
+                                       else "NO_AGENT_EVIDENCE_USE_CLAIM"),
+            non_diagnostic_evidence_assertions=non_diagnostic_assertions,
+            evidence_evolution_status=evolution_status,
+            review_flags=sorted(review_flags),
             checkpoint_ids=[checkpoint["checkpoint_id"]],
             review_status="REVIEW_REQUIRED",
-            provenance=_provenance(state_is_time_projection_not_confirmed_evidence_use=True),
+            provenance=_provenance(
+                state_is_time_projection_not_confirmed_evidence_use=True,
+                discovery_input_evidence_ids=discovery_input_evidence,
+                discovery_input_reference_role="PROVENANCE_ONLY_NOT_AGENT_EVIDENCE_USE",
+                comparator_checkpoint_id=adjudication.get("comparator_checkpoint_id")),
         ))
         cycles.append(dict(
             action_cycle_id=cycle_id, episode_id=episode_id, phase=phase,
@@ -871,9 +1071,13 @@ def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
             member_event_ids=list(checkpoint["member_event_ids"]),
             supporting_event_ids=list(checkpoint["supporting_event_ids"]),
             diagnostic_event_ids=sorted(event_ids),
+            new_evidence_event_ids=new_evidence,
+            agent_cited_diagnostic_event_ids=agent_cited_events,
+            non_diagnostic_evidence_assertions=deepcopy(non_diagnostic_assertions),
             checkpoint_ids=[checkpoint["checkpoint_id"]],
             review_status="REVIEW_REQUIRED",
-            **_evaluation_scope(cutoff, operation_start),
+            review_flags=sorted(review_flags),
+            **evaluation_scope,
             provenance=_provenance(action_cycle_is_candidate_not_reference=True),
         ))
         checkpoints.append(checkpoint)
@@ -932,13 +1136,18 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
         effective_clock = (candidate.get("clock") if _has_clock(candidate.get("clock"))
                            else (source or {}).get("clock"))
         candidate_time = _candidate_clock(dict(candidate=candidate, source=source))
+        postoperative_trajectory = False
         if status == "RETAINED" and operation_start and candidate_time:
             if _operation_day_order_unknown(
                     effective_clock, task_time_bounds.get("operation_start")):
                 status, reason = "REVIEW_REQUIRED", "OPERATION_DAY_VISIBILITY_ORDER_UNKNOWN"
             elif candidate_time >= operation_start and not _routine_postoperative(
                     dict(candidate=candidate, source=source), operation_start):
-                status, reason = "TASK_OUT_OF_SCOPE", "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE"
+                postoperative_trajectory = True
+                status = "REVIEW_REQUIRED"
+                reason = ("ACTION_TASK_MISMATCH_REVIEW_REQUIRED"
+                          if _preoperative_action_conflict(candidate)
+                          else "POSTOPERATIVE_TRAJECTORY_NON_PRIMARY_REVIEW_REQUIRED")
         if status == "SUPPORT_ONLY" and candidate.get("record_function") == "repeat" \
                 and _has_state_increment(candidate) and _valid_span(candidate) \
                 and _candidate_action(candidate) is not None \
@@ -950,6 +1159,7 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
             status, reason = "TASK_OUT_OF_SCOPE", "POSTOPERATIVE_ROUTINE_MANAGEMENT_OUT_OF_MAIN_TASK"
         prepared.append(dict(candidate=candidate, event_id=event_id, source_id=source_id,
                              source=source, migration_status=status, reason=reason,
+                             postoperative_trajectory=postoperative_trajectory,
                              input_index=index, group_id=None))
     migrations = [_migration(case_id, item, item["migration_status"], item["reason"])
                   for item in prepared]

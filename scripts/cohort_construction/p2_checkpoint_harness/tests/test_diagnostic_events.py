@@ -110,7 +110,34 @@ class DiagnosticEventTests(unittest.TestCase):
         self.assertEqual(sources, sources_before)
         self.assertEqual(inventory, inventory_before)
 
-    def test_HDE008_operation_boundary_requires_an_exact_operation_time_field(self):
+    def test_HDE008_same_exam_time_events_are_flagged_without_silent_merge(self):
+        sources = [_source("S-A", exam="2026-03-01 08:00:00"),
+                   _source("S-B", exam="2026-03-01 08:00:00")]
+        first = _evidence("S-A")
+        second = dict(_evidence("S-B"), event_id="EA-SYNTHETIC-2")
+        events = build_diagnostic_events(sources, [first, second])
+        self.assertEqual(len(events), 2)
+        for event in events:
+            self.assertEqual(event["audit"]["same_exam_time_event_ids"],
+                             ["EA-SYNTHETIC", "EA-SYNTHETIC-2"])
+            self.assertIn("SAME_EXAM_TIME_MULTIPLE_EVENTS_REVIEW_REQUIRED",
+                          event["audit"]["content_review_flags"])
+
+    def test_HDE009_placeholder_only_report_is_explicitly_flagged(self):
+        source = dict(_source("S-A", exam="2026-03-01 08:00:00"),
+                      text="[original_findings] 已写\n[original_impression] 已写")
+        event = build_diagnostic_events([source], [_evidence("S-A")])[0]
+        self.assertEqual(event["audit"]["placeholder_only_source_ids"], ["S-A"])
+        self.assertTrue(event["audit"]["placeholder_only_event"])
+        self.assertIn("PLACEHOLDER_ONLY_REPORT_CONTENT_REVIEW_REQUIRED",
+                      event["audit"]["content_review_flags"])
+        mixed = build_diagnostic_events(
+            [source, _source("S-B", report="2026-03-01 12:00:00")],
+            [_evidence("S-A", "S-B")])[0]
+        self.assertEqual(mixed["audit"]["placeholder_only_source_ids"], ["S-A"])
+        self.assertFalse(mixed["audit"]["placeholder_only_event"])
+
+    def test_HDE010_operation_boundary_requires_an_exact_operation_time_field(self):
         operative = dict(source_id="S-OP", title="虚构手术记录",
                          text="手术时间：2026-03-02 09:00-2026-03-02 13:00\n其余正文")
         other = dict(source_id="S-D", title="虚构病程", text="拟于明日手术。")

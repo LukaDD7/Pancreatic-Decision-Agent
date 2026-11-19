@@ -11,9 +11,9 @@ import html
 import json
 from pathlib import Path
 
-HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.5.0"
-RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.4.0"
-FORM_VERSION = "candidate-action-plan-development-0.4"
+HTML_FORMAT = "p2-candidate-checkpoint-private-preview-0.6.0"
+RESPONSE_FORMAT = "p2-candidate-checkpoint-action-draft-0.5.0"
+FORM_VERSION = "candidate-action-plan-development-0.5"
 KIND_LABELS = {
     "BEFORE_ACQUISITION": "证据获取前状态",
     "AFTER_EVIDENCE_ARRIVAL": "新证据到达后状态",
@@ -45,12 +45,24 @@ def _clock_text(clock):
     return str(clock or "未知")
 
 
+def _task_value(value):
+    if value is None or value == "" or value == []:
+        return "待核"
+    if isinstance(value, dict):
+        value = value.get("label") or value.get("value") or value.get("id")
+        return str(value) if value else "待核"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(item) for item in value) if value else "待核"
+    return str(value)
+
+
 def _source_clocks(source):
     clocks = source.get("clocks") or {}
     items = []
     used = set()
     for keys, label in [
         (("exam_time", "exam"), "exam"),
+        (("specimen_time", "specimen"), "specimen"),
         (("report_time", "report"), "report"),
         (("verified_time", "verified"), "verified"),
     ]:
@@ -263,8 +275,14 @@ def _action_row():
               _node("input", {"name": "action_type", "type": "text", "required": "required"})),
         _node("label", {}, "target",
               _node("input", {"name": "target", "type": "text", "required": "required"})),
-        _node("label", {}, "timing",
-              _node("input", {"name": "timing", "type": "text", "required": "required"})),
+        _node("label", {}, "timing（可选）",
+              _node("input", {"name": "timing", "type": "text"})),
+        _node("label", {}, "action_id（可选）",
+              _node("input", {"name": "action_id", "type": "text"})),
+        _node("label", {}, "uncertainty_addressed（可选）",
+              _node("textarea", {"name": "uncertainty_addressed"})),
+        _node("label", {}, "dependencies（每行一项，可选）",
+              _node("textarea", {"name": "dependencies"})),
         _node("label", {}, "conditions（每行一项，可选）",
               _node("textarea", {"name": "conditions"})),
         _node("button", {"type": "button", "class": "secondary remove-action"}, "移除此动作"),
@@ -274,6 +292,7 @@ def _action_row():
 def _action_form(packet):
     space = packet.get("action_space") or {}
     modes = space.get("modes") or []
+    statuses = space.get("plan_statuses") or ["ACTIONS_PROPOSED", "NO_NEW_ACTION", "ABSTAIN"]
     schema = space.get("action_plan_schema") or {}
     return _node(
         "section", {"class": "step workflow-step action-step",
@@ -283,23 +302,29 @@ def _action_form(packet):
               _node("div", {"class": "step-kicker"}, "动作 schema 与可填写动作计划草稿"),
               _node("h3", {}, "管理动作计划（草稿，不是临床 Reference）"),
               _node("p", {}, _h(space.get("note") or "程序不预填答案。")),
+              _node("p", {"class": "small"},
+                    "ACTIONS_PROPOSED 至少填写一个动作；NO_NEW_ACTION 不填写动作；ABSTAIN 仅表示技术拒答，不是第四种临床 Mode。timing 及新增动作语义字段均为可选。"),
               _node("details", {},
                     _node("summary", {}, "查看 action_plan_schema"),
                     _pre(json.dumps(schema, ensure_ascii=False, indent=2))),
               _node("form", {"class": "action-form", "data-checkpoint": packet["checkpoint_id"]},
-                    _node("label", {}, "Mode",
+                    _node("label", {}, "plan_status",
+                          _node("select", {"name": "plan_status", "required": "required"},
+                                *[_node("option", {"value": status}, _h(status))
+                                  for status in statuses])),
+                    _node("label", {}, "临床 Mode（仅三项；ABSTAIN 时不填写）",
                           _node("select", {"name": "mode", "required": "required"},
                                 _node("option", {"value": ""}, "未填写"),
                                 *[_node("option", {"value": mode}, _h(mode)) for mode in modes])),
                     _node("div", {"class": "actions"}, _action_row()),
                     _node("button", {"type": "button", "class": "secondary", "id": "add-action"},
                           "新增具体动作"),
-                    _node("label", {}, "rationale",
+                    _node("label", {}, "rationale（ABSTAIN 时填写技术原因）",
                           _node("textarea", {"name": "rationale", "required": "required"})),
                     _node("label", {}, "evidence_to_obtain（每行一项，可选）",
                           _node("textarea", {"name": "evidence_to_obtain"})),
                     _node("div", {},
-                          _node("button", {"type": "submit"}, "保存本机草稿"),
+                          _node("button", {"type": "submit"}, "提交并保存本机草稿"),
                           _node("span", {"class": "saved", "aria-live": "polite"})))),
     )
 
@@ -454,6 +479,10 @@ def _packet_html(packet):
     evaluation = packet.get("evaluation") or {}
     target = packet.get("target") or {}
     order = packet.get("display_order") or {}
+    task_header = packet.get("task_header") or {}
+    included_source_ids = [source.get("source_id") for source in packet.get("included_sources") or []
+                           if source.get("source_id")]
+    clock_degradation = evaluation.get("clock_degradation") or {}
     header = _node(
         "header", {"class": "task-header"},
         _node("div", {"class": "eyebrow"}, "候选 Checkpoint · 私有研究审核"),
@@ -480,6 +509,20 @@ def _packet_html(packet):
                     _node("dd", {}, _h(_clock_text(evaluation.get("clock"))))),
               _node("div", {}, _node("dt", {}, "时间依据"),
                     _node("dd", {}, _h(evaluation.get("time_basis") or "未提供"))),
+              _node("div", {}, _node("dt", {}, "下一关键手术步骤"),
+                    _node("dd", {}, _h(_task_value(
+                        task_header.get("next_key_surgical_step",
+                                        packet.get("next_key_surgical_step")))))),
+              _node("div", {}, _node("dt", {}, "允许时间精度"),
+                    _node("dd", {}, _h(_task_value(
+                        task_header.get("allowed_time_precision",
+                                        packet.get("allowed_time_precision")))))),
+              _node("div", {}, _node("dt", {}, "知识版本"),
+                    _node("dd", {}, _h(_task_value(
+                        task_header.get("knowledge_version", packet.get("knowledge_version")))))),
+              _node("div", {}, _node("dt", {}, "实际 included source IDs"),
+                    _node("dd", {}, _h(", ".join(included_source_ids)
+                                       if included_source_ids else "无（included_sources 为空）"))),
               _node("div", {}, _node("dt", {}, "时点角色"),
                     _node("dd", {}, _h(evaluation.get("role") or "未提供"))),
               _node("div", {}, _node("dt", {}, "显示顺序"),
@@ -497,6 +540,12 @@ def _packet_html(packet):
             + "；支持记录：" + ", ".join(packet.get("supporting_event_ids") or ["无"])
             + "；旧 Episode 来源：" + ", ".join(packet.get("origin_episode_ids") or ["无"])
         )),
+        (_node("p", {"class": "non-primary-note"}, _h(
+            "时钟降级：" + str(clock_degradation.get("basis") or evaluation.get("time_basis") or "待核")
+            + "；与证据到达评价同钟："
+            + ("是" if clock_degradation.get("same_clock_as_evidence_arrival") else "否")
+            + "；原因：" + str(clock_degradation.get("reason") or "待核")))
+         if clock_degradation.get("degraded") else ""),
         _node("p", {"class": "time-guidance"},
               "仅依据本节点评价时点可见资料作答；检索时钟及报告可见性代理不等于医生实际阅读或选择时刻。"),
         (_node("p", {"class": "non-primary-note"}, _h(
@@ -594,7 +643,19 @@ function bindPacket(){
   for(const field of row.querySelectorAll('input,textarea'))field.value='';rows.append(row);bindRemove(row);
  });
  for(const row of document.querySelectorAll('.action-row'))bindRemove(row);
- document.querySelector('.action-form').addEventListener('submit',save);
+ const form=document.querySelector('.action-form');
+ form.querySelector('[name="plan_status"]').addEventListener('change',()=>updatePlanStatus(form));
+ form.addEventListener('submit',save);updatePlanStatus(form);
+}
+function updatePlanStatus(form){
+ const status=form.querySelector('[name="plan_status"]').value,proposed=status==='ACTIONS_PROPOSED';
+ const abstain=status==='ABSTAIN',mode=form.querySelector('[name="mode"]');
+ form.querySelector('.actions').hidden=!proposed;document.querySelector('#add-action').hidden=!proposed;
+ for(const row of form.querySelectorAll('.action-row')){
+  row.querySelector('[name="action_type"]').required=proposed;
+  row.querySelector('[name="target"]').required=proposed;
+ }
+ mode.required=!abstain;mode.disabled=abstain;if(abstain)mode.value='';
 }
 function bindRemove(row){
  row.querySelector('.remove-action').addEventListener('click',()=>{
@@ -604,38 +665,59 @@ function bindRemove(row){
 }
 function lines(value){return value.split('\n').map(x=>x.trim()).filter(Boolean);}
 function response(form){
- const actions=[...form.querySelectorAll('.action-row')].map(row=>({
-  action_type:row.querySelector('[name="action_type"]').value,
-  target:row.querySelector('[name="target"]').value,
-  timing:row.querySelector('[name="timing"]').value,
-  conditions:lines(row.querySelector('[name="conditions"]').value),
- }));
- return {checkpoint_id:current.checkpoint_id,case_id:caseId,material_manifest_sha256:manifestSha,
+ const planStatus=form.querySelector('[name="plan_status"]').value;
+ const data={checkpoint_id:current.checkpoint_id,case_id:caseId,material_manifest_sha256:manifestSha,
   form_version:__FORM_VERSION__,material_format:__HTML_FORMAT__,reviewer_status:'draft_not_clinical_reference',
-  primary_evaluation_eligible:current.primary_evaluation_eligible,
+  response_status:'SUBMITTED',primary_evaluation_eligible:current.primary_evaluation_eligible,
   evaluation_scope:current.evaluation_scope,evaluation_scope_reason:current.evaluation_scope_reason,
-  mode:form.querySelector('[name="mode"]').value,actions,
-  rationale:form.querySelector('[name="rationale"]').value,
+  plan_status:planStatus,actions:[],rationale:form.querySelector('[name="rationale"]').value,
   evidence_to_obtain:lines(form.querySelector('[name="evidence_to_obtain"]').value)};
+ if(planStatus!=='ABSTAIN')data.mode=form.querySelector('[name="mode"]').value;
+ if(planStatus==='ACTIONS_PROPOSED')data.actions=[...form.querySelectorAll('.action-row')].map(row=>{
+  const action={action_type:row.querySelector('[name="action_type"]').value.trim(),
+   target:row.querySelector('[name="target"]').value.trim()};
+  for(const name of ['timing','action_id','uncertainty_addressed']){
+   const value=row.querySelector(`[name="${name}"]`).value.trim();if(value)action[name]=value;
+  }
+  for(const name of ['dependencies','conditions']){
+   const values=lines(row.querySelector(`[name="${name}"]`).value);if(values.length)action[name]=values;
+  }
+  return action;
+ });
+ return data;
 }
-function key(id){return 'candidate-action-draft-'+caseId+'-'+id;}
+function key(id){return ['candidate-action-draft',__FORM_VERSION__,manifestSha,caseId,id].join('-');}
+function storedResponse(id){
+ let old=null;try{old=JSON.parse(localStorage.getItem(key(id)));}catch{}
+ if(!old||old.checkpoint_id!==id||old.material_manifest_sha256!==manifestSha
+    ||old.form_version!==__FORM_VERSION__||old.response_status!=='SUBMITTED'
+    ||!['ACTIONS_PROPOSED','NO_NEW_ACTION','ABSTAIN'].includes(old.plan_status))return null;
+ return old;
+}
 function save(event){
- event.preventDefault();const data=response(event.currentTarget),status=event.currentTarget.querySelector('.saved');
- try{localStorage.setItem(key(current.checkpoint_id),JSON.stringify(data));status.textContent='已保存本机草稿；导出后方可交回台账';}
- catch{status.textContent='本机存储不可用，请直接导出草稿';}
+ event.preventDefault();const form=event.currentTarget;
+ if(!form.checkValidity()){form.reportValidity();return;}
+ const data=response(form),status=form.querySelector('.saved');
+ try{localStorage.setItem(key(current.checkpoint_id),JSON.stringify(data));status.textContent='已提交并保存本机草稿；导出后方可交回台账';}
+ catch{status.textContent='本机存储不可用；本CP将列为未提交，请记录已填内容后重试';}
 }
 function restore(id){
- let old=null;try{old=JSON.parse(localStorage.getItem(key(id)));}catch{}if(!old)return;
- const form=document.querySelector('.action-form');form.querySelector('[name="mode"]').value=old.mode||'';
+ const old=storedResponse(id);if(!old)return;
+ const form=document.querySelector('.action-form');
+ form.querySelector('[name="plan_status"]').value=old.plan_status;updatePlanStatus(form);
+ form.querySelector('[name="mode"]').value=old.mode||'';
  form.querySelector('[name="rationale"]').value=old.rationale||'';
  form.querySelector('[name="evidence_to_obtain"]').value=(old.evidence_to_obtain||[]).join('\n');
  const rows=document.querySelector('.actions');
  while((old.actions||[]).length>rows.children.length){document.querySelector('#add-action').click();}
  [...rows.querySelectorAll('.action-row')].forEach((row,index)=>{
   const action=(old.actions||[])[index]||{};
-  for(const name of ['action_type','target','timing'])row.querySelector(`[name="${name}"]`).value=action[name]||'';
-  row.querySelector('[name="conditions"]').value=(action.conditions||[]).join('\n');
+  for(const name of ['action_type','target','timing','action_id','uncertainty_addressed'])
+   row.querySelector(`[name="${name}"]`).value=action[name]||'';
+  for(const name of ['dependencies','conditions'])
+   row.querySelector(`[name="${name}"]`).value=(action[name]||[]).join('\n');
  });
+ updatePlanStatus(form);
 }
 function partitionResponses(items){
  return {
@@ -643,19 +725,25 @@ function partitionResponses(items){
   non_primary_p2_review_responses:items.filter(item=>item.primary_evaluation_eligible===false),
  };
 }
+function exportData(){
+ const submitted=[],unsubmitted=[];
+ for(const packet of DATA){
+  const old=storedResponse(packet.checkpoint_id);
+  if(old)submitted.push({...old,primary_evaluation_eligible:packet.primary_evaluation_eligible,
+   evaluation_scope:packet.evaluation_scope,evaluation_scope_reason:packet.evaluation_scope_reason});
+  else unsubmitted.push({checkpoint_id:packet.checkpoint_id,case_id:caseId,response_status:'UNSUBMITTED',
+   primary_evaluation_eligible:packet.primary_evaluation_eligible,
+   evaluation_scope:packet.evaluation_scope,evaluation_scope_reason:packet.evaluation_scope_reason});
+ }
+ return {format:__RESPONSE_FORMAT__,case_id:caseId,material_manifest_sha256:manifestSha,
+  form_version:__FORM_VERSION__,renderer_format:__HTML_FORMAT__,export_status:'DRAFT_NOT_CLINICAL_REFERENCE',
+  primary_evaluation_policy:'PREOPERATIVE_OR_NAT_ONLY',...partitionResponses(submitted),
+  unsubmitted_checkpoints:unsubmitted};
+}
 kindSelect.addEventListener('change',()=>{fillCheckpoints(kindSelect.value);go(cpSelect.value);});
 cpSelect.addEventListener('change',()=>go(cpSelect.value));
 document.querySelector('#export').addEventListener('click',()=>{
- const responses=[];for(const packet of DATA){try{const old=JSON.parse(localStorage.getItem(key(packet.checkpoint_id)));if(old)responses.push({...old,
-  primary_evaluation_eligible:packet.primary_evaluation_eligible,
-  evaluation_scope:packet.evaluation_scope,evaluation_scope_reason:packet.evaluation_scope_reason});}catch{}}
- const form=document.querySelector('.action-form');if(form){
-  if(!form.checkValidity()){form.reportValidity();return;}
-  const fresh=response(form),index=responses.findIndex(x=>x.checkpoint_id===fresh.checkpoint_id);if(index>=0)responses[index]=fresh;else responses.push(fresh);
- }
- const output={format:__RESPONSE_FORMAT__,case_id:caseId,material_manifest_sha256:manifestSha,
-  renderer_format:__HTML_FORMAT__,primary_evaluation_policy:'PREOPERATIVE_OR_NAT_ONLY',
-  ...partitionResponses(responses)};
+ const output=exportData();
  const blob=new Blob([JSON.stringify(output,null,2)],{type:'application/json'}),link=document.querySelector('#download');
  if(link.href)URL.revokeObjectURL(link.href);link.href=URL.createObjectURL(blob);link.download='candidate-action-drafts.json';link.textContent='草稿已生成，点击下载';link.hidden=false;
 });

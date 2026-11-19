@@ -11,7 +11,7 @@ from .materials import digest
 from .privacy import deidentify_value
 
 
-FORMAT = "p2-candidate-checkpoint-material-0.6.0"
+FORMAT = "p2-candidate-checkpoint-material-0.6.1"
 BEFORE_KINDS = {"pre_exam_evaluation", "BEFORE_ACQUISITION"}
 ARRIVAL_KINDS = {"evidence_arrival_reassessment", "AFTER_EVIDENCE_ARRIVAL"}
 MANAGEMENT_KINDS = {"management_decision", "MANAGEMENT_REASSESSMENT"}
@@ -241,6 +241,23 @@ def _navigation(packets):
             next_checkpoint_id=(ordered[index + 1]["checkpoint_id"]
                                 if index + 1 < len(ordered) else None),
             order_role="whole_case_display_order_not_confirmed_clinical_sequence")
+
+
+def _task_header(checkpoint, cycle, included_sources):
+    upstream = {}
+    for container in (cycle, checkpoint):
+        upstream.update(container.get("task_header") or {})
+        for key in ("next_key_surgical_step", "allowed_time_precision",
+                    "allowed_time_precisions", "knowledge_version"):
+            if container.get(key) is not None:
+                upstream[key] = deepcopy(container[key])
+    return dict(
+        next_key_surgical_step=upstream.get("next_key_surgical_step"),
+        allowed_time_precision=upstream.get(
+            "allowed_time_precision", upstream.get("allowed_time_precisions")),
+        knowledge_version=upstream.get("knowledge_version"),
+        included_source_ids=[source["source_id"] for source in included_sources],
+    )
 
 
 def project_candidate_materials(*, case_id, sources, candidates, projection,
@@ -527,6 +544,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             evaluation=dict(clock=deepcopy(checkpoint["clock"]),
                             time_basis=checkpoint["time_basis"],
                             role=checkpoint["evaluation_time_role"],
+                            clock_degradation=deepcopy(checkpoint.get("clock_degradation")),
                             primary_evaluation_eligible=checkpoint.get(
                                 "primary_evaluation_eligible", True),
                             scope=checkpoint.get(
@@ -549,6 +567,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
             global_adjudication=deepcopy(checkpoint.get("global_adjudication")),
             supporting_adjudications=deepcopy(checkpoint.get("supporting_adjudications") or []),
             action_space=deepcopy(checkpoint["action_space"]),
+            task_header=_task_header(checkpoint, cycle, included),
+            included_source_ids=[source["source_id"] for source in included],
             candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
             discovery_review_status=(checkpoint.get("discovery_review") or {}).get("disposition"),
             included_sources=included, excluded_sources=excluded,

@@ -99,6 +99,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         actionText:actions.textContent,
         failureVisible:!!actions.querySelector('.technical-failure[role="alert"]'),
         headerText:header.textContent,
+        includedSourceIds:[...original.querySelectorAll('.source .meta')].map(node=>
+          (node.textContent.match(/来源\s+([^ ·]+)/)||[])[1]).filter(Boolean),
         navAria:nav.getAttribute('aria-label'),
         previousLabel:nav.querySelectorAll('button')[0].textContent,
         positionLabel:nav.querySelector('span').textContent,
@@ -140,10 +142,57 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       'Duplicate Episode navigation remains visible');
     assert(!firstScreen.headerText.includes('全病例'), 'Navigation implies a cross-patient scope');
     assert.equal(firstScreen.hasGlobalWarning, true, 'Global warning or migration summary remains visible');
+    for (const label of ['下一关键手术步骤', '允许时间精度', '知识版本', '实际 included source IDs']) {
+      assert(firstScreen.headerText.includes(label), `Task header lacks ${label}`);
+    }
+    for (const sourceId of firstScreen.includedSourceIds) {
+      assert(firstScreen.headerText.includes(sourceId), `Task header omits actual included source ${sourceId}`);
+    }
     assert.equal(firstScreen.taskColumnCount, 3, 'Desktop task header is not a three-column grid');
     assert.equal(firstScreen.taskCellsFit, true, 'Task header text overflows its grid cell');
     const firstScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     fs.writeFileSync(path.join(output, 'first-screen-desktop.png'), Buffer.from(firstScreenshot.data, 'base64'));
+    const actionBehavior = await evaluate(`(() => {
+      const form=document.querySelector('.action-form'),status=form.querySelector('[name="plan_status"]');
+      const mode=form.querySelector('[name="mode"]'),rationale=form.querySelector('[name="rationale"]');
+      const before=exportData();
+      mode.value='ADVANCE';rationale.value='浏览器合成检查';status.value='NO_NEW_ACTION';
+      status.dispatchEvent(new Event('change'));
+      const noNewHidden=form.querySelector('.actions').hidden&&document.querySelector('#add-action').hidden;
+      const noNew=response(form);
+      status.value='ABSTAIN';status.dispatchEvent(new Event('change'));
+      const abstain=response(form),abstainModeDisabled=mode.disabled;
+      status.value='ACTIONS_PROPOSED';status.dispatchEvent(new Event('change'));
+      const row=form.querySelector('.action-row');
+      row.querySelector('[name="action_type"]').value='BROWSER_TEST';
+      row.querySelector('[name="target"]').value='合成目标';
+      const proposed=response(form),actionsVisible=!form.querySelector('.actions').hidden;
+      localStorage.setItem(key(current.checkpoint_id),JSON.stringify(noNew));
+      const saved=exportData(),savedResponses=saved.responses.length+saved.non_primary_p2_review_responses.length;
+      localStorage.setItem(key(current.checkpoint_id),JSON.stringify({...noNew,material_manifest_sha256:'stale-material'}));
+      const stale=exportData(),staleResponses=stale.responses.length+stale.non_primary_p2_review_responses.length;
+      localStorage.setItem(key(current.checkpoint_id),JSON.stringify(noNew));
+      return {beforeResponses:before.responses.length+before.non_primary_p2_review_responses.length,
+        beforeUnsubmitted:before.unsubmitted_checkpoints.length,noNewHidden,noNewActions:noNew.actions.length,
+        abstainActions:abstain.actions.length,abstainHasMode:Object.hasOwn(abstain,'mode'),abstainModeDisabled,
+        actionsVisible,timingOptional:!Object.hasOwn(proposed.actions[0],'timing'),
+        responseStatus:proposed.response_status,savedResponses,savedUnsubmitted:saved.unsubmitted_checkpoints.length,
+        staleResponses,staleUnsubmitted:stale.unsubmitted_checkpoints.length};
+    })()`);
+    assert.equal(actionBehavior.beforeResponses, 0, 'Unsubmitted forms entered exported responses');
+    assert.equal(actionBehavior.beforeUnsubmitted, count, 'Unsubmitted CPs were not listed separately');
+    assert.equal(actionBehavior.noNewHidden, true, 'NO_NEW_ACTION did not hide action rows');
+    assert.equal(actionBehavior.noNewActions, 0, 'NO_NEW_ACTION exported actions');
+    assert.equal(actionBehavior.abstainActions, 0, 'ABSTAIN exported actions');
+    assert.equal(actionBehavior.abstainHasMode, false, 'ABSTAIN became a clinical Mode');
+    assert.equal(actionBehavior.abstainModeDisabled, true, 'ABSTAIN did not disable clinical Mode');
+    assert.equal(actionBehavior.actionsVisible, true, 'ACTIONS_PROPOSED did not restore action rows');
+    assert.equal(actionBehavior.timingOptional, true, 'Blank optional timing was exported');
+    assert.equal(actionBehavior.responseStatus, 'SUBMITTED');
+    assert.equal(actionBehavior.savedResponses, 1, 'Submitted response was not exported');
+    assert.equal(actionBehavior.savedUnsubmitted, count - 1);
+    assert.equal(actionBehavior.staleResponses, 0, 'Stale material hash entered exported responses');
+    assert.equal(actionBehavior.staleUnsubmitted, count, 'Stale material response was not marked unsubmitted');
     for (let index = 1; index < count; index++) {
       const button = await evaluate(`(() => {
         const button=document.querySelectorAll('.checkpoint-nav')[0].querySelectorAll('button')[1];
@@ -179,6 +228,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       checks: ['real_chrome_first_screen_context_visible', 'real_chrome_candidate_actions_or_failure_visible',
         'real_chrome_patient_labels', 'real_chrome_patient_next_visits_all',
         'real_chrome_patient_previous_returns_all', 'relations_tab_click', 'desktop_task_header_three_columns_without_overflow',
+        'task_header_upstream_fields_and_actual_included_sources', 'conditional_action_rows_and_optional_timing',
+        'no_new_action_and_technical_abstain_export', 'manifest_bound_storage_and_unsubmitted_export',
         'global_warning_and_migration_summary_removed', 'mobile_no_horizontal_overflow'],
       page_errors: errors, network_requests: network,
     }, null, 2) + '\n');

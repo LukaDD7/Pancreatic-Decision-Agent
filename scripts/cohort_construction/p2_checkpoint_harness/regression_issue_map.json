@@ -525,6 +525,102 @@
       ],
       "status": "program_contract_implemented_semantics_not_live_validated",
       "limitations": "Discovery no longer assigns event granularity and no longer collects prechoice/postchoice evidence or time claims. Multiple expressions, including combined and component expressions, remain located candidates. scope=no is preserved as an explicit exclusion index and is not active downstream; it is not patient exclusion. Masking is a verified program projection, not a frozen blinding protocol; adjacent explanations/results and future text need separate policy. Execution/repeat semantics, routine-management consistency and contains/subaction/overlap organization remain open and require real-model discovery-only validation. No hard-coded drug/tube rule or automatic patient/episode exclusion was added."
+    },
+    {
+      "id": "HDE-LIVE-029",
+      "problem": "Multiple diagnostic events can share one exact exam timestamp without a source-proven draft/revision relationship, and a placeholder-only report can otherwise be treated as substantive evidence. SCALE-06 has two events at 2022-10-02 19:49:19; EA-8eb24374e2c9b4d4 contains only original_findings/original_impression 已写 placeholders and has no evidence-arrival Checkpoint.",
+      "change_type": "same_exam_time_and_placeholder_content_audit",
+      "real_counterexample": {
+        "case_id": "SCALE-06",
+        "event_ids": ["EA-ce7adf4b4441a0ad", "EA-8eb24374e2c9b4d4"],
+        "observation": "The two events have the same exam time and report times 23 seconds apart; the latter is placeholder-only. Same-time identity alone does not prove that the reports are the same clinical event or version."
+      },
+      "positive_control": "Distinct events with a shared exam timestamp retain their IDs and source clocks while receiving an explicit review flag. Placeholder text is identified without deleting the source.",
+      "negative_control": "The program does not silently merge same-time events, infer draft/final versions, or claim that placeholder text is new patient evidence.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_diagnostic_events.py::DiagnosticEventTests::test_HDE008_same_exam_time_events_are_flagged_without_silent_merge",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_diagnostic_events.py::DiagnosticEventTests::test_HDE009_placeholder_only_report_is_explicitly_flagged",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_placeholder_only_report_cannot_create_evidence_arrival_checkpoint",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_placeholder_only_report_cannot_create_evidence_arrival_checkpoint"
+      ],
+      "status": "offline_and_scale06_source_projection_validated_candidate_gate_tested_live_pending",
+      "limitations": "Only an event whose resolved sources are all placeholders is blocked from an evidence-arrival candidate. A mixed event with substantive source text remains reviewable. Same-time events retain distinct IDs and are not clinically merged."
+    },
+    {
+      "id": "HME-LIVE-030",
+      "problem": "Management checkpoints could claim NEW_EVIDENCE_ROUND while their structured new-evidence state was empty, and a future management plan could be cited as patient evidence. SCALE-05 CP-M-de486fdafa1fb3fd1b85 used future routine examination plans as support.",
+      "change_type": "evidence_state_projection_and_adjudication_boundary",
+      "real_counterexample": {
+        "case_id": "SCALE-05",
+        "checkpoint_id": "CP-M-de486fdafa1fb3fd1b85",
+        "observation": "The cited current member span described future examinations rather than an arrived result; four non-initial management checkpoints had empty structured new/input evidence."
+      },
+      "positive_control": "A deterministic diagnostic event strictly after the comparator and no later than the current checkpoint is recorded separately from Agent citations and non-diagnostic source assertions.",
+      "negative_control": "An old diagnostic citation alone, a missing comparator, or an empty evidence interval produces REVIEW_REQUIRED rather than evidence evolution. A citation overlapping the current management-action span is rejected.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_management_state_uses_deterministic_interval_and_separates_agent_use",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_agent_citation_without_deterministic_new_evidence_stays_review",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_future_exam_plan_overlapping_current_action_requires_review"
+      ],
+      "status": "synthetic_regression_validated_live_pending",
+      "limitations": "The projection does not certify clinical truth or prove that the historical team actually used the evidence."
+    },
+    {
+      "id": "HPT-LIVE-031",
+      "problem": "Pathology pre-acquisition and post-report checkpoints could share one report-time clock even when an earlier specimen time existed. Thirteen previous pre/post pairs shared a clock; ten had an earlier specimen time.",
+      "change_type": "pathology_evaluation_clock_proxy",
+      "real_counterexample": {
+        "observation": "A missing exam_time caused the pre-acquisition evaluation to fall back to report_time, collapsing the evidence boundary."
+      },
+      "positive_control": "For pathology only, a consistent earlier specimen_time anchors the pre-acquisition state when exam_time is unavailable.",
+      "negative_control": "CT/MR do not use specimen fallback. Report-time fallback or unresolved same-clock pre/post states receive DEGRADED_PRE_POST_SAME_CLOCK_REVIEW_REQUIRED rather than a fabricated time interval.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_pathology_pre_exam_uses_specimen_before_report_fallback",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_pathology_management_claim_uses_the_same_specimen_anchor",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_pathology_before_state_prefers_specimen_time_only_when_exam_missing",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_report_fallback_same_clock_is_degraded_and_ct_does_not_use_specimen"
+      ],
+      "status": "synthetic_regression_validated_live_pending",
+      "limitations": "Specimen time is an evaluation proxy, not a confirmed historical choice time or report visibility time."
+    },
+    {
+      "id": "HPO-LIVE-032",
+      "problem": "Twenty-one previous postoperative checkpoints retained preoperative phases/actions. SCALE-09 CP-D-07ca532b66d50ea61a75 labelled postoperative adjuvant chemotherapy as NAT.",
+      "change_type": "non_primary_postoperative_trajectory_and_action_mismatch_review",
+      "real_counterexample": {
+        "case_id": "SCALE-09",
+        "checkpoint_id": "CP-D-07ca532b66d50ea61a75",
+        "observation": "Postoperative adjuvant treatment was represented as a preoperative NAT-phase task."
+      },
+      "positive_control": "Non-routine postoperative candidates remain visible in a non-primary trajectory and retain original source actions for review.",
+      "negative_control": "Postoperative candidates do not merge into preoperative same-question checkpoints, are not primary P2 evaluation items, and preoperative action semantics trigger ACTION_TASK_MISMATCH_REVIEW_REQUIRED. Routine postoperative care remains outside the main task.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_adjuvant_chemotherapy_is_not_relabelled_nat",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_candidate_does_not_merge_into_preoperative_same_question",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_cross_source_action_merge_does_not_drop_postoperative_report"
+      ],
+      "status": "synthetic_regression_validated_live_pending",
+      "limitations": "The program does not rewrite START_NAT into a clinically confirmed adjuvant action; source labels and task mismatch remain explicit."
+    },
+    {
+      "id": "HAP-LIVE-033",
+      "problem": "The action response needed explicit no-op and technical-abstention semantics, duplicate diagnostic actions required merged provenance, and unexported drafts needed material/form binding.",
+      "change_type": "conditional_action_plan_and_response_envelope",
+      "real_counterexample": {
+        "case_id": "SCALE-09",
+        "checkpoint_id": "CP-M-85d2e3767b9f67ced90d",
+        "observation": "Two different diagnostic action_types targeted the same CT/MR action and duplicated the displayed candidate."
+      },
+      "positive_control": "ACTIONS_PROPOSED requires at least one action; NO_NEW_ACTION and ABSTAIN export no actions; same-target diagnostic actions retain merged event/type provenance; valid submitted responses bind manifest and form version.",
+      "negative_control": "ABSTAIN is not a fourth clinical Mode; no-op cannot export an action; stale-key, stale-manifest and stale-form drafts are neither restored nor exported. The action dictionary is a draft, not a prefilled Reference.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_action_plan_0_2_separates_plan_status_from_three_clinical_modes",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_action_dictionary_is_engineering_draft_not_prefilled_reference",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_same_target_diagnostic_action_types_merge_without_merging_other_targets",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_materials_html.py::CandidateMaterialsHtmlTests::test_export_and_restore_require_matching_manifest_and_form_version"
+      ],
+      "status": "synthetic_regression_and_chrome_validated_live_pending",
+      "limitations": "Clinical action availability, formal Q1-Q5 Reference and E/F/M/A/U scoring are not frozen or implemented by this engineering schema."
     }
   ]
 }

@@ -586,6 +586,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(len(result["candidate_checkpoints"]), 1)
         checkpoint = result["candidate_checkpoints"][0]
         self.assertEqual(checkpoint["kind"], AFTER)
+        self.assertEqual(checkpoint["phase"], "POSTOPERATIVE_TRAJECTORY")
         self.assertFalse(checkpoint["primary_evaluation_eligible"])
         self.assertEqual(checkpoint["evaluation_scope"],
                          "NON_PRIMARY_P2_POSTOPERATIVE_TRAJECTORY")
@@ -663,7 +664,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
                     "ADMISSION_INTENT_NOT_INDEPENDENT_DECISION",
                     "ADMISSION_OR_GENERIC_WORKUP_NOT_INDEPENDENT_DECISION"})
 
-    def test_postoperative_resection_or_surveillance_candidate_is_out_of_task(self):
+    def test_postoperative_resection_candidate_is_non_primary_mismatch_review(self):
         text = "术后随访，既往已行胰十二指肠切除术。"
         item = candidate("EV-POST", "S-POST", text, text,
                          clock="2026-03-03 08:00", action_type="SURGERY",
@@ -672,10 +673,15 @@ class ManagementTrajectoryTests(unittest.TestCase):
             candidates=[item], sources=[source("S-POST", text, profile="clinical_other",
                                               clock="2026-03-03 08:00")],
             bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
-        self.assertEqual(result["candidate_checkpoints"], [])
-        self.assertEqual(result["migrations"][0]["migration_status"], "TASK_OUT_OF_SCOPE")
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["phase"], "POSTOPERATIVE_TRAJECTORY")
+        self.assertFalse(checkpoint["primary_evaluation_eligible"])
+        self.assertEqual(checkpoint["candidate_actions"][0]["action_type"], "SURGERY")
+        self.assertEqual(checkpoint["review_flags"], ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
+        self.assertEqual(result["migrations"][0]["migration_status"], "REVIEW_REQUIRED")
         self.assertEqual(result["migrations"][0]["reason"],
-                         "AFTER_OPERATION_START_TASK_OUT_OF_SCOPE")
+                         "ACTION_TASK_MISMATCH_REVIEW_REQUIRED")
 
     def test_completed_nat_moves_to_post_treatment_not_back_to_nat(self):
         records = [
@@ -1030,6 +1036,255 @@ class ManagementTrajectoryTests(unittest.TestCase):
                 evidence_supports=[], rationale="循环comparator"))
         with self.assertRaisesRegex(ValueError, "cyclic"):
             self.project(candidates=items, sources=sources, adjudications=adjudications)
+
+    def test_management_state_uses_deterministic_interval_and_separates_agent_use(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "复查后再次讨论拟行胰十二指肠切除术。"
+        items = [
+            candidate("EV-FIRST", "S-FIRST", first_text, first_text,
+                      input_evidence_ids=["DE-DISCOVERY-ONLY"]),
+            candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                      clock="2026-03-05", function="reassessment",
+                      input_evidence_ids=["DE-DISCOVERY-ONLY"]),
+        ]
+        events = [
+            diagnostic("DE-OLD", "CT-OLD", exam="2026-02-27 08:00",
+                       report="2026-02-28 12:00"),
+            diagnostic("DE-NEW", "CT-NEW", exam="2026-03-04 08:00",
+                       report="2026-03-04 12:00"),
+            diagnostic("DE-FUTURE", "CT-FUTURE", exam="2026-03-06 08:00",
+                       report="2026-03-06 12:00"),
+        ]
+        sources = [
+            source("S-FIRST", first_text),
+            source("S-SECOND", second_text, clock="2026-03-05"),
+            source("CT-OLD", "旧CT报告。", clock="2026-02-28 12:00"),
+            source("CT-NEW", "新CT未见远处转移。", clock="2026-03-04 12:00"),
+            source("CT-FUTURE", "未来CT报告。", clock="2026-03-06 12:00"),
+            source("S-LAB", "CA19-9较前下降。", clock="2026-03-04 13:00"),
+        ]
+        reviews = [review(event["event_id"], AFTER) for event in events]
+        kwargs = dict(candidates=items, sources=sources, events=events, reviews=reviews)
+        provisional = self.project(**kwargs)
+        management_ids = {
+            cp["member_event_ids"][0]: cp["checkpoint_id"]
+            for cp in provisional["candidate_checkpoints"] if cp["kind"] == REASSESSMENT}
+        result = self.project(**dict(kwargs, adjudications=[
+            dict(checkpoint_id=management_ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="首见状态"),
+            dict(checkpoint_id=management_ids["EV-SECOND"], disposition="RETAIN_CP",
+                 evolution="NEW_EVIDENCE_ROUND",
+                 comparator_checkpoint_id=management_ids["EV-FIRST"],
+                 evidence_supports=[
+                     dict(source_id="CT-NEW", quote="新CT未见远处转移。",
+                          start=0, end=len("新CT未见远处转移。")),
+                     dict(source_id="S-LAB", quote="CA19-9较前下降。",
+                          start=0, end=len("CA19-9较前下降。"))],
+                 rationale="新CT和非诊断来源事实由Agent引用")]))
+        checkpoint = next(cp for cp in result["candidate_checkpoints"]
+                          if cp["checkpoint_id"] == management_ids["EV-SECOND"])
+        state = next(state for state in result["evidence_states"]
+                     if state["evidence_state_id"] == checkpoint["evidence_state_id"])
+        self.assertEqual(state["available_diagnostic_event_ids"], ["DE-NEW", "DE-OLD"])
+        self.assertEqual(state["new_evidence_event_ids"], ["DE-NEW"])
+        self.assertEqual(state["input_evidence_ids"], ["DE-NEW", "DE-OLD"])
+        self.assertEqual(state["agent_cited_diagnostic_event_ids"], ["DE-NEW"])
+        self.assertEqual(state["provenance"]["discovery_input_evidence_ids"],
+                         ["DE-DISCOVERY-ONLY"])
+        self.assertEqual(state["non_diagnostic_evidence_assertions"][0]["source_id"], "S-LAB")
+        self.assertEqual(state["non_diagnostic_evidence_assertions"][0]["quote"],
+                         "CA19-9较前下降。")
+        self.assertFalse(state["non_diagnostic_evidence_assertions"][0][
+            "clinical_truth_confirmed"])
+        self.assertEqual(state["agent_evidence_use_status"], "AGENT_CITED_REVIEW_REQUIRED")
+
+    def test_new_evidence_round_without_comparator_does_not_fake_evolution(self):
+        text = "再次讨论拟行胰十二指肠切除术。"
+        item = candidate("EV-ONLY", "S-ONLY", text, text)
+        sources = [source("S-ONLY", text)]
+        checkpoint_id = self.provisional_management_id([item], sources)
+        result = self.project(candidates=[item], sources=sources, adjudications=[dict(
+            checkpoint_id=checkpoint_id, disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=None,
+            evidence_supports=[], rationale="无比较状态的新证据声明")])
+        state = result["evidence_states"][0]
+        self.assertEqual(state["new_evidence_event_ids"], [])
+        self.assertEqual(state["evidence_evolution_status"],
+                         "REVIEW_REQUIRED_MISSING_COMPARATOR_STATE")
+        self.assertIn("REVIEW_REQUIRED_MISSING_COMPARATOR_STATE", state["review_flags"])
+
+    def test_agent_citation_without_deterministic_new_evidence_stays_review(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "再次讨论拟行胰十二指肠切除术。"
+        items = [candidate("EV-FIRST", "S-FIRST", first_text, first_text),
+                 candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-02", function="reassessment",
+                           condition_changed=True)]
+        sources = [source("S-FIRST", first_text),
+                   source("S-SECOND", second_text, clock="2026-03-02"),
+                   source("CT-OLD", "旧CT报告。", clock="2026-02-28 12:00")]
+        kwargs = dict(candidates=items, sources=sources,
+                      events=[diagnostic("DE-OLD", "CT-OLD", exam="2026-02-27 08:00",
+                                         report="2026-02-28 12:00")],
+                      reviews=[review("DE-OLD", AFTER)])
+        provisional = self.project(**kwargs)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"] if cp["kind"] == REASSESSMENT}
+        result = self.project(**dict(kwargs, adjudications=[
+            dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="首见状态"),
+            dict(checkpoint_id=ids["EV-SECOND"], disposition="RETAIN_CP",
+                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=ids["EV-FIRST"],
+                 evidence_supports=["DE-OLD"], rationale="只有Agent引用旧诊断事件")]))
+        state = next(state for state in result["evidence_states"]
+                     if state["checkpoint_ids"] == [ids["EV-SECOND"]])
+        self.assertEqual(state["new_evidence_event_ids"], [])
+        self.assertEqual(state["agent_cited_diagnostic_event_ids"], ["DE-OLD"])
+        self.assertEqual(state["evidence_evolution_status"],
+                         "REVIEW_REQUIRED_EMPTY_NEW_EVIDENCE_STATE")
+        self.assertIn("REVIEW_REQUIRED_EMPTY_NEW_EVIDENCE_STATE", state["review_flags"])
+
+    def test_placeholder_only_report_cannot_create_evidence_arrival_checkpoint(self):
+        event = diagnostic("DE-PLACEHOLDER", "CT-PLACEHOLDER")
+        event["audit"] = dict(placeholder_only_event=True)
+        result = self.project(
+            sources=[source("CT-PLACEHOLDER", "[original_findings] 已写")],
+            events=[event], reviews=[review("DE-PLACEHOLDER", BEFORE, disposition="no"),
+                                     review("DE-PLACEHOLDER", AFTER)])
+        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][1]["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(result["migrations"][1]["reason"],
+                         "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL")
+
+    def test_pathology_before_state_prefers_specimen_time_only_when_exam_missing(self):
+        event = diagnostic("DE-PATH", "PATH-1", exam=None,
+                           report="2026-03-02 12:00")
+        event["source_clocks"] = {"PATH-1": {"specimen_time": dict(
+            value="2026-03-01 09:00", precision="minute")}}
+        pathology_source = source("PATH-1", "病理报告。", clock="2026-03-02 12:00")
+        pathology_source["kind"] = "pathology"
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"), pathology_source],
+            events=[event], reviews=[review("DE-PATH", BEFORE), review("DE-PATH", AFTER)])
+        before = next(cp for cp in result["candidate_checkpoints"] if cp["kind"] == BEFORE)
+        after = next(cp for cp in result["candidate_checkpoints"] if cp["kind"] == AFTER)
+        self.assertEqual(before["clock"]["value"], "2026-03-01 09:00")
+        self.assertEqual(before["clock_basis"], "specimen_time_proxy_for_pre_exam_evaluation")
+        self.assertEqual(before["evaluation_time_role"],
+                         "before_specimen_collection_proxy_not_confirmed_choice_time")
+        self.assertEqual(before["temporal_order_status"], "NOT_DEGRADED")
+        self.assertEqual(after["clock"]["value"], "2026-03-02 12:00")
+
+        event["exam_time"] = dict(value="2026-03-02 08:00", precision="minute")
+        with_exam = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"), pathology_source],
+            events=[event], reviews=[review("DE-PATH", BEFORE), review("DE-PATH", AFTER)])
+        before = next(cp for cp in with_exam["candidate_checkpoints"] if cp["kind"] == BEFORE)
+        self.assertEqual(before["clock"]["value"], "2026-03-02 08:00")
+        self.assertEqual(before["clock_basis"], "exam_time")
+
+    def test_report_fallback_same_clock_is_degraded_and_ct_does_not_use_specimen(self):
+        event = diagnostic("DE-CT", "CT-1", exam=None, report="2026-03-02 12:00")
+        event["source_clocks"] = {"CT-1": {"specimen_time": dict(
+            value="2026-03-01 09:00", precision="minute")}}
+        ct_source = source("CT-1", "CT报告。", clock="2026-03-02 12:00")
+        ct_source["kind"] = "imaging"
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"), ct_source], events=[event],
+            reviews=[review("DE-CT", BEFORE), review("DE-CT", AFTER)])
+        self.assertEqual([cp["kind"] for cp in result["candidate_checkpoints"]],
+                         [BEFORE, AFTER])
+        for checkpoint in result["candidate_checkpoints"]:
+            self.assertEqual(checkpoint["clock"]["value"], "2026-03-02 12:00")
+            self.assertIn("DEGRADED_PRE_POST_SAME_CLOCK_REVIEW_REQUIRED",
+                          checkpoint["review_flags"])
+        before = result["candidate_checkpoints"][0]
+        self.assertEqual(before["clock_basis"], "report_time_fallback_for_pre_exam_evaluation")
+
+    def test_postoperative_adjuvant_chemotherapy_is_not_relabelled_nat(self):
+        text = "术后拟开始辅助化疗。"
+        item = candidate("EV-ADJUVANT", "S-ADJUVANT", text, text,
+                         clock="2026-03-03 08:00", action_type="START_NAT",
+                         target="术后辅助化疗")
+        result = self.project(
+            candidates=[item], sources=[source("S-ADJUVANT", text, profile="clinical_other",
+                                              clock="2026-03-03 08:00")],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["phase"], "POSTOPERATIVE_TRAJECTORY")
+        self.assertNotEqual(checkpoint["phase"], "NAT_OR_CONVERSION")
+        self.assertEqual(checkpoint["candidate_actions"][0]["action_type"], "START_NAT")
+        self.assertEqual(checkpoint["candidate_actions"][0]["target"], "术后辅助化疗")
+        self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED", checkpoint["review_flags"])
+        self.assertFalse(result["action_cycles"][0]["primary_evaluation_eligible"])
+
+    def test_postoperative_candidate_does_not_merge_into_preoperative_same_question(self):
+        before_text = "拟开始化疗。"
+        after_text = "术后继续化疗。"
+        items = [
+            candidate("EV-PRE-CHEMO", "S-PRE-CHEMO", before_text, before_text,
+                      action_type="START_NAT", target="化疗"),
+            candidate("EV-POST-CHEMO", "S-POST-CHEMO", after_text, after_text,
+                      clock="2026-03-03 08:00", action_type="START_NAT", target="化疗"),
+        ]
+        result = self.project(
+            candidates=items, sources=[
+                source("S-PRE-CHEMO", before_text),
+                source("S-POST-CHEMO", after_text, clock="2026-03-03 08:00")],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        self.assertEqual([cp["phase"] for cp in result["candidate_checkpoints"]],
+                         ["NAT_OR_CONVERSION", "POSTOPERATIVE_TRAJECTORY"])
+        self.assertEqual(result["candidate_checkpoints"][0]["member_event_ids"],
+                         ["EV-PRE-CHEMO"])
+        self.assertEqual(result["candidate_checkpoints"][1]["member_event_ids"],
+                         ["EV-POST-CHEMO"])
+
+    def test_same_target_diagnostic_action_types_merge_without_merging_other_targets(self):
+        text = "拟行EUS+FNA。再次评估EUS+FNA。拟完善增强CT。"
+        items = [
+            candidate("EV-EUS-1", "S-DIAGNOSTIC", text, "拟行EUS+FNA。",
+                      action_type="ORDER_EUS", target="EUS+FNA"),
+            candidate("EV-EUS-2", "S-DIAGNOSTIC", text, "再次评估EUS+FNA。",
+                      function="reassessment", action_type="EUS_EVALUATION", target="EUS+FNA"),
+            candidate("EV-CT", "S-DIAGNOSTIC", text, "拟完善增强CT。",
+                      action_type="ORDER_DIAGNOSTIC_TEST", target="增强CT"),
+        ]
+        result = self.project(candidates=items, sources=[source("S-DIAGNOSTIC", text)])
+        actions = result["candidate_checkpoints"][0]["candidate_actions"]
+        self.assertEqual(len(actions), 2)
+        eus = next(action for action in actions if action["target"] == "EUS+FNA")
+        self.assertEqual(eus["merged_event_ids"], ["EV-EUS-1", "EV-EUS-2"])
+        self.assertEqual(eus["merged_action_types"], ["EUS_EVALUATION", "ORDER_EUS"])
+        self.assertEqual(next(action for action in actions if action["target"] == "增强CT")[
+            "merged_event_ids"], ["EV-CT"])
+
+    def test_diagnostic_dedup_does_not_merge_curative_action_with_same_target(self):
+        text = "拟CT引导切除。再次评估CT引导切除。"
+        items = [
+            candidate("EV-CT-RESECTION-1", "S-CT-RESECTION", text, "拟CT引导切除。",
+                      action_type="ORDER_DIAGNOSTIC_TEST", target="CT引导切除"),
+            candidate("EV-CT-RESECTION-2", "S-CT-RESECTION", text, "再次评估CT引导切除。",
+                      function="reassessment", action_type="SURGICAL_EXPLORATION",
+                      target="CT引导切除"),
+        ]
+        result = self.project(candidates=items, sources=[source("S-CT-RESECTION", text)])
+        actions = result["candidate_checkpoints"][0]["candidate_actions"]
+        self.assertEqual(len(actions), 2)
+        self.assertEqual({action["action_type"] for action in actions},
+                         {"ORDER_DIAGNOSTIC_TEST", "SURGICAL_EXPLORATION"})
+
+    def test_task_header_has_knowledge_time_precision_and_reviewable_next_step(self):
+        text = "拟行胰十二指肠切除术。"
+        item = candidate("EV-HEADER", "S-HEADER", text, text)
+        result = self.project(candidates=[item], sources=[source("S-HEADER", text)])
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["knowledge_version"], "2026-11-09")
+        self.assertEqual(checkpoint["allowed_time_precisions"], ["date", "minute", "second"])
+        self.assertEqual(checkpoint["next_key_surgical_step"], "REVIEW_REQUIRED")
+        self.assertEqual(checkpoint["next_key_surgical_step_basis"],
+                         "NOT_INFERRED_WITHOUT_EXPLICIT_SOURCE_FACT")
 
     def test_inputs_are_not_modified_and_ids_are_stable_under_reordering(self):
         text = "拟行胰十二指肠切除术。"
