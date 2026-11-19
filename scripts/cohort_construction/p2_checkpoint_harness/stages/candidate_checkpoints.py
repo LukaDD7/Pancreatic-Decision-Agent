@@ -183,6 +183,20 @@ def _valid_span(candidate):
             and 0 <= span["start"] < span["end"])
 
 
+def validate_candidate_spans(candidates, sources):
+    source_by_id = {source.get("source_id"): source for source in sources}
+    for candidate in candidates:
+        if not _valid_span(candidate):
+            continue
+        span = candidate["span"]
+        source = source_by_id.get(span["source_id"])
+        text = (source or {}).get("text") or ""
+        if source is None or text[span["start"]:span["end"]] != span["quote"]:
+            raise ValueError("CANDIDATE_SPAN_SOURCE_TEXT_MISMATCH:" + str(candidate.get("event_id")))
+        if span.get("source_sha256") and source.get("source_sha256") != span["source_sha256"]:
+            raise ValueError("CANDIDATE_SPAN_SOURCE_HASH_MISMATCH:" + str(candidate.get("event_id")))
+
+
 def _profile(candidate, source):
     return (candidate.get("origin_document_profile")
             or candidate.get("discovery_document_profile")
@@ -406,6 +420,7 @@ def _diagnostic_migration(case_id, event, node_kind, checkpoint_id, reason):
 def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_events,
                                   task_time_bounds=None, diagnostic_reviews=None):
     """Project only Discovery-reviewed, actionable candidates into review tasks."""
+    validate_candidate_spans(candidates, sources)
     if task_time_bounds is None:
         from .diagnostic_events import derive_preoperative_task_bounds
         task_time_bounds = derive_preoperative_task_bounds(sources)

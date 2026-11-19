@@ -97,6 +97,25 @@ class PrivacyTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             deidentify_text(None)
 
+    def test_identifier_literals_do_not_replace_short_clinical_numbers_or_years(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
+            collect_identifier_values)
+        values = collect_identifier_values([], dict(identifier=[{"value": "12"}, {"value": "2026"}]))
+        text = "2026-11-19 08:00；CA19-9 result: 12 U/mL；dose 120 mg"
+        self.assertEqual(deidentify_text(text, values), text)
+
+    def test_metadata_and_english_names_propagate_across_sources(self):
+        from scripts.cohort_construction.p2_checkpoint_harness.stages.privacy import (
+            collect_identifier_values)
+        sources = [dict(title="姓名：张测试", text="首次记录。",
+                        original_fields={"患者姓名": "李示例"}),
+                   dict(text="张测试、李示例与 Alice Smith 共同出现在合成文本中。")]
+        values = collect_identifier_values(sources, dict(name=[{"family": "Smith", "given": ["Alice"]}]))
+        result = deidentify_text(sources[1]["text"], values)
+        self.assertNotIn("张测试", result)
+        self.assertNotIn("李示例", result)
+        self.assertNotIn("Alice Smith", result)
+
     def test_fhir_ingress_deidentifies_before_sources_are_returned(self):
         from scripts.cohort_construction.p2_auto_checkpoint.fhir_io import import_sources
 
@@ -144,6 +163,12 @@ class PrivacyTests(unittest.TestCase):
                          [source["source_id"] for source in unchanged])
         self.assertEqual([source["text"] for source in sources],
                          [source["text"] for source in unchanged])
+        from scripts.cohort_construction.p2_auto_checkpoint.fhir_io import build
+        roundtripped, _ = import_sources(build(sources, "synthetic", [], []))
+        self.assertEqual(roundtripped[0]["original_source_sha256"],
+                         sources[0]["original_source_sha256"])
+        self.assertEqual(roundtripped[0]["source_sha256"],
+                         roundtripped[0]["deidentified_text_sha256"])
 
 
 if __name__ == "__main__":

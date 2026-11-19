@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from scripts.cohort_construction.p2_checkpoint_harness import run_case
 from scripts.cohort_construction.p2_checkpoint_harness.tests.test_run_case import (
-    synthetic_bundle,
+    DOC_TEXTS, synthetic_bundle,
 )
 
 
@@ -204,7 +204,7 @@ class ExecutedRunTests(unittest.TestCase):
                          "FIRST_VISIBLE")
 
     def test_adjudication_only_reuses_bound_discovery_without_rerunning_it(self):
-        quote = "临床团队决定完善增强CT后评估手术"
+        quote = DOC_TEXTS["SYN-1"]
         frozen = self.dir / "fresh-discovery.json"
         frozen.write_text(json.dumps(dict(
             candidate_spans=[dict(

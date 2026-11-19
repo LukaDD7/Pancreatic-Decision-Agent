@@ -79,9 +79,13 @@ def _literal_values(patient):
     for name in patient.get("name") or []:
         if not isinstance(name, dict):
             continue
-        parts = [name.get("text"), name.get("family"), *(name.get("given") or [])]
-        joined = "".join(part for part in parts[1:] if isinstance(part, str))
-        for value in (name.get("text"), joined):
+        family = name.get("family") if isinstance(name.get("family"), str) else ""
+        given = " ".join(part for part in (name.get("given") or [])
+                         if isinstance(part, str))
+        joined = family + given
+        variants = (name.get("text"), joined, (family + " " + given).strip(),
+                    (given + " " + family).strip())
+        for value in variants:
             if isinstance(value, str) and len(value.strip()) >= 2:
                 values["name"].add(value.strip())
     for address in patient.get("address") or []:
@@ -102,19 +106,44 @@ def _literal_values(patient):
             values["phone"].add(contact["value"].strip())
     for identifier in patient.get("identifier") or []:
         if isinstance(identifier, dict) and isinstance(identifier.get("value"), str):
-            values["identifier"].add(identifier["value"].strip())
+            value = identifier["value"].strip()
+            if len(value) >= 6:
+                values["identifier"].add(value)
     return values
+
+
+def _collect_labeled(values, text):
+    for category, (pattern, _) in _VALUE_PATTERNS.items():
+        for match in pattern.finditer(text or ""):
+            value = match.group("value").strip()
+            minimum = 4 if category == "address" else 6 if category == "identifier" else 2
+            if len(value) >= minimum:
+                values[category].add(value)
 
 
 def collect_identifier_values(sources, patient=None):
     values = _literal_values(patient)
+    key_categories = {"患者姓名": "name", "病人姓名": "name", "姓名": "name",
+                      "家庭住址": "address", "家庭地址": "address", "现住址": "address",
+                      "住址": "address", "地址": "address", "住院号": "identifier",
+                      "门诊号": "identifier", "身份证号": "identifier"}
     for source in sources:
-        text = source.get("text") or ""
-        for category, (pattern, _) in _VALUE_PATTERNS.items():
-            for match in pattern.finditer(text):
-                value = match.group("value").strip()
-                if len(value) >= (4 if category == "address" else 2):
-                    values[category].add(value)
+        _collect_labeled(values, source.get("text"))
+        _collect_labeled(values, source.get("title"))
+        def visit(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in key_categories and isinstance(item, str):
+                        category = key_categories[key]
+                        minimum = 4 if category == "address" else 6 if category == "identifier" else 2
+                        if len(item.strip()) >= minimum:
+                            values[category].add(item.strip())
+                    visit(item)
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+        visit(source.get("original_fields"))
+        visit(source.get("provenance"))
     return values
 
 
@@ -142,7 +171,11 @@ def deidentify_text(text, identifier_values=None) -> str:
         for value in sorted((identifier_values or {}).get(category) or (), key=len,
                             reverse=True):
             if value:
-                text = text.replace(value, replacement)
+                if category in {"phone", "identifier"}:
+                    text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(value)
+                                  + r"(?![A-Za-z0-9])", lambda _: replacement, text)
+                else:
+                    text = text.replace(value, replacement)
     return _AGE_OVER_89.sub("≥90岁", text)
 
 

@@ -52,6 +52,7 @@ class CandidateMaterialTests(unittest.TestCase):
             source["text"] = deidentify_text(source["text"], values)
             source["deidentified_text_sha256"] = hashlib.sha256(
                 source["text"].encode()).hexdigest()
+            source["source_sha256"] = source["deidentified_text_sha256"]
 
     def diagnostic_projection(self, pre, post):
         reviews = []
@@ -447,7 +448,7 @@ class CandidateMaterialTests(unittest.TestCase):
         self.sources[0]["text"] = sanitized_prefix + self.management_text
         self.candidates[0]["span"]["start"] += len(sanitized_prefix)
         self.candidates[0]["span"]["end"] += len(sanitized_prefix)
-        self.candidates[0]["reason"] = "复核联系方式：[邮箱已去标识化]"
+        self.candidates[0]["reason"] = "复核联系方式：synthetic@example.invalid"
         self.projection = self.diagnostic_projection("yes", "no")
 
         material = self.material()
@@ -469,6 +470,15 @@ class CandidateMaterialTests(unittest.TestCase):
                          "deidentified_source_text_used_for_episode_reconstruction")
         self.assertFalse(material["direct_identifier_deidentification"][
             "hipaa_safe_harbor_claimed"])
+
+    def test_old_raw_span_is_rejected_instead_of_masking_deidentified_text(self):
+        raw_prefix = "姓名：张测试。\n"
+        sanitized_prefix = deidentify_text(raw_prefix)
+        self.sources[0]["text"] = sanitized_prefix + self.management_text
+        self.candidates[0]["span"]["start"] += len(raw_prefix)
+        self.candidates[0]["span"]["end"] += len(raw_prefix)
+        with self.assertRaisesRegex(ValueError, "CANDIDATE_SPAN_SOURCE_TEXT_MISMATCH"):
+            self.diagnostic_projection("yes", "no")
 
     def test_navigation_orders_same_clock_acquisition_before_evidence_arrival(self):
         from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_materials import _navigation

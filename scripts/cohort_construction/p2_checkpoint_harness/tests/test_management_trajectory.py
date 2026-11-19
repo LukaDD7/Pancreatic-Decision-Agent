@@ -20,7 +20,8 @@ def source(source_id, text, *, profile="preoperative_course", clock="2026-03-01"
     return dict(source_id=source_id, text=text, title=source_id + "-标题",
                 document_profile=profile, clock=dict(value=clock),
                 clock_basis="body_record_time",
-                deidentified_text_sha256=hashlib.sha256(text.encode()).hexdigest())
+                deidentified_text_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                source_sha256=hashlib.sha256(text.encode()).hexdigest())
 
 
 def candidate(event_id, source_id, text, quote, *, clock="2026-03-01",

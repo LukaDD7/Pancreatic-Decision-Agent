@@ -182,7 +182,7 @@ def _masked_projection(packet):
                   f"跨文书复核：{'已记录' if reviewed else '未确认'}"
               )),
               (_node("p", {"class": "small"},
-                     "MASK start/end 坐标对应直接标识符去标识化前的原始来源；展示正文已脱敏，长度可能不同。")
+                     f"MASK start/end 坐标基准：{projection.get('span_offset_basis')}；坐标与展示正文使用同一版本。")
                if projection.get("span_offset_basis") else ""),
               _node("details", {},
                     _node("summary", {}, "查看 MASK 元数据（不展示被遮原文）"),

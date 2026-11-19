@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from collections import Counter
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 
 from .materials import digest
+from .privacy import deidentify_value
 
 
 FORMAT = "p2-candidate-checkpoint-material-0.6.0"
@@ -248,6 +250,10 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
     for source in sources:
         if not source.get("deidentified_text_sha256"):
             raise ValueError("DIRECT_IDENTIFIER_INGRESS_RECEIPT_MISSING:" + source["source_id"])
+        actual_hash = hashlib.sha256((source.get("text") or "").encode()).hexdigest()
+        if source["deidentified_text_sha256"] != actual_hash \
+                or source.get("source_sha256") != actual_hash:
+            raise ValueError("DEIDENTIFIED_SOURCE_HASH_MISMATCH:" + source["source_id"])
     relations = relations or []
     episodes = episodes or []
     candidate_relations = candidate_relations or []
@@ -570,6 +576,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 if item.get("to_checkpoint_id") == checkpoint["checkpoint_id"]],
             clinical_reference_created=False, doctor_answer_prefilled=False,
             not_doctor_release=True)
+        packet = deidentify_value(packet)
         packet["content_sha256"] = digest(packet)
         packets.append(packet)
     no_context_ids = {
@@ -685,7 +692,7 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                         temporal_masking_is_separate=True,
                         hipaa_safe_harbor_claimed=False),
                     note="候选CP私有研究预览；已做保守直接标识符去标识化，保留精确日期；研究原文和未来节点均嵌入HTML，不能作为医生盲评包。")
-    return material
+    return deidentify_value(material)
 
 
 def write_candidate_material_set(material, output):
