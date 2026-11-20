@@ -130,6 +130,9 @@ class AdjudicationCheckpointIndex:
                 self._limitation(checkpoint_id, event_id,
                                  "MEMBER_CANDIDATE_NOT_SUPPLIED")
                 continue
+            action = candidate.get("candidate_action") or {}
+            if not action.get("action_type") and not action.get("target"):
+                continue
             span = deepcopy(candidate.get("span") or {})
             source_id = span.get("source_id")
             start, end, quote = span.get("start"), span.get("end"), span.get("quote")

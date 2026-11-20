@@ -29,7 +29,7 @@ from .candidate_checkpoints import (
 from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.3.0"
+PROJECTION_VERSION = "management-trajectory-0.3.1"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
@@ -227,6 +227,8 @@ def _masked_spans_for_items(items, source_by_id):
     spans = []
     by_source = {}
     for item in items:
+        if _candidate_action(item["candidate"]) is None:
+            continue
         if item.get("source_id") and _valid_span(item["candidate"]):
             by_source.setdefault(item["source_id"], []).append(item)
     for source_id, group in sorted(by_source.items()):
@@ -841,7 +843,7 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
 def _attach_support(prepared, drafts, migration_by_event):
     support_records = []
     for item in prepared:
-        if item["migration_status"] != "SUPPORT_ONLY":
+        if item["migration_status"] not in {"SUPPORT_ONLY", "CONTEXT_ONLY"}:
             continue
         checkpoint_id = item.get("attached_to")
         destination = next((draft for draft in drafts
@@ -1130,6 +1132,9 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
         source_id = _source_id(candidate)
         source = source_by_id.get(source_id)
         status, reason = _classify(candidate, source)
+        if status != "TASK_OUT_OF_SCOPE" and _valid_span(candidate) \
+                and _candidate_action(candidate) is None:
+            status, reason = "CONTEXT_ONLY", "NON_ACTIONABLE_CANDIDATE_CONTEXT_ONLY"
         action = candidate.get("candidate_action") or {}
         action_text = " ".join((action.get("action_type") or "", action.get("target") or ""))
         quote = (candidate.get("span") or {}).get("quote") or ""

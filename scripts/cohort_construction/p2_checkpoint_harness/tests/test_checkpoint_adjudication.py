@@ -876,6 +876,34 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                     store.adjudicate(checkpoint_id=checkpoint_id, disposition="RETAIN_CP",
                                      evolution="FIRST_VISIBLE", rationale="同刻候选不能忽略。")
 
+    def test_non_actionable_support_can_be_cited_as_new_evidence(self):
+        first_text = "拟行胰十二指肠切除术。"
+        evidence_text = "新辅助化疗6疗程，肿瘤体积缩小。"
+        decision_text = "排除禁忌后限期手术。"
+        current_text = evidence_text + decision_text
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        evidence = candidate("EV-EVIDENCE", "S-CURRENT", current_text, evidence_text,
+                             clock="2026-03-03")
+        evidence["candidate_action"] = None
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, decision_text,
+                            clock="2026-03-03")
+        current_checkpoint = checkpoint("CP-CURRENT", [current], clock="2026-03-03")
+        current_checkpoint["supporting_event_ids"] = ["EV-EVIDENCE"]
+        store, _ = make_store(
+            [checkpoint("CP-FIRST", [first]), current_checkpoint],
+            [first, evidence, current],
+            [source("S-FIRST", first_text, "2026-03-01"),
+             source("S-CURRENT", current_text, "2026-03-03")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
+            evidence_supports=[citation("S-CURRENT", current_text, "肿瘤体积缩小")],
+            rationale="疗效复述提供新增患者状态，具体来源仍待核。")["item"]
+        self.assertEqual(item["disposition"], "RETAIN_CP")
+        self.assertEqual(item["evolution"], "NEW_EVIDENCE_ROUND")
+
     def test_other_checkpoint_action_cannot_be_new_patient_evidence(self):
         first_text = "拟行胰十二指肠切除术。"
         middle_text = "经讨论改为新辅助化疗。"

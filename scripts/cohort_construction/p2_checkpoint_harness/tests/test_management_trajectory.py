@@ -34,7 +34,8 @@ def candidate(event_id, source_id, text, quote, *, clock="2026-03-01",
     return dict(event_id=event_id, status="ACCEPTED", scope="yes",
                 record_function=function, clock=dict(value=clock),
                 clock_basis="body_record_time",
-                candidate_action=dict(action_type=action_type, target=target),
+                candidate_action=kwargs.pop("candidate_action", dict(
+                    action_type=action_type, target=target)),
                 span=dict(source_id=source_id, quote=quote,
                           start=start, end=start + len(quote)), **kwargs)
 
@@ -369,6 +370,40 @@ class ManagementTrajectoryTests(unittest.TestCase):
                        if item["source_id"] == "S-NAT")
         self.assertEqual(report["text"], "病理报告。")
         self.assertNotIn("拟开始新辅助化疗", support["text"])
+
+    def test_non_actionable_spans_stay_visible_as_support_not_answer_masks(self):
+        evidence = "新辅助化疗6疗程，肿瘤体积缩小。"
+        restatement = "上述疗效变化提示可重新评估。"
+        decision = "排除禁忌后限期手术。"
+        text = evidence + restatement + decision
+        items = [
+            candidate("EV-EVIDENCE", "S-COURSE", text, evidence,
+                      function="repeat", candidate_action=None),
+            candidate("EV-RESTATEMENT", "S-COURSE", text, restatement,
+                      candidate_action={}),
+            candidate("EV-DECISION", "S-COURSE", text, decision),
+        ]
+        result = self.project(candidates=items, sources=[source("S-COURSE", text)])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["member_event_ids"], ["EV-DECISION"])
+        self.assertEqual(checkpoint["supporting_event_ids"],
+                         ["EV-EVIDENCE", "EV-RESTATEMENT"])
+        self.assertEqual([span["quote"] for span in checkpoint["masked_spans"]], [decision])
+        migrations = {row["event_id"]: row for row in result["migrations"]}
+        for event_id in ("EV-EVIDENCE", "EV-RESTATEMENT"):
+            self.assertEqual(migrations[event_id]["migration_status"], "CONTEXT_ONLY")
+            self.assertEqual(migrations[event_id]["reason"],
+                             "NON_ACTIONABLE_CANDIDATE_CONTEXT_ONLY")
+            self.assertEqual(migrations[event_id]["to_checkpoint_id"],
+                             checkpoint["checkpoint_id"])
+        self.assertEqual(result["format_version"], "management-trajectory-0.3.1")
+        materials = project_candidate_materials(
+            case_id="SYN-TRAJECTORY", sources=[source("S-COURSE", text)],
+            candidates=items, projection=result)
+        visible = materials["packets"][0]["included_sources"][0]["text"]
+        self.assertIn("肿瘤体积缩小", visible)
+        self.assertNotIn(decision, visible)
 
     def test_repeat_with_real_condition_increment_is_restored_as_retained(self):
         text = "新增黄疸，再次讨论后仍拟行胰十二指肠切除术。"
