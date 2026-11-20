@@ -400,10 +400,34 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(result["format_version"], "management-trajectory-0.3.1")
         materials = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=[source("S-COURSE", text)],
-            candidates=items, projection=result)
+            candidates=items, projection=result,
+            relations=[dict(source_event_id="EV-DECISION",
+                            target_event_id="EV-EVIDENCE", relation="same_event")])
         visible = materials["packets"][0]["included_sources"][0]["text"]
-        self.assertIn("肿瘤体积缩小", visible)
+        self.assertIn(evidence, visible)
+        self.assertIn(restatement, visible)
         self.assertNotIn(decision, visible)
+
+    def test_unattached_context_only_source_remains_visible_on_timeline(self):
+        context_text = "既往治疗经过及肿瘤体积缩小。"
+        decision_text = "再次评估后拟行胰十二指肠切除术。"
+        context = candidate("EV-CONTEXT", "S-CONTEXT", context_text, context_text,
+                            candidate_action=None)
+        decision = candidate("EV-DECISION", "S-DECISION", decision_text, decision_text,
+                             clock="2026-03-02")
+        sources = [source("S-CONTEXT", context_text),
+                   source("S-DECISION", decision_text, clock="2026-03-02")]
+        result = self.project(candidates=[context, decision], sources=sources)
+        migration = next(row for row in result["migrations"]
+                         if row["event_id"] == "EV-CONTEXT")
+        self.assertEqual(migration["migration_status"], "CONTEXT_ONLY")
+        self.assertIsNone(migration["to_checkpoint_id"])
+        packet = project_candidate_materials(
+            case_id="SYN-TRAJECTORY", sources=sources,
+            candidates=[context, decision], projection=result)["packets"][0]
+        visible = next(row["text"] for row in packet["included_sources"]
+                       if row["source_id"] == "S-CONTEXT")
+        self.assertEqual(visible, context_text)
 
     def test_repeat_with_real_condition_increment_is_restored_as_retained(self):
         text = "新增黄疸，再次讨论后仍拟行胰十二指肠切除术。"

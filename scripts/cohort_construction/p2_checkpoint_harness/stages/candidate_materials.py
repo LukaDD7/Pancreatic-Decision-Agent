@@ -105,6 +105,22 @@ def _diagnostic_aliases(event, source_by_id):
     return sorted(aliases, key=len, reverse=True)
 
 
+def _subtract_spans(spans, protected):
+    remaining = [deepcopy(span) for span in spans]
+    for block in protected:
+        next_remaining = []
+        for span in remaining:
+            if span["end"] <= block["start"] or block["end"] <= span["start"]:
+                next_remaining.append(span)
+                continue
+            if span["start"] < block["start"]:
+                next_remaining.append(dict(span, end=block["start"]))
+            if block["end"] < span["end"]:
+                next_remaining.append(dict(span, start=block["end"]))
+        remaining = next_remaining
+    return remaining
+
+
 def _mask_management_action_lines(text):
     import re
     terms = ("拟施", "拟行", "已申请", "已签署", "诊疗计划", "治疗计划", "处置计划",
@@ -183,7 +199,9 @@ def _same_event_spans(checkpoint, candidates, relations):
             related_ids.update(endpoints)
     return [deepcopy(candidate["span"]) for candidate in candidates
             if candidate.get("event_id") in related_ids - members
-            and candidate.get("status") == "ACCEPTED" and candidate.get("span")]
+            and candidate.get("status") == "ACCEPTED" and candidate.get("span")
+            and (candidate.get("candidate_action") or {}).get("action_type")
+            and (candidate.get("candidate_action") or {}).get("target")]
 
 
 def _candidate_relation_summary(relation):
@@ -358,6 +376,16 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         whole_masked = []
         excluded_support_masked = []
         body_creation_time_conflicts = []
+        context_only_spans = {}
+        supporting_event_ids = set(checkpoint.get("supporting_event_ids") or ())
+        for candidate in candidates:
+            action = candidate.get("candidate_action") or {}
+            span = candidate.get("span") or {}
+            if candidate.get("event_id") not in supporting_event_ids \
+                    or action.get("action_type") or action.get("target"):
+                continue
+            if isinstance(span.get("start"), int) and isinstance(span.get("end"), int):
+                context_only_spans.setdefault(span.get("source_id"), []).append(span)
 
         def retain_excluded_support_masks(source_id):
             if source_id in target_ids or source_id not in checkpoint.get("support_source_ids", []):
@@ -418,6 +446,8 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
                 if checkpoint["kind"] in MANAGEMENT_KINDS or (
                         checkpoint["kind"] in ARRIVAL_KINDS and source_id not in target_ids):
                     card["text"], action_spans = _mask_management_action_lines(card["text"])
+                    action_spans = _subtract_spans(
+                        action_spans, context_only_spans.get(source_id) or [])
                     for span in action_spans:
                         span.update(source_id=source_id)
                     spans.extend(action_spans)
