@@ -442,7 +442,8 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
             return diagnostic
         draft = management_by_id[checkpoint_id]
         adjudication = adjudications.get(checkpoint_id)
-        if adjudication is None or adjudication["disposition"] == "RETAIN_CP":
+        if adjudication is None or adjudication["disposition"] in {
+                "RETAIN_CP", "REVIEW_REQUIRED"}:
             return draft
         comparator_id = comparators.get(checkpoint_id)
         return final_destination(comparator_id) if comparator_id else None
@@ -455,43 +456,36 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
             retained.append(draft)
             continue
         disposition = adjudication["disposition"]
-        if disposition == "RETAIN_CP":
+        if disposition in {"RETAIN_CP", "REVIEW_REQUIRED"}:
             draft["global_adjudication_retain"] = True
             draft["checkpoint"]["global_adjudication"] = deepcopy(adjudication)
+            migration_status = "RETAINED" if disposition == "RETAIN_CP" else "REVIEW_REQUIRED"
+            reason = ("GLOBAL_ADJUDICATION_" + adjudication["evolution"])
+            for item in draft["items"]:
+                item["migration_status"] = migration_status
+                item["global_adjudication"] = True
+                migration_by_event[item["event_id"]].update(
+                    migration_status=migration_status, status=migration_status,
+                    reason=reason, to_checkpoint_id=checkpoint_id)
             retained.append(draft)
             continue
         comparator_id = adjudication.get("comparator_checkpoint_id")
         destination = final_destination(checkpoint_id)
-        if disposition == "SUPPORT_ONLY" and destination is None:
+        if destination is None:
             raise ValueError("SUPPORT_ONLY comparator chain has no retained destination: %s"
                              % checkpoint_id)
-        status = "SUPPORT_ONLY" if disposition == "SUPPORT_ONLY" else "REVIEW_REQUIRED"
-        reason = ("GLOBAL_ADJUDICATION_" + adjudication["evolution"]
-                  if disposition == "SUPPORT_ONLY" else "GLOBAL_ADJUDICATION_UNCERTAIN")
-        destination_id = (destination["checkpoint"]["checkpoint_id"]
-                          if destination is not None else comparator_id)
-        if disposition == "REVIEW_REQUIRED" and destination is None:
-            draft["global_adjudication_retain"] = True
-            draft["checkpoint"]["global_adjudication"] = deepcopy(adjudication)
-            for item in draft["items"]:
-                item["migration_status"] = "REVIEW_REQUIRED"
-                item["global_adjudication"] = True
-                migration_by_event[item["event_id"]].update(
-                    migration_status="REVIEW_REQUIRED", status="REVIEW_REQUIRED",
-                    reason=reason, to_checkpoint_id=None)
-            retained.append(draft)
-            continue
-        if destination is not None:
-            destination["checkpoint"].setdefault(
-                "supporting_adjudications", []).append(deepcopy(adjudication))
+        reason = "GLOBAL_ADJUDICATION_" + adjudication["evolution"]
+        destination_id = destination["checkpoint"]["checkpoint_id"]
+        destination["checkpoint"].setdefault(
+            "supporting_adjudications", []).append(deepcopy(adjudication))
         for item in draft["items"]:
-            item["migration_status"] = status
+            item["migration_status"] = "SUPPORT_ONLY"
             item["global_adjudication"] = True
             item["attached_to"] = destination_id
             migration_by_event[item["event_id"]].update(
-                migration_status=status, status=status, reason=reason,
+                migration_status="SUPPORT_ONLY", status="SUPPORT_ONLY", reason=reason,
                 to_checkpoint_id=destination_id)
-            if destination is not None and item not in destination["attached_items"]:
+            if item not in destination["attached_items"]:
                 destination["attached_items"].append(item)
     return retained
 

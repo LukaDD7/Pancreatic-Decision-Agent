@@ -419,6 +419,9 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
             global_adjudication=dict(
                 checkpoint_id="CP-POST", disposition="RETAIN_CP",
                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-PRE",
+                evidence_source_status="EXTERNAL_RESTATEMENT",
+                review_tags=["EXTERNAL_EVIDENCE_ORIGINAL_NOT_VERIFIED",
+                             "EVIDENCE_TIME_NOT_VERIFIED"],
                 rationale="病理结果改变了可见证据状态。",
                 evidence_supports=[dict(source_id="S-PATH", start=4, end=16,
                                         quote="未见远处转移，新病理")]),
@@ -434,6 +437,9 @@ assert.equal(exportData().non_primary_p2_review_responses.length,1);
         research = packet_page.split('id="workflow-research"', 1)[1]
         self.assertIn("比较的最近保留 CP：CP-PRE", packet_page)
         self.assertIn("NEW_EVIDENCE_ROUND", packet_page)
+        self.assertIn("外院证据（当前文书复述，原报告未核验）", packet_page)
+        self.assertIn("外院证据：复核原报告及内容", packet_page)
+        self.assertIn("复核底层检查或报告时间", packet_page)
         self.assertNotIn("病理结果改变了可见证据状态", header)
         self.assertIn("病理结果改变了可见证据状态", research)
         self.assertIn("来源 S-PATH", packet_page)

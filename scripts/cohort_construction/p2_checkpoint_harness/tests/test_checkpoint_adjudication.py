@@ -184,7 +184,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             candidates=[member],
             projection=dict(candidate_checkpoints=[ct_checkpoint, transfer_checkpoint]))
 
-        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.1.0")
+        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.0")
         self.assertEqual(result["case_id"], "SYN-EUS")
         self.assertEqual(len(result["items"]), 1)
         item = result["items"][0]
@@ -225,6 +225,33 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             rationale="程序按唯一quote核验并生成区间。")
         self.assertEqual(result["item"]["evidence_supports"][0]["end"],
                          evidence_text.index(quote) + len(quote))
+
+    def test_external_restatement_can_retain_new_evidence_with_specific_review_tags(self):
+        first_text = "建议开始新辅助治疗。"
+        current_text = "新辅助治疗6疗程后，外院MRI提示肿瘤体积缩小。重新评估根治手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text,
+                          action_type="START_NAT", target="新辅助治疗")
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, "重新评估根治手术。",
+                            clock="2026-03-03")
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               source("S-CURRENT", current_text, "2026-03-03")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见治疗方向。")
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_source_status="EXTERNAL_RESTATEMENT",
+            evidence_supports=[dict(
+                source_id="S-CURRENT", quote="外院MRI提示肿瘤体积缩小")],
+            rationale="当前文书明确记载治疗后外院复查变化，原报告未交付不妨碍证据演化。")["item"]
+        self.assertEqual(item["review_status"], "REVIEW_REQUIRED")
+        self.assertCountEqual(item["review_tags"], [
+            "EXTERNAL_EVIDENCE_ORIGINAL_NOT_VERIFIED", "EVIDENCE_TIME_NOT_VERIFIED"])
+        self.assertEqual(item["evidence_source_status"], "EXTERNAL_RESTATEMENT")
+        self.assertEqual(item["disposition"], "RETAIN_CP")
 
     def test_checkpoint_list_is_compact_but_detail_retains_actions_and_spans(self):
         text = "拟行胰十二指肠切除术。"
@@ -1386,9 +1413,14 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertTrue(result["summary"]["complete"])
         projected = project_management_trajectory(
             **dict(kwargs, checkpoint_adjudications=result))
-        self.assertEqual(len(projected["candidate_checkpoints"]), 1)
-        self.assertEqual(projected["candidate_checkpoints"][0]["checkpoint_id"], diagnostic_id)
+        self.assertCountEqual(
+            [cp["checkpoint_id"] for cp in projected["candidate_checkpoints"]],
+            [diagnostic_id, management_id])
+        review = next(cp for cp in projected["candidate_checkpoints"]
+                      if cp["checkpoint_id"] == management_id)
+        self.assertEqual(review["global_adjudication"]["disposition"], "REVIEW_REQUIRED")
         self.assertEqual(projected["migrations"][0]["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(projected["migrations"][0]["to_checkpoint_id"], management_id)
 
     def test_unverifiable_member_span_is_reported_not_treated_as_nonoverlap(self):
         text = "复查后仍拟行手术。"

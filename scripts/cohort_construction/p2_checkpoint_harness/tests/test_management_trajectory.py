@@ -838,7 +838,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(migration["migration_status"], "SUPPORT_ONLY")
         self.assertEqual(migration["reason"], "GLOBAL_ADJUDICATION_DIFFERENT_TASK")
 
-    def test_global_review_required_keeps_event_as_review_attachment(self):
+    def test_global_review_required_keeps_independent_checkpoint_with_comparator(self):
         event = diagnostic("DE-CT", "CT-1")
         text = "拟行胰十二指肠切除术。"
         item = candidate("EV-SURGERY", "S-PLAN", text, text, clock="2026-03-03")
@@ -855,18 +855,20 @@ class ManagementTrajectoryTests(unittest.TestCase):
                 checkpoint_id=management_id, disposition="REVIEW_REQUIRED",
                 evolution="UNCERTAIN", comparator_checkpoint_id=diagnostic_id,
                 evidence_supports=[], rationale="全局裁决不确定")])
-        self.assertEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
-                         [diagnostic_id])
-        checkpoint = result["candidate_checkpoints"][0]
-        self.assertEqual(checkpoint["supporting_event_ids"], ["EV-SURGERY"])
-        self.assertIn("S-PLAN", checkpoint["support_source_ids"])
-        self.assertTrue(any(span["source_id"] == "S-PLAN"
-                            for span in checkpoint["masked_spans"]))
+        self.assertCountEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
+                              [diagnostic_id, management_id])
+        checkpoint = next(cp for cp in result["candidate_checkpoints"]
+                          if cp["checkpoint_id"] == management_id)
+        self.assertEqual(checkpoint["member_event_ids"], ["EV-SURGERY"])
+        self.assertEqual(checkpoint["supporting_event_ids"], [])
+        self.assertEqual(checkpoint["global_adjudication"]["disposition"], "REVIEW_REQUIRED")
+        self.assertEqual(checkpoint["global_adjudication"]["comparator_checkpoint_id"],
+                         diagnostic_id)
         migration = next(row for row in result["migrations"]
                          if row["event_id"] == "EV-SURGERY")
         self.assertEqual(migration["migration_status"], "REVIEW_REQUIRED")
         self.assertEqual(migration["reason"], "GLOBAL_ADJUDICATION_UNCERTAIN")
-        self.assertEqual(migration["to_checkpoint_id"], diagnostic_id)
+        self.assertEqual(migration["to_checkpoint_id"], management_id)
         self.assertEqual(migration["span"]["quote"], text)
         self.assertEqual(result["support_records"], [])
 
@@ -944,7 +946,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
             projection=result)["packets"][0]
         self.assertEqual(packet["global_adjudication"]["disposition"], "REVIEW_REQUIRED")
 
-    def test_global_review_chain_uses_final_destination_in_migration_and_packet(self):
+    def test_global_review_after_support_chain_keeps_independent_checkpoint(self):
         records = [
             ("EV-A", "S-A", "拟行胰十二指肠切除术。", "ADVANCE_RESECTION", "手术", "2026-03-01"),
             ("EV-B", "S-B", "拟开始新辅助化疗。", "START_NAT", "化疗", "2026-03-02"),
@@ -968,18 +970,26 @@ class ManagementTrajectoryTests(unittest.TestCase):
             dict(checkpoint_id=ids["EV-C"], disposition="REVIEW_REQUIRED",
                  evolution="UNCERTAIN", comparator_checkpoint_id=ids["EV-B"],
                  evidence_supports=[], rationale="关系待核")])
-        self.assertEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
-                         [ids["EV-A"]])
+        self.assertCountEqual([cp["checkpoint_id"] for cp in result["candidate_checkpoints"]],
+                              [ids["EV-A"], ids["EV-C"]])
         migrations = {row["event_id"]: row for row in result["migrations"]}
         self.assertEqual(migrations["EV-B"]["to_checkpoint_id"], ids["EV-A"])
-        self.assertEqual(migrations["EV-C"]["to_checkpoint_id"], ids["EV-A"])
-        packet = project_candidate_materials(
+        self.assertEqual(migrations["EV-C"]["to_checkpoint_id"], ids["EV-C"])
+        packets = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=sources, candidates=items,
-            projection=result)["packets"][0]
-        self.assertEqual({row["event_id"] for row in packet["migration_records"]},
-                         {"EV-A", "EV-B", "EV-C"})
-        self.assertEqual({row["checkpoint_id"] for row in packet["supporting_adjudications"]},
-                         {ids["EV-B"], ids["EV-C"]})
+            projection=result)["packets"]
+        first_packet = next(packet for packet in packets
+                            if packet["checkpoint_id"] == ids["EV-A"])
+        review_packet = next(packet for packet in packets
+                             if packet["checkpoint_id"] == ids["EV-C"])
+        self.assertEqual({row["event_id"] for row in first_packet["migration_records"]},
+                         {"EV-A", "EV-B"})
+        self.assertEqual({row["event_id"] for row in review_packet["migration_records"]},
+                         {"EV-C"})
+        self.assertEqual({row["checkpoint_id"] for row in first_packet["supporting_adjudications"]},
+                         {ids["EV-B"]})
+        self.assertEqual(review_packet["global_adjudication"]["disposition"],
+                         "REVIEW_REQUIRED")
 
     def test_global_adjudication_rejects_unknown_checkpoint_and_comparator(self):
         text = "拟行胰十二指肠切除术。"

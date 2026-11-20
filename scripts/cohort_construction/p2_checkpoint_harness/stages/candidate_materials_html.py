@@ -411,6 +411,22 @@ def _navigation(packet):
     )
 
 
+EVIDENCE_SOURCE_LABELS = {
+    "NOT_APPLICABLE": "不涉及新增证据引文",
+    "ORIGINAL_OR_LOCAL_SOURCE": "原始或本院来源",
+    "EXTERNAL_RESTATEMENT": "外院证据（当前文书复述，原报告未核验）",
+    "UNATTRIBUTED_RESTATEMENT": "未明来源证据（当前文书复述，原报告未核验）",
+}
+REVIEW_TAG_LABELS = {
+    "EXTERNAL_EVIDENCE_ORIGINAL_NOT_VERIFIED": "外院证据：复核原报告及内容",
+    "UNATTRIBUTED_EVIDENCE_ORIGINAL_NOT_VERIFIED": "未明来源证据：复核原始来源及内容",
+    "EVIDENCE_TIME_NOT_VERIFIED": "复核底层检查或报告时间",
+    "COMPARATOR_ORDER_UNRESOLVED": "复核比较CP的先后顺序",
+    "EVIDENCE_RELATION_UNRESOLVED": "复核是否属于新增证据",
+    "CURRENT_SOURCE_TIME_CONFLICT": "复核当前文书记录时间与导出时间",
+}
+
+
 def _adjudication_card(item, *, supporting=False, researcher=False, included_sources=(),
                        masked_spans=()):
     evidence = item.get("evidence_supports") or []
@@ -451,6 +467,14 @@ def _adjudication_card(item, *, supporting=False, researcher=False, included_sou
             f"裁决：{item.get('disposition') or '未提供'} · "
             f"证据演化：{item.get('evolution') or '未提供'} · "
             f"{comparator_label}：{item.get('comparator_checkpoint_id') or '无（首见锚点或待审核）'}")),
+        *([_node("p", {"class": "small"}, _h(
+            "证据来源：" + EVIDENCE_SOURCE_LABELS.get(
+                item.get("evidence_source_status"), item.get("evidence_source_status"))))]
+          if item.get("evidence_source_status") else []),
+        *([_node("p", {"class": "review-tags"}, _h(
+            "具体待核：" + "；".join(REVIEW_TAG_LABELS.get(tag, tag)
+                                      for tag in item.get("review_tags") or [])))]
+          if item.get("review_tags") else []),
         _node("p", {}, _h(
             "Agent 裁决理由：" + (item.get("rationale") or "未提供") if researcher else
             "完整 Agent 裁决理由见研究原文页；默认页不回填可能含未来或目标动作的自由文本。")),
