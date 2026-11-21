@@ -32,6 +32,7 @@ class SourceIndex:
         self.units = list(units)
         self.units_by_id = {unit["unit_id"]: unit for unit in self.units}
         self.read_source_ids = set()
+        self.read_source_ranges = {}
         self.adjudication_context = None
         self.adjudication_source_reads = {}
         # A source may appear in several units only if the unit grouping put it
@@ -190,6 +191,7 @@ class SourceIndex:
             if end <= start:
                 raise ToolError("READ_RANGE_EMPTY")
             self.read_source_ids.add(source_id)
+            self.read_source_ranges.setdefault(source_id, []).append((start, end))
             if self.adjudication_context:
                 current = self.adjudication_context["checkpoint"]
                 comparator = self.adjudication_context["comparator"]

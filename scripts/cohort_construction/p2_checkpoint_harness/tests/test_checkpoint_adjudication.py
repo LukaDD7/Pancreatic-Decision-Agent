@@ -999,6 +999,9 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
         with self.assertRaisesRegex(ToolError, "CURRENT_CHECKPOINT_SOURCE_NOT_READ"):
             store.adjudicate(**call)
+        registry.get("read_source").run("S-CURRENT", start=3)
+        with self.assertRaisesRegex(ToolError, "CURRENT_CHECKPOINT_SOURCE_NOT_FULLY_READ"):
+            store.adjudicate(**call)
         registry.get("read_source").run("S-CURRENT")
         self.assertNotIn("S-CT", store.source_index.read_source_ids)
         item = store.adjudicate(**call)["item"]

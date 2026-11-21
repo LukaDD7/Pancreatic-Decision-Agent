@@ -54,7 +54,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 
 先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，全部完成后finish。
 
-程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再read_source读取至少一份当前来源原文。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
+程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
 
 RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生变化的患者信息，且承载该信息的当前来源不晚于当前CP。证据演化与原始来源是否交付是两个维度：可以来自本院原始报告、外院证据，或当前文书对新增检查的复述。当前文书明确记载comparator之后的新检查、治疗经过或疗效变化时，即使原报告未交付，也可引用该复述并设置evidence_source_status=EXTERNAL_RESTATEMENT或UNATTRIBUTED_RESTATEMENT；程序自动生成来源及时间待核标签，不因原报告缺失否定证据演化或删除CP。
 
@@ -797,6 +797,14 @@ class CheckpointAdjudicationStore:
             raise ToolError(
                 "CURRENT_CHECKPOINT_SOURCE_NOT_READ: 提交前必须read_source读取当前CP的"
                 "至少一份来源原文：" + ",".join(sorted(source_ids)))
+        fully_read = {
+            source_id for source_id in source_ids
+            if (0, len(self.source_index.require(source_id).get("text") or ""))
+            in self.source_index.read_source_ranges.get(source_id, [])}
+        if not fully_read:
+            raise ToolError(
+                "CURRENT_CHECKPOINT_SOURCE_NOT_FULLY_READ: 至少一份当前CP来源必须从start=0"
+                "完整读取至文末（end省略），不能用局部片段代替全文判断：" + ",".join(sorted(source_ids)))
 
     def _require_interval_review(self, checkpoint, comparator, disposition,
                                  evolution, evidence_supports):
