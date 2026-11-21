@@ -447,6 +447,8 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         skill = SkillRegistry([root]).load("checkpoint-adjudication")
         self.assertIn("最少必要读取", skill.body)
         self.assertIn("search_checkpoint_sources", skill.body)
+        self.assertIn("SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE", skill.body)
+        self.assertIn("不得原样重复提交", adjudication.ADJUDICATION_SYSTEM_PROMPT)
 
     def test_management_comparator_reuses_prior_current_detail_read(self):
         first_text = "拟行手术。"
@@ -1345,6 +1347,8 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertIn("S-MR-NEW", str(caught.exception))
         self.assertIn("S-MR-OLD", str(caught.exception))
         self.assertIn("匹配候选", str(caught.exception))
+        self.assertIn("下一步必须read_source", str(caught.exception))
+        self.assertIn("不得原样重复提交", str(caught.exception))
         item = store.adjudicate(
             checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
             evolution="NEW_EVIDENCE_ROUND",

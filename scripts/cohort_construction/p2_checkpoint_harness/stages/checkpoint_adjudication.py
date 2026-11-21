@@ -60,7 +60,8 @@ RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生�
 
 新动作、新计划、转科和执行本身不是证据演化；comparator已有报告及其副本、后续文书对同一旧报告的复述和未来报告也不能作为新增证据。若原始报告可找到，仍须核对并引用原始报告，不能用后一份文书给旧证据重新定时。只有证据是否新增、先后关系或同刻顺序确实无法判断时才用REVIEW_REQUIRED+UNCERTAIN；该状态也会保留独立候选CP，不等于归并或删除。
 
-evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、来源时钟、报告身份、引文和span重叠；未来检查计划等与当前目标管理动作重叠的引文必须拒绝，不能靠关键词改判临床真值。逐项提交后立即继续，不要反复重新列出全部CP。"""
+evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、来源时钟、报告身份、引文和span重叠；未来检查计划等与当前目标管理动作重叠的引文必须拒绝，不能靠关键词改判临床真值。逐项提交后立即继续，不要反复重新列出全部CP。
+若返回SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE，下一步必须read_source错误中列出的匹配候选，核对后用原始报告source_id和原文quote替换复述引文；不得原样重复提交。若原报告不能证明严格晚于comparator或无法支持证据演化，改判SUPPORT_ONLY；来源或关系确实不明时改REVIEW_REQUIRED+UNCERTAIN，不得继续用旧复述重试。"""
 
 
 def _event_id(candidate, index):
@@ -360,8 +361,10 @@ class CheckpointAdjudicationStore:
         if matched_original_ids:
             raise ToolError(
                 "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE: 引文与当前时点已可见的"
-                "原始报告内容匹配，不能用后一份文书重新定时；请改为核对并引用原始报告，"
-                "原始报告仍需满足严格晚于comparator。匹配候选："
+                "原始报告内容匹配，不能用后一份文书重新定时。下一步必须read_source下列匹配候选，"
+                "核对后用原始报告source_id和原文quote替换复述引文，不得原样重复提交；"
+                "原报告仍需严格晚于comparator，否则改SUPPORT_ONLY，来源或关系不明时改"
+                "REVIEW_REQUIRED+UNCERTAIN。匹配候选："
                 + ",".join(matched_original_ids[:5]))
 
     def _evidence(self, checkpoint, citations, *, disposition, evolution, comparator=None):

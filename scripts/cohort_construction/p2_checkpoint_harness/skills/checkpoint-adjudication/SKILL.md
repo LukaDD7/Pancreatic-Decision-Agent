@@ -44,4 +44,4 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 - `evidence_source_status`：原始/本院证据用 `ORIGINAL_OR_LOCAL_SOURCE`；外院复述用 `EXTERNAL_RESTATEMENT`；来源不明复述用 `UNATTRIBUTED_RESTATEMENT`。来源待核标签由程序生成，其他具体待核事项用 `review_tags`。
 - 每次只处理一个CP，取得所需读取结果后在后续工具批次单独提交裁决，不能把读取和裁决放在同一批；提交成功后立即继续，不反复列出全部CP，全部完成后 `finish`。
 
-程序拒绝时先读错误所指的对象，不要只更换一段相似文字重试。程序接受仍只是研究候选通过结构核验，不是专家临床确认。
+程序拒绝时先读错误所指的对象，不要只更换一段相似文字重试。若收到 `SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE`，下一步必须 `read_source` 错误列出的匹配候选，用原始报告的 `source_id` 和逐字 `quote` 替换复述引文，不得原样重复提交；原报告不能证明严格晚于comparator或无法支持证据演化时改 `SUPPORT_ONLY`，来源或关系确实不明时改 `REVIEW_REQUIRED+UNCERTAIN`。程序接受仍只是研究候选通过结构核验，不是专家临床确认。
