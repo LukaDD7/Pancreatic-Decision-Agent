@@ -26,10 +26,11 @@ from .candidate_checkpoints import (
     _valid_span,
     validate_candidate_spans,
 )
+from .actions import canonical_action, get_action
 from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.3.5"
+PROJECTION_VERSION = "management-trajectory-0.3.6"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
@@ -61,6 +62,10 @@ ADJUDICATION_EVOLUTIONS = {
     "FIRST_VISIBLE", "NEW_EVIDENCE_ROUND", "SAME_ROUND_SUPPORT", "REPEATED_PLAN",
     "EXECUTION", "DIFFERENT_TASK", "UNCERTAIN",
 }
+ACTION_REVIEW_FLAG = "ACTION_TASK_MISMATCH_REVIEW_REQUIRED"
+ACTION_REVIEW_ACTOR = "case_level_action_review_llm"
+ACTION_REVIEW_DISPOSITIONS = {"REMOVE_INDEPENDENT_CP", "RETAIN_CP_WITH_ACTION"}
+ACTION_REVIEW_REMOVE_REASON = "CASE_LEVEL_ACTION_REVIEW_REMOVE_INDEPENDENT_CP"
 
 
 def _provenance(**values):
@@ -143,6 +148,19 @@ def _candidate_clock(item):
             or _value((item["source"] or {}).get("clock")))
 
 
+def _attach_action_review(checkpoint, review):
+    checkpoint["original_candidate_actions"] = deepcopy(
+        review["original_candidate_actions"])
+    reviewed = deepcopy(review)
+    reviewed["provenance"] = dict(
+        actor=ACTION_REVIEW_ACTOR,
+        source="checkpoint_adjudication.action_reviews",
+        clinical_reference_created=False)
+    checkpoint["action_review"] = reviewed
+    checkpoint["action_review_provenance"] = deepcopy(reviewed["provenance"])
+    checkpoint.setdefault("provenance", {})["action_review_actor"] = ACTION_REVIEW_ACTOR
+
+
 def _state_token(candidate):
     return deepcopy(dict(
         evidence_state_id=candidate.get("evidence_state_id"),
@@ -191,6 +209,14 @@ def _routine_postoperative(item, operation_start):
 
 def _preoperative_action_conflict(candidate):
     action = candidate.get("candidate_action") or {}
+    action_id = action.get("action_id")
+    if action_id:
+        try:
+            dictionary_action = get_action(action_id)
+        except ValueError:
+            pass
+        else:
+            return "POSTOPERATIVE_TRAJECTORY" not in dictionary_action["allowed_phases"]
     if action.get("phase") in PHASES - {"POSTOPERATIVE_TRAJECTORY"}:
         return True
     action_type = (action.get("action_type") or "").lower()
@@ -806,6 +832,181 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
     return projected, drafts, migrations
 
 
+def _action_review_phase(checkpoint, task_time_bounds):
+    primary = checkpoint.get("primary_evaluation_eligible")
+    if primary is None:
+        primary = _evaluation_scope(
+            _value(checkpoint.get("clock")),
+            _value(task_time_bounds.get("operation_start"))
+        )["primary_evaluation_eligible"]
+    if primary is False:
+        return "POSTOPERATIVE_TRAJECTORY"
+    explicit = [action.get("phase") for action in checkpoint.get("candidate_actions") or []
+                if action.get("phase") in PHASES]
+    return explicit[0] if explicit else "INITIAL_RESECTABILITY_ASSESSMENT"
+
+
+def _validate_action_review(review, checkpoint, *, management, task_time_bounds):
+    checkpoint_id = review.get("checkpoint_id")
+    if review.get("operation_start") != task_time_bounds.get("operation_start"):
+        raise ValueError("action review operation_start mismatch: %s" % checkpoint_id)
+    expected_source_ids = sorted({
+        item["source_id"] for item in task_time_bounds.get("evidence") or []
+        if isinstance(item, dict) and isinstance(item.get("source_id"), str)
+        and item["source_id"]})
+    operation_source_ids = review.get("operation_source_ids")
+    if not expected_source_ids or not isinstance(operation_source_ids, list) \
+            or not operation_source_ids \
+            or not all(isinstance(item, str) for item in operation_source_ids) \
+            or operation_source_ids != sorted(set(operation_source_ids)) \
+            or set(operation_source_ids) != set(expected_source_ids):
+        raise ValueError("action review operation_source_ids mismatch: %s" % checkpoint_id)
+    if review.get("actor") != ACTION_REVIEW_ACTOR:
+        raise ValueError("invalid action review actor: %s" % checkpoint_id)
+    if review.get("source_reads_verified") is not True:
+        raise ValueError("action review source reads not verified: %s" % checkpoint_id)
+    if not isinstance(review.get("rationale"), str) or not review["rationale"].strip():
+        raise ValueError("action review rationale required: %s" % checkpoint_id)
+    trigger_flags = review.get("trigger_flags")
+    if not isinstance(trigger_flags, list) or ACTION_REVIEW_FLAG not in trigger_flags:
+        raise ValueError("action review trigger flag missing: %s" % checkpoint_id)
+    if ACTION_REVIEW_FLAG not in (checkpoint.get("review_flags") or []):
+        raise ValueError("action review checkpoint lacks trigger flag: %s" % checkpoint_id)
+    original_actions = review.get("original_candidate_actions")
+    if not isinstance(original_actions, list) \
+            or original_actions != (checkpoint.get("candidate_actions") or []):
+        raise ValueError("action review original candidate actions mismatch: %s"
+                         % checkpoint_id)
+    disposition = review.get("disposition")
+    if disposition not in ACTION_REVIEW_DISPOSITIONS:
+        raise ValueError("unknown action review disposition: %s" % disposition)
+    if management and disposition == "REMOVE_INDEPENDENT_CP":
+        raise ValueError("cannot remove management CP by action review: %s" % checkpoint_id)
+    action = review.get("candidate_action")
+    if disposition == "REMOVE_INDEPENDENT_CP":
+        if action is not None:
+            raise ValueError("removed action review must not retain an action: %s"
+                             % checkpoint_id)
+        return
+    if not isinstance(action, dict):
+        raise ValueError("retained action review requires candidate_action: %s"
+                         % checkpoint_id)
+    try:
+        expected = canonical_action(
+            action.get("action_id"), target=action.get("target"),
+            phase=_action_review_phase(checkpoint, task_time_bounds))
+    except ValueError as error:
+        raise ValueError("invalid action review candidate_action: %s: %s"
+                         % (checkpoint_id, error)) from error
+    if set(action) != set(expected) or action != expected:
+        raise ValueError("action review candidate_action is not canonical: %s"
+                         % checkpoint_id)
+
+
+def _reviewed_action(review, event_id):
+    action = deepcopy(review["candidate_action"])
+    action.update(
+        rationale=review["rationale"], actor=ACTION_REVIEW_ACTOR,
+        review_source="checkpoint_adjudication.action_reviews",
+        answer_prefilled=False, clinical_reference_created=False,
+        event_id=event_id)
+    return action
+
+
+def _apply_action_reviews(projected_diagnostics, diagnostic_drafts,
+                          diagnostic_migrations, checkpoint_adjudications,
+                          task_time_bounds):
+    raw_reviews = (checkpoint_adjudications.get("action_reviews", [])
+                   if isinstance(checkpoint_adjudications, dict) else [])
+    if not isinstance(raw_reviews, list):
+        raise ValueError("checkpoint_adjudications.action_reviews must be a list")
+    reviews = []
+    seen = set()
+    for original in raw_reviews:
+        if not isinstance(original, dict):
+            raise ValueError("action review items must be dicts")
+        review = deepcopy(original)
+        checkpoint_id = review.get("checkpoint_id")
+        if not isinstance(checkpoint_id, str) or not checkpoint_id:
+            raise ValueError("action review checkpoint_id required")
+        if checkpoint_id in seen:
+            raise ValueError("duplicate action review: %s" % checkpoint_id)
+        seen.add(checkpoint_id)
+        reviews.append(review)
+
+    diagnostic_by_id = {
+        draft["checkpoint"]["checkpoint_id"]: draft for draft in diagnostic_drafts}
+    required_ids = {checkpoint_id for checkpoint_id, draft in diagnostic_by_id.items()
+                    if ACTION_REVIEW_FLAG in (draft["checkpoint"].get("review_flags") or [])}
+    removed_diagnostic_ids = set()
+    deferred = []
+    reviewed_ids = set()
+    dispositions = Counter()
+    for review in reviews:
+        checkpoint_id = review["checkpoint_id"]
+        draft = diagnostic_by_id.get(checkpoint_id)
+        if draft is None:
+            deferred.append(review)
+            continue
+        checkpoint = draft["checkpoint"]
+        _validate_action_review(
+            review, checkpoint, management=False, task_time_bounds=task_time_bounds)
+        reviewed_ids.add(checkpoint_id)
+        dispositions[review["disposition"]] += 1
+        if review["disposition"] == "RETAIN_CP_WITH_ACTION":
+            _attach_action_review(checkpoint, review)
+            checkpoint["candidate_actions"] = [_reviewed_action(
+                review, checkpoint["diagnostic_event_ids"][0])]
+            continue
+        removed_diagnostic_ids.add(checkpoint_id)
+        kind = checkpoint["kind"]
+        for event_id in draft["diagnostic_event_ids"]:
+            migration = next(item for item in diagnostic_migrations
+                             if item["event_id"] == event_id and item["node_kind"] == kind)
+            migration.update(
+                migration_status="CONTEXT_ONLY", status="CONTEXT_ONLY",
+                reason=ACTION_REVIEW_REMOVE_REASON, to_checkpoint_id=None)
+            event = next(item for item in projected_diagnostics
+                         if item["event_id"] == event_id)
+            event["candidate_checkpoint_ids"][kind] = None
+            for audit in event["generation_audits"]:
+                if audit["node_kind"] == kind:
+                    audit.update(
+                        generated=False, checkpoint_id=None,
+                        reason=ACTION_REVIEW_REMOVE_REASON)
+
+    retained_diagnostics = [draft for draft in diagnostic_drafts
+                            if draft["checkpoint"]["checkpoint_id"]
+                            not in removed_diagnostic_ids]
+    audit = dict(required_ids=required_ids, reviewed_ids=reviewed_ids,
+                 dispositions=dispositions, deferred=deferred)
+    return retained_diagnostics, audit
+
+
+def _apply_management_action_reviews(management_drafts, action_review_audit,
+                                     task_time_bounds):
+    management_by_id = {
+        draft["checkpoint"]["checkpoint_id"]: draft for draft in management_drafts}
+    action_review_audit["required_ids"].update(
+        checkpoint_id for checkpoint_id, draft in management_by_id.items()
+        if ACTION_REVIEW_FLAG in (draft["checkpoint"].get("review_flags") or []))
+    for review in action_review_audit["deferred"]:
+        checkpoint_id = review["checkpoint_id"]
+        draft = management_by_id.get(checkpoint_id)
+        if draft is None:
+            raise ValueError("unknown action review checkpoint: %s" % checkpoint_id)
+        checkpoint = draft["checkpoint"]
+        _validate_action_review(
+            review, checkpoint, management=True, task_time_bounds=task_time_bounds)
+        action_review_audit["reviewed_ids"].add(checkpoint_id)
+        action_review_audit["dispositions"][review["disposition"]] += 1
+        _attach_action_review(checkpoint, review)
+        event_ids = checkpoint.get("member_event_ids") or []
+        checkpoint["candidate_actions"] = [_reviewed_action(
+            review, event_ids[0] if event_ids else None)]
+    return management_drafts
+
+
 def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
                                       migration_by_event):
     retained = []
@@ -1298,8 +1499,13 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
     evidence_arrivals = sorted({_value(draft["checkpoint"]["clock"])
                                 for draft in diagnostic_drafts
                                 if draft["checkpoint"]["kind"] == AFTER} - {None})
+    diagnostic_drafts, action_review_audit = _apply_action_reviews(
+        projected_diagnostics, diagnostic_drafts, diagnostic_migrations,
+        checkpoint_adjudications, task_time_bounds)
     management_drafts = _group_management(
         case_id, prepared, migration_by_event, evidence_arrivals)
+    management_drafts = _apply_management_action_reviews(
+        management_drafts, action_review_audit, task_time_bounds)
     management_drafts = _apply_checkpoint_adjudications(
         management_drafts, diagnostic_drafts, migration_by_event,
         checkpoint_adjudications)
@@ -1323,6 +1529,11 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
     candidate_migrations = [item for item in migrations
                             if item["migration_type"] == "candidate_span"]
     diagnostic_count = len(diagnostic_events) * 2
+    action_reviewed_ids = action_review_audit["reviewed_ids"]
+    action_review_required_ids = action_review_audit["required_ids"]
+    missing_action_review_ids = sorted(action_review_required_ids - action_reviewed_ids)
+    action_review_disposition_counts = dict(sorted(
+        action_review_audit["dispositions"].items()))
     summary = dict(
         format_version=PROJECTION_VERSION,
         candidate_input_count=len(candidates),
@@ -1337,6 +1548,14 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
         action_cycle_count=len(cycles),
         evidence_state_count=len(states),
         diagnostic_review_count=len(diagnostic_reviews or []),
+        action_review_count=len(action_reviewed_ids),
+        action_reviewed_count=len(action_reviewed_ids),
+        action_reviewed_checkpoint_ids=sorted(action_reviewed_ids),
+        action_review_disposition_counts=action_review_disposition_counts,
+        action_review_required_count=len(action_review_required_ids),
+        action_review_required_ids=sorted(action_review_required_ids),
+        missing_action_review_count=len(missing_action_review_ids),
+        missing_action_review_checkpoint_ids=missing_action_review_ids,
         diagnostic_events_with_multiple_checkpoints=sum(
             1 for event in projected_diagnostics
             if len({checkpoint_id for checkpoint_id in event["candidate_checkpoint_ids"].values()

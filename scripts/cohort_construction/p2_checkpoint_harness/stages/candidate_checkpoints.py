@@ -11,6 +11,8 @@ from collections import Counter
 import hashlib
 import json
 
+from .actions import action_ids, dictionary_hash, dictionary_version, load_dictionary
+
 
 PROJECTION_VERSION = "candidate-checkpoint-reprojection-0.4.0"
 PRIMARY_EVALUATION_SCOPE = "PRIMARY_TASK_PREOPERATIVE_OR_NAT_REASSESSMENT"
@@ -114,10 +116,14 @@ def _operation_day_order_unknown(clock, operation_start):
 
 def _action_space():
     plan_statuses = ["ACTIONS_PROPOSED", "NO_NEW_ACTION", "ABSTAIN"]
+    dictionary = load_dictionary()
     return dict(
-        schema_version="management-action-plan-0.2.0",
+        schema_version="management-action-plan-0.3.0",
         modes=list(MODES),
         plan_statuses=plan_statuses,
+        dictionary_version=dictionary_version(dictionary=dictionary),
+        dictionary_hash=dictionary_hash(dictionary=dictionary),
+        dictionary_status="DRAFT_NOT_CLINICAL_REFERENCE",
         action_plan_schema=dict(
             type="object", additionalProperties=False,
             required=["plan_status", "actions", "rationale"],
@@ -128,11 +134,14 @@ def _action_space():
                     type="array",
                     items=dict(
                         type="object", additionalProperties=False,
-                        required=["action_type", "target"],
+                        required=["action_id"],
                         properties=dict(
-                            action_id=dict(type="string", minLength=1),
-                            action_type=dict(type="string", minLength=1),
-                            target=dict(type="string", minLength=1),
+                            action_id=dict(type="string", enum=action_ids(dictionary=dictionary), description=(
+                                "必填规范动作ID；OTHER_SPECIFIED 需要具体 target。")),
+                            action_type=dict(type="string", minLength=1, description=(
+                                "由程序按 action_id 从字典展开，不由作答者另造规范类型。")),
+                            target=dict(type="string", minLength=1, description=(
+                                "由程序按 action_id 从字典展开；OTHER_SPECIFIED 使用具体指定目标。")),
                             timing=dict(type="string", minLength=1),
                             uncertainty_addressed=dict(type="string", minLength=1),
                             dependencies=dict(type="array", items=dict(type="string")),

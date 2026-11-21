@@ -59,7 +59,7 @@ class StubTransport:
             return (dict(tool_calls=[dict(
                 id="p1", name="propose_candidate", arguments=dict(
                     local_id="e1", scope="yes", record_function="new_decision",
-                    action_type="ORDER_DIAGNOSTIC_TEST", target="增强CT",
+                    action_id="DIAG_PANCREATIC_CONTRAST_CT",
                     source_id="SYN-1",
                     quote="临床团队决定完善增强CT后评估手术"))]),
                 dict(usage=dict(prompt_tokens=7, completion_tokens=3)))

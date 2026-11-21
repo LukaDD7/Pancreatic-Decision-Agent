@@ -7,6 +7,7 @@ from scripts.cohort_construction.p2_checkpoint_harness.harness import (
     Harness, HarnessConfig,
 )
 from scripts.cohort_construction.p2_checkpoint_harness.pipeline import CaseRunner
+from scripts.cohort_construction.p2_checkpoint_harness.stages.actions import action_ids
 from scripts.cohort_construction.p2_checkpoint_harness.stages.discovery import build_prompt
 from scripts.cohort_construction.p2_checkpoint_harness.tests.test_pipeline import (
     StubTransport, _finish, _proposal,
@@ -41,12 +42,16 @@ class DiagnosticReviewToolTests(unittest.TestCase):
         tool = store.tool_review_diagnostic_candidate()
         pre = tool.run(candidate_kind="pre_exam_evaluation", disposition="yes",
                        reason="检查安排可用于评估根治路径",
+                       action_id="DIAG_PANCREATIC_CONTRAST_CT",
                        action_type="perform_diagnostic_test", target="增强CT")
         post = tool.run(candidate_kind="evidence_arrival_reassessment",
                         disposition="uncertain", reason="尚无明确可作答的后续动作")
         self.assertTrue(pre["review_id"].startswith("DR-"))
         self.assertNotEqual(pre["review_id"], post["review_id"])
-        self.assertEqual(pre["candidate_action"]["target"], "增强CT")
+        self.assertEqual(pre["candidate_action"]["target"], "胰腺增强CT扫描")
+        self.assertEqual(pre["candidate_action"]["original_target"], "增强CT")
+        self.assertEqual(pre["candidate_action"]["original_action_type"],
+                         "perform_diagnostic_test")
         tool.run(candidate_kind="pre_exam_evaluation", disposition="no",
                  reason="修订：当前候选不属于研究任务")
         summary = store.summary()
@@ -58,7 +63,8 @@ class DiagnosticReviewToolTests(unittest.TestCase):
         self.assertEqual(summary["diagnostic_missing_candidate_kinds"], [])
         revision = store.diagnostic_revisions[0]
         self.assertEqual(revision["previous_disposition"], "yes")
-        self.assertEqual(revision["previous_record"]["candidate_action"]["target"], "增强CT")
+        self.assertEqual(revision["previous_record"]["candidate_action"]["target"],
+                         "胰腺增强CT扫描")
         self.assertIn("不是专家真值", post["note"])
 
     def test_picc_is_explicitly_rejected_for_rationale_not_keyword_filter(self):
@@ -69,14 +75,17 @@ class DiagnosticReviewToolTests(unittest.TestCase):
         self.assertEqual(result["disposition"], "no")
         self.assertIsNone(result["candidate_action"])
 
-    def test_yes_requires_action_type_and_target(self):
+    def test_yes_requires_action_id_and_other_requires_specific_target(self):
         tool = _store().tool_review_diagnostic_candidate()
-        with self.assertRaisesRegex(ToolError, "DIAGNOSTIC_ACTION_TYPE_REQUIRED"):
+        with self.assertRaisesRegex(ToolError, "DIAGNOSTIC_ACTION_ID_REQUIRED"):
             tool.run(candidate_kind="pre_exam_evaluation", disposition="yes",
                      reason="需要检查", target="增强CT")
-        with self.assertRaisesRegex(ToolError, "DIAGNOSTIC_ACTION_TARGET_REQUIRED"):
+        with self.assertRaisesRegex(ToolError, "ACTION_TARGET_REQUIRED_FOR_OTHER_SPECIFIED"):
             tool.run(candidate_kind="evidence_arrival_reassessment", disposition="yes",
-                     reason="需要重新评估", action_type="reassess_resectability")
+                     reason="需要额外动作", action_id="OTHER_SPECIFIED")
+        with self.assertRaisesRegex(ToolError, "ACTION_TARGET_ABSTRACT_FOR_OTHER_SPECIFIED"):
+            tool.run(candidate_kind="evidence_arrival_reassessment", disposition="yes",
+                     reason="抽象目标不够", action_id="OTHER_SPECIFIED", target="完善检查")
 
     def test_reason_is_required_for_every_disposition(self):
         tool = _store().tool_review_diagnostic_candidate()
@@ -85,7 +94,7 @@ class DiagnosticReviewToolTests(unittest.TestCase):
                 with self.assertRaisesRegex(ToolError, "DIAGNOSTIC_REVIEW_REASON_REQUIRED"):
                     tool.run(candidate_kind="pre_exam_evaluation",
                              disposition=disposition, reason=" ",
-                             action_type="perform_diagnostic_test", target="增强CT")
+                             action_id="DIAG_PANCREATIC_CONTRAST_CT")
 
     def test_non_diagnostic_unit_cannot_call_or_spoof_unit_id(self):
         store = _store("document")
@@ -108,15 +117,21 @@ class ManagementActionTests(unittest.TestCase):
         tool = store.tool_propose_candidate()
         for function in ("new_decision", "reassessment"):
             with self.subTest(function=function):
-                with self.assertRaisesRegex(ToolError, "CANDIDATE_ACTION_TYPE_REQUIRED"):
+                with self.assertRaisesRegex(ToolError, "CANDIDATE_ACTION_ID_REQUIRED"):
                     tool.run(local_id=function, scope="yes", record_function=function,
                              source_id="S-I", quote=REPORT, target="增强CT")
         result = tool.run(local_id="decision", scope="yes", record_function="new_decision",
                           source_id="S-I", quote=REPORT,
+                          action_id="DIAG_PANCREATIC_CONTRAST_CT",
                           action_type="reassess_resectability", target="胰头肿瘤")
         self.assertTrue(result["accepted"])
-        self.assertEqual(store.proposals["decision"]["record"]["candidate_action"],
-                         dict(action_type="reassess_resectability", target="胰头肿瘤"))
+        action = store.proposals["decision"]["record"]["candidate_action"]
+        self.assertEqual(action["action_id"], "DIAG_PANCREATIC_CONTRAST_CT")
+        self.assertEqual(action["action_type"], "ORDER_DIAGNOSTIC_TEST")
+        self.assertEqual(action["target"], "胰腺增强CT扫描")
+        self.assertEqual(action["original_action_type"], "reassess_resectability")
+        self.assertEqual(action["original_target"], "胰头肿瘤")
+        self.assertEqual(tool.input_schema["properties"]["action_id"]["enum"], action_ids())
 
     def test_scope_no_does_not_need_an_action(self):
         result = _store("document").tool_propose_candidate().run(
@@ -148,20 +163,17 @@ class DiagnosticPipelineTests(unittest.TestCase):
                                           arguments=dict(
                                               candidate_kind="pre_exam_evaluation",
                                               disposition="yes", reason="检查可用于根治路径评估",
-                                              action_type="perform_diagnostic_test",
-                                              target="增强CT"))]),
+                                              action_id="DIAG_PANCREATIC_CONTRAST_CT"))]),
                     dict(tool_calls=[dict(id="pre-revision", name="review_diagnostic_candidate",
                                           arguments=dict(
                                               candidate_kind="pre_exam_evaluation",
                                               disposition="yes", reason="修订：检查可用于根治路径评估",
-                                              action_type="perform_diagnostic_test",
-                                              target="增强CT"))]),
+                                              action_id="DIAG_PANCREATIC_CONTRAST_CT"))]),
                     dict(tool_calls=[dict(id="post", name="review_diagnostic_candidate",
                                           arguments=dict(
                                               candidate_kind="evidence_arrival_reassessment",
                                               disposition="yes", reason="报告后可重新评估可切除性",
-                                              action_type="reassess_resectability",
-                                              target="胰头肿瘤",
+                                              action_id="REVIEW_MDT",
                                               management_question="是否仍可按根治路径推进"))]),
                     _finish("report-finish"),
                 ]), config=HarnessConfig(context_window=1_000_000))
@@ -169,8 +181,12 @@ class DiagnosticPipelineTests(unittest.TestCase):
             runner = CaseRunner(harness=harness, sources=[document, report],
                                 units=[document_unit, report_unit], case_id="SYN")
             runner.run_discovery()
-            self.assertEqual(runner.events[0]["candidate_action"],
-                             dict(action_type="clinical_management", target="胰十二指肠切除术"))
+            self.assertEqual(runner.events[0]["candidate_action"]["action_id"],
+                             "SURG_PANCREATICODUODENECTOMY")
+            self.assertEqual(runner.events[0]["candidate_action"]["action_type"],
+                             "SURGICAL_RESECTION")
+            self.assertEqual(runner.events[0]["candidate_action"]["target"],
+                             "实施胰十二指肠切除术")
             self.assertEqual(len(runner.diagnostic_reviews), 2)
             artifacts = runner.artifacts()
             self.assertEqual(artifacts["diagnostic_candidate_reviews"],
@@ -201,6 +217,8 @@ class DiagnosticPipelineTests(unittest.TestCase):
         self.assertIn("不要另传 unit_id", prompt)
         self.assertIn("不得因缺少医嘱、指征或部署句而 uncertain", prompt)
         self.assertIn("不要求报告已写明管理决定", prompt)
+        self.assertIn("action_id", prompt)
+        self.assertIn("仅 OTHER_SPECIFIED 另填具体 target", prompt)
 
 
 if __name__ == "__main__":

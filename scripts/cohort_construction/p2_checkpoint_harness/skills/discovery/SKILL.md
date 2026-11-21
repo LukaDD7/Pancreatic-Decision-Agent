@@ -23,10 +23,15 @@ description: 如何逐项定位病历中的候选管理判断表述，而不提�
 - 一个实际 `source_id`；
 - 同一来源内逐字、连续、非空的 `quote` 与字符区间 `[start, end)`；
 - 发现阶段 LLM 的 `record_function` 和 `scope`；
-- `scope=yes` 且 `record_function=new_decision/reassessment` 时必填的 `action_type`、`target`；
+- `scope=yes` 且 `record_function=new_decision/reassessment` 时，从工具枚举中选择的 `action_id`；
+- 仅 `OTHER_SPECIFIED` 需要另填的具体 `target`；
 - 必要的简短 `rationale`、`reason` 或 `uncertainty`。
 
-动作字段描述该候选对应的结构化动作类型与目标，不替代或改写 quote，也不是专家拟定的动作方案。
+程序按 `action_id` 从 `configs/action_dictionary.v0.2.draft.json` 展开规范 `action_type/target`，
+其他条目不要重复填写一套目标。旧自由文本如仍传入，只保留为 `original_action_type/original_target`
+供谱系审计，不覆盖规范字段。`OTHER_SPECIFIED` 的目标必须具体，不能只写“完善检查”“综合治疗”
+“手术评估”“可切除性再评估”等抽象词。动作字典是 `DRAFT_NOT_CLINICAL_REFERENCE`，不是患者
+必做套餐、临床推荐或已冻结动作集。动作字段不替代或改写 quote，也不是专家拟定的动作方案。
 `scope=no` 不需要动作字段。
 
 quote 应包含复现该管理判断所需的部署、条件、指征或限制，不要只摘措施名，也不要为了扩大
@@ -65,7 +70,7 @@ quote 应包含复现该管理判断所需的部署、条件、指征或限制�
 
 ## 5 不在这里做的工作
 
-- 除上述结构化 `action_type`、`target` 外，不改写管理句，不填写 `prechoice_quotes`、
+- 除上述 `action_id` 及兜底动作的具体 `target` 外，不改写管理句，不填写 `prechoice_quotes`、
   `postchoice_quotes`、`choice_time` 或证据使用关系；原文本身是候选依据。
 - 不用文书记录时间、检查时间或执行时间冒充临床团队的选择时刻。程序保存的是实际来源的
   检索时钟，供后续排序参考。
@@ -80,12 +85,13 @@ quote 应包含复现该管理判断所需的部署、条件、指征或限制�
 `review_diagnostic_candidate`。两类各提交一次 `disposition=yes/no/uncertain` 和具体 `reason`，
 不能只依赖程序证据索引而跳过审核。工具从构造状态取得当前单位，不接受 Agent 传入 `unit_id`。
 
-- 审核以动作为中心。检查前候选的 `target` 可依据报告类型写为增强CT、MRI、病理等；
+- 审核以动作为中心。检查前候选可依据报告类型选择增强CT、MR、EUS等具体 `action_id`；
   不得因此捏造临床团队选择检查的原因。只要检查本身属于 PDAC 根治路径可评价的补证动作，
   就为 `yes`；不得因报告没有医嘱、选择时间、指征或部署句而判 `uncertain`。
 - 报告后候选只要能根据新证据提出可作答的 PDAC 根治路径后续动作，就为 `yes`，并提交
-  `action_type`、`target`，可选 `management_question`。不要求报告原文已写出管理决定；
-  该动作只是待评审提议，不能冒充病历记载的临床团队决策。异常所见无法形成根治路径动作时才排除或待核。
+  `action_id`；仅 `OTHER_SPECIFIED` 另填具体 `target`，可选 `management_question`。
+  不要求报告原文已写出管理决定；该动作只是待评审提议，不能冒充病历记载的临床团队决策。
+  异常所见无法形成根治路径动作时才排除或待核。
 - PICC 置管等输液通路安排若不属于 PDAC 根治路径，明确 `no`，并在 `reason` 中写明
   “输液通路不属于PDAC根治路径”等范围外理由。这是 Discovery LLM 的判断，不是程序关键词过滤。
 - 不能确定时用 `uncertain` 并说明不确定性。重复提交同一类会替代当前审核并保留修订记录。

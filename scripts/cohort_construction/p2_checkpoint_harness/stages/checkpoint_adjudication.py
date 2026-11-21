@@ -16,9 +16,12 @@ from ..tools import Tool, ToolError
 from ..tools.proposals import ProposalStore
 from ..tools.sources import SourceIndex
 from .ordering import compare
+from .actions import (
+    action_ids_for_phase, canonical_action, get_action, PHASES,
+)
 
 
-ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.3"
+ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.3.0"
 MANAGEMENT_KIND = "MANAGEMENT_REASSESSMENT"
 RETAIN = "RETAIN_CP"
 SUPPORT = "SUPPORT_ONLY"
@@ -48,11 +51,17 @@ INTERVAL_STATUSES = {
 }
 INTERVAL_READ_STATUSES = {"READ_AND_USED", "READ_NOT_NEW"}
 ACTOR = "case_level_adjudication_llm"
+ACTION_REVIEW_ACTOR = "case_level_action_review_llm"
+ACTION_REVIEW_FLAG = "ACTION_TASK_MISMATCH_REVIEW_REQUIRED"
+REMOVE_ACTION_CP = "REMOVE_INDEPENDENT_CP"
+RETAIN_ACTION_CP = "RETAIN_CP_WITH_ACTION"
+ACTION_DISPOSITIONS = {REMOVE_ACTION_CP, RETAIN_ACTION_CP}
 
-ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
+ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，先复审程序标记的候选动作与任务阶段冲突，再审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
-先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，全部完成后finish。
+先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints及其review_flags。凡review_flags含ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，read_source从start=0完整读取至少一份当前来源及至少一份手术记录原文；若结果被spill为头尾预览，必须用read_spilled分页读完locator，再调用一次review_checkpoint_action。复审只能REMOVE_INDEPENDENT_CP撤销无独立评价任务的诊断CP，或RETAIN_CP_WITH_ACTION从动作字典选择一个具体action_id；管理CP不能由本工具删除。已撤销诊断CP立即退出后续comparator，程序自动重接最近保留状态。
+动作复审全部完成后，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，其他诊断CP不需要证据演化裁决，全部完成后finish。
 
 程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。若上下文返回timed_interval_report_groups，必须逐组read_source其representative_source_id，核对程序已确定落在当前区间的原始报告；区间内检验已合并为一个批次，只需读取一个最新异常代表项，不代表已阅读所有检验项目，不得声称未看到新报告。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
 
@@ -105,6 +114,11 @@ class AdjudicationCheckpointIndex:
     def management_ids(self):
         return [checkpoint["checkpoint_id"] for checkpoint in self.checkpoints
                 if checkpoint.get("kind") == MANAGEMENT_KIND]
+
+    @property
+    def action_review_ids(self):
+        return [checkpoint["checkpoint_id"] for checkpoint in self.checkpoints
+                if ACTION_REVIEW_FLAG in (checkpoint.get("review_flags") or [])]
 
     def require(self, checkpoint_id):
         checkpoint = self.by_id.get(checkpoint_id)
@@ -169,7 +183,8 @@ class AdjudicationCheckpointIndex:
             time_basis=checkpoint.get("time_basis"),
             source_ids=list(checkpoint.get("source_ids") or ()),
             member_event_ids=list(checkpoint.get("member_event_ids") or ()),
-            diagnostic_event_ids=list(checkpoint.get("diagnostic_event_ids") or ()))
+            diagnostic_event_ids=list(checkpoint.get("diagnostic_event_ids") or ()),
+            review_flags=list(checkpoint.get("review_flags") or []))
         if checkpoint.get("kind") != MANAGEMENT_KIND:
             result.update(
                 candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
@@ -185,6 +200,7 @@ class AdjudicationCheckpointIndex:
             candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
             masked_spans=deepcopy(checkpoint.get("masked_spans") or []),
             review_status=checkpoint.get("review_status"),
+            review_flags=list(checkpoint.get("review_flags") or []),
             candidate_status=checkpoint.get("candidate_status"),
             management_question=checkpoint.get("management_question"),
             member_candidates=[
@@ -210,8 +226,8 @@ class AdjudicationCheckpointIndex:
             return dict(total=len(rows), offset=offset, returned=len(page),
                         truncated=offset + len(page) < len(rows),
                         checkpoints=[self._summary(item) for item in page],
-                        note=("候选CP及其Discovery动作均待审核；诊断CP不需要本阶段裁决，"
-                              "管理CP必须逐项裁决。"))
+                        note=("候选CP及其Discovery动作均待审核；带ACTION_TASK_MISMATCH_REVIEW_REQUIRED"
+                              "的CP先做动作复审，管理CP必须逐项做证据演化裁决。"))
 
         def read_candidate_checkpoint(checkpoint_id):
             detail = self.detail(checkpoint_id)
@@ -252,11 +268,14 @@ class AdjudicationCheckpointIndex:
 class CheckpointAdjudicationStore:
     """Validated adjudications, keyed once per management candidate CP."""
 
-    def __init__(self, *, checkpoint_index, source_index):
+    def __init__(self, *, checkpoint_index, source_index, task_time_bounds=None):
         self.checkpoints = checkpoint_index
         self.source_index = source_index
+        self.task_time_bounds = deepcopy(task_time_bounds or {})
         self.proposals = ProposalStore(source_index=source_index)
         self.items = {}
+        self.action_reviews = {}
+        self.action_review_context_ids = set()
         self.retained_checkpoint_ids = {
             checkpoint_id for checkpoint_id, checkpoint in self.checkpoints.by_id.items()
             if checkpoint.get("kind") != MANAGEMENT_KIND}
@@ -913,14 +932,13 @@ class CheckpointAdjudicationStore:
             raise ToolError(
                 "CURRENT_CHECKPOINT_SOURCE_NOT_READ: 提交前必须read_source读取当前CP的"
                 "至少一份来源原文：" + ",".join(sorted(source_ids)))
-        fully_read = {
-            source_id for source_id in source_ids
-            if (0, len(self.source_index.require(source_id).get("text") or ""))
-            in self.source_index.read_source_ranges.get(source_id, [])}
+        fully_read = {source_id for source_id in source_ids
+                      if self.source_index.source_fully_delivered(source_id)}
         if not fully_read:
             raise ToolError(
-                "CURRENT_CHECKPOINT_SOURCE_NOT_FULLY_READ: 至少一份当前CP来源必须从start=0"
-                "完整读取至文末（end省略），不能用局部片段代替全文判断：" + ",".join(sorted(source_ids)))
+                "CURRENT_CHECKPOINT_SOURCE_NOT_FULLY_READ: 至少一份当前CP来源必须实际完整返回给模型；"
+                "若read_source结果spilled，必须用read_spilled分页读完该locator全部内容，"
+                "不能只请求全文或阅读头尾预览：" + ",".join(sorted(source_ids)))
 
     def _require_interval_review(self, checkpoint, comparator, disposition,
                                  evolution, evidence_supports):
@@ -1045,6 +1063,11 @@ class CheckpointAdjudicationStore:
         if checkpoint.get("kind") != MANAGEMENT_KIND:
             self._remember_problem("DIAGNOSTIC_CHECKPOINT_NOT_ADJUDICATED", checkpoint_id)
             raise ToolError("DIAGNOSTIC_CHECKPOINT_NOT_ADJUDICATED:" + checkpoint_id)
+        missing_action_reviews = [item for item in self.checkpoints.action_review_ids
+                                  if item not in self.action_reviews]
+        if missing_action_reviews:
+            raise ToolError("ACTION_REVIEWS_REQUIRED_BEFORE_MANAGEMENT_ADJUDICATION:"
+                            + ",".join(missing_action_reviews))
         if checkpoint_id in self.items:
             self._remember_problem("DUPLICATE_CHECKPOINT_ADJUDICATION", checkpoint_id)
             raise ToolError("DUPLICATE_CHECKPOINT_ADJUDICATION:" + checkpoint_id)
@@ -1145,6 +1168,123 @@ class CheckpointAdjudicationStore:
                     note=("程序仅核验结构、原文定位、span不重叠、最近保留状态和检索时钟；"
                           "这不构成临床关系或独立CP的专家确认。"))
 
+    def _action_review_phase(self, checkpoint):
+        if checkpoint.get("primary_evaluation_eligible") is False:
+            return "POSTOPERATIVE_TRAJECTORY"
+        explicit = [action.get("phase") for action in checkpoint.get("candidate_actions") or []
+                    if action.get("phase") in PHASES]
+        return explicit[0] if explicit else checkpoint.get("phase") or "INITIAL_RESECTABILITY_ASSESSMENT"
+
+    def _operation_source_ids(self):
+        return sorted({item["source_id"] for item in self.task_time_bounds.get("evidence") or []
+                       if isinstance(item.get("source_id"), str) and item["source_id"]})
+
+    def read_action_review_context(self, checkpoint_id):
+        checkpoint = self.checkpoints.require(checkpoint_id)
+        if checkpoint_id not in self.checkpoints.action_review_ids:
+            raise ToolError("ACTION_REVIEW_NOT_REQUIRED:" + checkpoint_id)
+        phase = self._action_review_phase(checkpoint)
+        operation_source_ids = self._operation_source_ids()
+        self.checkpoints.read_checkpoint_ids.add(checkpoint_id)
+        self.action_review_context_ids.add(checkpoint_id)
+        return dict(
+            checkpoint_id=checkpoint_id, current=self.checkpoints.detail(checkpoint_id),
+            phase=phase, operation_start=deepcopy(self.task_time_bounds.get("operation_start")),
+            operation_source_ids=operation_source_ids,
+            operation_source_evidence=deepcopy(self.task_time_bounds.get("evidence") or []),
+            trigger_flags=[flag for flag in checkpoint.get("review_flags") or []
+                           if flag == ACTION_REVIEW_FLAG],
+            available_actions=[get_action(action_id)
+                               for action_id in action_ids_for_phase(phase)],
+            dispositions=sorted(ACTION_DISPOSITIONS),
+            removal_allowed=checkpoint.get("kind") != MANAGEMENT_KIND,
+            note=("这是候选动作与已记录手术阶段的冲突复审，不是专家临床确认。"
+                  "必须完整读取至少一份当前来源及一份手术记录。"
+                  "术后才可见的术前CT/MR报告不能继续承担术前可切除性再评估；"
+                  "若该报告到达不构成独立评价任务，撤销独立CP，报告仍保留为上下文。"))
+
+    def action_review_context_tool(self):
+        return Tool(
+            name="read_checkpoint_action_review_context",
+            description=("读取阶段冲突CP、手术边界、手术记录source_ids和当前阶段可用字典动作；"
+                         "提交前须完整读取当前来源及手术记录。"),
+            input_schema=dict(type="object", additionalProperties=False,
+                              required=["checkpoint_id"],
+                              properties=dict(checkpoint_id=dict(type="string", minLength=1))),
+            run=self.read_action_review_context)
+
+    def _require_operation_record_read(self):
+        source_ids = self._operation_source_ids()
+        if not source_ids:
+            raise ToolError("OPERATION_RECORD_SOURCE_UNAVAILABLE")
+        fully_read = {source_id for source_id in source_ids
+                      if self.source_index.source_fully_delivered(source_id)}
+        if not fully_read:
+            raise ToolError(
+                "OPERATION_RECORD_NOT_FULLY_READ: 至少一份手术记录必须实际完整返回给模型；"
+                "若结果spilled，必须用read_spilled分页读完locator全部内容：" + ",".join(source_ids))
+
+    def review_action(self, checkpoint_id, disposition, rationale, action_id=None, target=None):
+        checkpoint = self.checkpoints.by_id.get(checkpoint_id)
+        if checkpoint is None:
+            self._remember_problem("UNKNOWN_CHECKPOINT_ID", checkpoint_id)
+            raise ToolError("UNKNOWN_CHECKPOINT_ID:" + str(checkpoint_id))
+        if checkpoint_id not in self.checkpoints.action_review_ids:
+            raise ToolError("ACTION_REVIEW_NOT_REQUIRED:" + checkpoint_id)
+        if checkpoint_id in self.action_reviews:
+            raise ToolError("DUPLICATE_ACTION_REVIEW:" + checkpoint_id)
+        if disposition not in ACTION_DISPOSITIONS:
+            raise ToolError("ACTION_REVIEW_DISPOSITION_INVALID:" + str(disposition))
+        if checkpoint_id not in self.action_review_context_ids:
+            raise ToolError("ACTION_REVIEW_CONTEXT_NOT_READ:" + checkpoint_id)
+        if not isinstance(rationale, str) or not rationale.strip():
+            raise ToolError("ACTION_REVIEW_RATIONALE_REQUIRED")
+        if disposition == REMOVE_ACTION_CP and checkpoint.get("kind") == MANAGEMENT_KIND:
+            raise ToolError("MANAGEMENT_ACTION_REVIEW_CANNOT_REMOVE_CP")
+        self._require_current_source_read(checkpoint)
+        self._require_operation_record_read()
+        revised_action = None
+        if disposition == RETAIN_ACTION_CP:
+            if not isinstance(action_id, str) or not action_id:
+                raise ToolError("ACTION_REVIEW_ACTION_ID_REQUIRED")
+            try:
+                revised_action = canonical_action(
+                    action_id, target=target, phase=self._action_review_phase(checkpoint))
+            except ValueError as exc:
+                raise ToolError(str(exc)) from exc
+        elif action_id is not None or target is not None:
+            raise ToolError("REMOVE_INDEPENDENT_CP_CANNOT_INCLUDE_ACTION")
+        item = dict(
+            checkpoint_id=checkpoint_id, disposition=disposition,
+            rationale=rationale.strip(), actor=ACTION_REVIEW_ACTOR,
+            original_candidate_actions=deepcopy(checkpoint.get("candidate_actions") or []),
+            candidate_action=revised_action,
+            trigger_flags=[ACTION_REVIEW_FLAG],
+            operation_start=deepcopy(self.task_time_bounds.get("operation_start")),
+            operation_source_ids=self._operation_source_ids(),
+            source_reads_verified=True)
+        self.action_reviews[checkpoint_id] = item
+        if disposition == REMOVE_ACTION_CP:
+            self.retained_checkpoint_ids.discard(checkpoint_id)
+        return dict(recorded=True, item=deepcopy(item),
+                    retained_checkpoint_ids=sorted(self.retained_checkpoint_ids))
+
+    def action_review_tool(self):
+        return Tool(
+            name="review_checkpoint_action",
+            description=("复审动作与手术阶段冲突；仅可撤销诊断CP的独立评价任务，或用字典action_id保留并改动作。"
+                         "不能用自由文本action_type替代action_id。"),
+            input_schema=dict(
+                type="object", additionalProperties=False,
+                required=["checkpoint_id", "disposition", "rationale"],
+                properties=dict(
+                    checkpoint_id=dict(type="string", minLength=1),
+                    disposition=dict(type="string", enum=sorted(ACTION_DISPOSITIONS)),
+                    action_id=dict(type="string"),
+                    target=dict(type="string", description="仅OTHER_SPECIFIED必填具体目标。"),
+                    rationale=dict(type="string", minLength=1))),
+            run=self.review_action, writes=True, requires_prior_tool_results=True)
+
     def adjudication_tool(self):
         citation_schema = dict(
             type="object", additionalProperties=False,
@@ -1179,17 +1319,22 @@ class CheckpointAdjudicationStore:
         def run(note=""):
             missing = [item for item in self.checkpoints.management_ids
                        if item not in self.items]
-            if missing or self.attempt_problems:
+            missing_action_reviews = [item for item in self.checkpoints.action_review_ids
+                                      if item not in self.action_reviews]
+            if missing or missing_action_reviews or self.attempt_problems:
                 problem = dict(
                     missing_checkpoint_ids=missing,
+                    missing_action_review_checkpoint_ids=missing_action_reviews,
                     attempt_problems=deepcopy(self.attempt_problems),
-                    guidance=("每个管理CP必须恰好裁决一次；诊断CP不裁决。"
-                              "修正后完成全部必需裁决，再调用finish。"))
+                    guidance=("每个阶段冲突CP必须先完成一次动作复审，每个管理CP必须恰好裁决一次；"
+                              "其他诊断CP不做证据演化裁决。修正后完成全部必需裁决，再调用finish。"))
                 raise ToolError("CHECKPOINT_ADJUDICATION_INCOMPLETE:"
                                 + json.dumps(problem, ensure_ascii=False))
             self.finished = True
             return dict(finished=True, note=note,
-                        adjudicated_count=len(self.items), missing_checkpoint_ids=[])
+                        adjudicated_count=len(self.items),
+                        action_reviewed_count=len(self.action_reviews),
+                        missing_checkpoint_ids=[], missing_action_review_checkpoint_ids=[])
         return Tool(
             name="finish",
             description="完成全病例CP裁决；程序在此检查未知、重复和漏裁决。",
@@ -1203,16 +1348,27 @@ class CheckpointAdjudicationStore:
                  if checkpoint_id in self.items]
         missing = [item for item in self.checkpoints.management_ids
                    if item not in self.items]
+        action_reviews = [deepcopy(self.action_reviews[checkpoint_id])
+                          for checkpoint_id in self.checkpoints.action_review_ids
+                          if checkpoint_id in self.action_reviews]
+        missing_action_reviews = [item for item in self.checkpoints.action_review_ids
+                                  if item not in self.action_reviews]
         listed = set(self.checkpoints.returned_checkpoint_ids)
         expected = set(self.checkpoints.by_id)
         complete = (stop == "answered" and self.finished and not missing
-                    and not self.attempt_problems
-                    and (not self.checkpoints.management_ids or expected <= listed))
+                    and not missing_action_reviews and not self.attempt_problems
+                    and (not self.checkpoints.management_ids
+                         and not self.checkpoints.action_review_ids or expected <= listed))
         summary = dict(
             stop=stop, final=deepcopy(final or {}), complete=complete,
             management_checkpoint_count=len(self.checkpoints.management_ids),
             diagnostic_checkpoint_count=len(expected) - len(self.checkpoints.management_ids),
             adjudicated_count=len(items), missing_checkpoint_ids=missing,
+            action_review_required_ids=list(self.checkpoints.action_review_ids),
+            action_reviewed_count=len(action_reviews),
+            missing_action_review_checkpoint_ids=missing_action_reviews,
+            action_review_disposition_counts=dict(sorted(Counter(
+                item["disposition"] for item in action_reviews).items())),
             disposition_counts=dict(sorted(Counter(
                 item["disposition"] for item in items).items())),
             evolution_counts=dict(sorted(Counter(
@@ -1231,15 +1387,19 @@ class CheckpointAdjudicationStore:
                   "在语义上必然是患者证据。成员候选缺失或span无效会列入limitations，"
                   "且不能据此接受证据引文。"))
         return dict(format=ADJUDICATION_FORMAT, case_id=case_id,
-                    items=items, summary=summary)
+                    items=items, action_reviews=action_reviews, summary=summary)
 
 
-def checkpoint_adjudication_tools(registry, *, checkpoint_index, source_index):
+def checkpoint_adjudication_tools(registry, *, checkpoint_index, source_index,
+                                  task_time_bounds=None):
     store = CheckpointAdjudicationStore(
-        checkpoint_index=checkpoint_index, source_index=source_index)
+        checkpoint_index=checkpoint_index, source_index=source_index,
+        task_time_bounds=task_time_bounds)
     registry.register(store.interval_tools()[0])
     registry.register(store.scoped_search_tool())
     registry.register(store.adjudication_context_tool())
+    registry.register(store.action_review_context_tool())
+    registry.register(store.action_review_tool())
     registry.register(store.adjudication_tool())
     registry.register(store.finish_tool())
     return store
@@ -1247,15 +1407,18 @@ def checkpoint_adjudication_tools(registry, *, checkpoint_index, source_index):
 
 def build_prompt(checkpoints, *, case_id):
     management_count = sum(item.get("kind") == MANAGEMENT_KIND for item in checkpoints)
-    return """## 病例 %s 的全病例候选CP证据演化裁决
+    action_review_count = sum(ACTION_REVIEW_FLAG in (item.get("review_flags") or [])
+                              for item in checkpoints)
+    return """## 病例 %s 的全病例候选CP动作复审与证据演化裁决
 
-候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
-按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP及唯一最近保留comparator，不得自行选择比较对象。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
+候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个，阶段冲突动作复审共 %d 个。先逐页list_candidate_checkpoints查看全部CP。
+凡带ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，完整读取至少一份当前来源和一份手术记录后，用review_checkpoint_action提交一次。REMOVE_INDEPENDENT_CP只用于无独立评价任务的诊断CP；保留时只能用RETAIN_CP_WITH_ACTION和字典action_id，OTHER_SPECIFIED才另填具体target。不要仅凭程序标签裁决，必须阅读手术记录。撤销后程序立即重接最近保留comparator。
+动作复审完成后，按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP及唯一最近保留comparator，不得自行选择比较对象。未撤销诊断CP也属于已保留状态。每个管理CP恰好adjudicate_checkpoint一次。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
 每次裁决前读取当前来源原文。SUPPORT_ONLY不强制读取诊断comparator报告；仅NEW_EVIDENCE_ROUND或关系不清时用search_checkpoint_sources按需检索，NEW_EVIDENCE_ROUND须在当前CP/comparator上下文中读取诊断comparator目标报告。区间索引不要求逐项处置。
 证据演化的底线是新增，不要求异常、阳性、专科特异性或改变管理。comparator后新回报的常规检验、术前监测及正常/阴性结果同样构成证据演化；程序已确认的timed_interval_report_groups存在时不得SUPPORT_ONLY。
 RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且原始证据严格晚于comparator、不晚于当前CP。comparator目标报告及其在后续文书中的旧复述均不可用；BEFORE_ACQUISITION comparator的未来目标报告只用于识别比较对象。时间不确定用REVIEW_REQUIRED+UNCERTAIN。
-逐项提交后立即继续，全部管理CP完成后finish。
-""" % (case_id, len(checkpoints), management_count)
+逐项提交后立即继续，全部动作复审和管理CP完成后finish。
+""" % (case_id, len(checkpoints), management_count, action_review_count)
 
 
 def run_checkpoint_adjudication(harness, *, case_id, sources, candidates, projection):
@@ -1263,12 +1426,14 @@ def run_checkpoint_adjudication(harness, *, case_id, sources, candidates, projec
     checkpoints = list(projection.get("candidate_checkpoints") or ())
     source_index = SourceIndex(sources)
     checkpoint_index = AdjudicationCheckpointIndex(checkpoints, candidates)
-    if not checkpoint_index.management_ids:
+    task_time_bounds = (projection.get("summary") or {}).get("task_time_bounds") or {}
+    if not checkpoint_index.management_ids and not checkpoint_index.action_review_ids:
         store = CheckpointAdjudicationStore(
-            checkpoint_index=checkpoint_index, source_index=source_index)
+            checkpoint_index=checkpoint_index, source_index=source_index,
+            task_time_bounds=task_time_bounds)
         store.finished = True
         return store.result(case_id=case_id, stop="answered",
-                            final=dict(note="无管理CP需要本阶段裁决。"))
+                            final=dict(note="无管理CP或阶段冲突动作需要本阶段裁决。"))
 
     session = harness.session_for("checkpoint_adjudication")
     registry = harness.new_registry(session=session)
@@ -1276,7 +1441,8 @@ def run_checkpoint_adjudication(harness, *, case_id, sources, candidates, projec
     for tool in checkpoint_index.tools():
         registry.register(tool)
     store = checkpoint_adjudication_tools(
-        registry, checkpoint_index=checkpoint_index, source_index=source_index)
+        registry, checkpoint_index=checkpoint_index, source_index=source_index,
+        task_time_bounds=task_time_bounds)
     agent = harness.agent(registry=registry, session=session,
                           system_prompt=ADJUDICATION_SYSTEM_PROMPT)
     outcome = agent.act(build_prompt(checkpoints, case_id=case_id),
@@ -1286,11 +1452,14 @@ def run_checkpoint_adjudication(harness, *, case_id, sources, candidates, projec
     if stop == "answered" and not store.finished:
         missing = [checkpoint_id for checkpoint_id in checkpoint_index.management_ids
                    if checkpoint_id not in store.items]
+        missing_action_reviews = [checkpoint_id for checkpoint_id in checkpoint_index.action_review_ids
+                                  if checkpoint_id not in store.action_reviews]
         expected = set(checkpoint_index.by_id)
         listed = set(checkpoint_index.returned_checkpoint_ids)
-        if not missing and not store.attempt_problems and expected <= listed:
+        if not missing and not missing_action_reviews and not store.attempt_problems \
+                and expected <= listed:
             final["program_completion_validation"] = store.finish_tool().run(
-                note="Agent已结束且全部管理CP裁决、列表覆盖和尝试记录完整；程序补做完成校验。")
+                note="Agent已结束且全部动作复审、管理CP裁决、列表覆盖和尝试记录完整；程序补做完成校验。")
         else:
             stop = "not_finished"
     return store.result(case_id=case_id, stop=stop, final=final)

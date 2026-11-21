@@ -291,7 +291,7 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(result["summary"]["candidate_migration_count"], 38)
         self.assertFalse(result["summary"]["clinical_accuracy_assessed"])
 
-    def test_action_plan_0_2_separates_plan_status_from_three_clinical_modes(self):
+    def test_action_plan_0_3_separates_plan_status_from_three_clinical_modes(self):
         from jsonschema import validate, ValidationError
 
         text = "拟行手术。"
@@ -300,21 +300,38 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(len(result["candidate_checkpoints"]), 2)
         for checkpoint in result["candidate_checkpoints"]:
             space = checkpoint["action_space"]
-            self.assertEqual(space["schema_version"], "management-action-plan-0.2.0")
+            self.assertEqual(space["schema_version"], "management-action-plan-0.3.0")
+            self.assertEqual(space["dictionary_version"], "action-dictionary-0.2.0-draft")
+            self.assertEqual(len(space["dictionary_hash"]), 64)
+            self.assertEqual(space["dictionary_status"], "DRAFT_NOT_CLINICAL_REFERENCE")
             self.assertEqual(space["modes"],
                              ["ADVANCE", "HOLD_FOR_EVIDENCE", "REDIRECT"])
             self.assertEqual(space["plan_statuses"],
                              ["ACTIONS_PROPOSED", "NO_NEW_ACTION", "ABSTAIN"])
             schema = space["action_plan_schema"]
             self.assertEqual(schema["required"], ["plan_status", "actions", "rationale"])
-            self.assertEqual(schema["properties"]["actions"]["items"]["required"],
-                             ["action_type", "target"])
+            item_schema = schema["properties"]["actions"]["items"]
+            self.assertEqual(item_schema["required"], ["action_id"])
+            self.assertIn("DIAG_PANCREATIC_CONTRAST_CT",
+                          item_schema["properties"]["action_id"]["enum"])
+            self.assertIn("action_type", item_schema["properties"])
+            self.assertIn("target", item_schema["properties"])
             proposed = dict(plan_status="ACTIONS_PROPOSED", mode="ADVANCE", rationale="合成理由",
                             evidence_to_obtain=["增强CT"],
-                            actions=[dict(action_id="A-1", action_type="MANAGE", target="目标",
+                            actions=[dict(action_id="DIAG_PANCREATIC_CONTRAST_CT",
+                                          action_type="ORDER_DIAGNOSTIC_TEST",
+                                          target="胰腺增强CT扫描",
                                           uncertainty_addressed="待明确问题",
                                           dependencies=["前置条件"], conditions=["适用条件"])])
             validate(proposed, schema)
+            validate(dict(plan_status="ACTIONS_PROPOSED", mode="HOLD_FOR_EVIDENCE",
+                          rationale="只需选择ID", actions=[dict(
+                              action_id="DIAG_PANCREATIC_CONTRAST_CT")]), schema)
+            with self.assertRaises(ValidationError):
+                validate(dict(plan_status="ACTIONS_PROPOSED", mode="ADVANCE", rationale="自由文本",
+                              actions=[dict(action_type="imaging", target="CT")]), schema)
+            with self.assertRaises(ValidationError):
+                validate(dict(proposed, actions=[dict(action_id="A-1")]), schema)
             validate(dict(plan_status="NO_NEW_ACTION", mode="HOLD_FOR_EVIDENCE",
                           actions=[], rationale="无需新增动作"), schema)
             validate(dict(plan_status="ABSTAIN", actions=[], rationale="技术拒答"), schema)
@@ -336,7 +353,7 @@ class CandidateCheckpointTests(unittest.TestCase):
             self.assertFalse(space["answer_prefilled"])
 
     def test_action_dictionary_is_engineering_draft_not_prefilled_reference(self):
-        path = Path(__file__).parents[4] / "configs" / "action_dictionary.v0.1.draft.json"
+        path = Path(__file__).parents[4] / "configs" / "action_dictionary.v0.2.draft.json"
         dictionary = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(dictionary["status"], "DRAFT_NOT_CLINICAL_REFERENCE")
         self.assertFalse(dictionary["clinical_reference"])
@@ -346,11 +363,28 @@ class CandidateCheckpointTests(unittest.TestCase):
                              ("historical_usage", "current_usage", "center_availability")),
                          {"PENDING_FREEZE"})
         labels = " ".join(item["label"] for item in dictionary["actions"])
-        for expected in ("CT", "MR", "EUS", "FNA", "biopsy", "staging laparoscopy",
-                         "CA19-9", "NAT", "surgery", "biliary drainage", "nutrition"):
+        for expected in ("胰腺增强CT", "腹部平扫CT", "胸部CT", "胸部平片", "胰腺MR",
+                         "MRCP", "EUS", "FNA", "穿刺", "分期腹腔镜", "CA19-9",
+                         "外院原始影像", "MDT", "胰十二指肠切除", "远端胰腺切除",
+                         "全胰腺切除", "AG", "FOLFIRINOX", "PTCD", "ERCP",
+                         "术后病理复核", "术后复查CT", "术后辅助治疗MDT", "随访"):
             self.assertIn(expected, labels)
         self.assertTrue(all(not item["required_for_every_patient"]
                             for item in dictionary["actions"]))
+        self.assertNotIn("surgery", {item["label"] for item in dictionary["actions"]})
+        self.assertNotIn("imaging", {item["label"] for item in dictionary["actions"]})
+
+    def test_legacy_frozen_free_text_action_still_projects_without_inventing_an_id(self):
+        text = "讨论后拟行胰腺增强CT。"
+        item = candidate("EV-LEGACY", "S-LEGACY", text, text,
+                         candidate_action=dict(action_type="imaging", target="增强CT"))
+        result = self.project([item], [source("S-LEGACY", text)])
+        action = result["candidate_checkpoints"][0]["candidate_actions"][0]
+        self.assertEqual(action["action_type"], "imaging")
+        self.assertEqual(action["target"], "增强CT")
+        self.assertNotIn("action_id", action)
+        self.assertEqual(result["candidate_checkpoints"][0]["action_space"]["schema_version"],
+                         "management-action-plan-0.3.0")
 
     def test_missing_management_clock_cannot_create_empty_checkpoint(self):
         text = "拟行手术。"

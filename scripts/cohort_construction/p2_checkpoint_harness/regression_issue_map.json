@@ -702,6 +702,26 @@
       ],
       "status": "real_counterexample_regression_and_final_offline_rerender_SCALE05_SCALE09_validated",
       "limitations": "This deterministic review-flag correction does not change checkpoint topology or adjudication and therefore does not require another model run."
+    },
+    {
+      "id": "HAR-LIVE-038",
+      "problem": "SCALE-01 CP4 paired a postoperatively visible preoperative CT report with reassess-resectability. The program emitted ACTION_TASK_MISMATCH_REVIEW_REQUIRED but had no Agent review or downstream migration; merely clearing the flag would have preserved the wrong task. Standardized action phase mismatches could also bypass the old keyword-only trigger.",
+      "change_type": "draft_action_dictionary_case_level_action_review_and_conservative_projection",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "observation": "CT exam 2022-12-14 14:31, report visible 2022-12-15 15:55, operation started 2022-12-15 09:00; Discovery retained reassess-resectability although the report could not inform that completed operation.",
+        "private_baseline": "private/p2_harness_live_20261119/live-r48/SCALE-01/run/case_result.json"
+      },
+      "positive_control": "After the dedicated context and complete current/operative sources are actually delivered, the case-level Agent may remove an independent diagnostic CP while conserving its report as context, or retain it with a phase-valid canonical action. Baseline management CP IDs and evidence-arrival grouping remain stable.",
+      "negative_control": "A spill preview, missing operation record, free-text replacement, management-CP deletion, phase-invalid action, forged operation provenance, or regrouped adjudication ID cannot pass. Old adjudications without action_reviews remain renderable.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_adjudication.py::ActionReviewAdjudicationTests::test_spilled_preview_is_not_full_delivery_until_locator_is_read",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_adjudication.py::ActionReviewAdjudicationTests::test_removed_diagnostic_checkpoint_reconnects_comparator",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_projection.py",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_actions.py"
+      ],
+      "status": "synthetic_counterexamples_and_adversarial_audit_passed_live_validation_pending",
+      "limitations": "The 26-action dictionary is DRAFT_NOT_CLINICAL_REFERENCE and not a patient-specific acceptable-action set. Agent review is a candidate audit, not clinical confirmation; fresh SCALE-01 behavior is validated separately."
     }
   ]
 }

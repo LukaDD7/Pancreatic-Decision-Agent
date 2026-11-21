@@ -12,14 +12,14 @@ DISCOVERY_SYSTEM_PROMPT = """你在从真实病历中识别研究相关的候选
 核心任务：
 1. 逐项找出临床团队针对当前患者做出、改变、暂缓、补充证据或不推进某项管理措施的表述。包括检查安排或调整、手术及术式或时机、减黄、分期腹腔镜、改换治疗方向，以及状态驱动的具体处置。是否实际手术、最终可切除或结局如何，不决定研究相关性。
 2. 同一份文书有多个候选时逐项提交，各自保留能复现该管理判断的连续原文范围。不要判断它们应否合并、是否构成同一事件、属于哪一轮或哪个episode。组合表述和其中的具体表述都可以先保留，后续再组织。
-3. scope=yes 表示这是围绕PDAC根治性切除路径的管理判断候选；scope=no 表示已识别为管理相关但明确不属于研究范围；scope=uncertain 表示无法确定。三态都只是你的发现判断，不是专家确认或最终episode纳入。scope=yes 且 record_function=new_decision/reassessment 时，必须另填 action_type 和 target，明确该候选所对应的动作类型与目标；它们是结构化动作字段，不是对原文管理句的改写。
+3. scope=yes 表示这是围绕PDAC根治性切除路径的管理判断候选；scope=no 表示已识别为管理相关但明确不属于研究范围；scope=uncertain 表示无法确定。三态都只是你的发现判断，不是专家确认或最终episode纳入。scope=yes 且 record_function=new_decision/reassessment 时，必须从工具枚举中选择 action_id；程序按字典展开规范 action_type/target。只有 OTHER_SPECIFIED 需要另填具体 target，其他条目不要重复填写 target。动作字典是 DRAFT_NOT_CLINICAL_REFERENCE，不是患者必做套餐或已冻结临床动作集。
 4. record_function 是你对该表述功能的分类：new_decision/reassessment/repeat/execution/generic/uncertain。执行或回述不会因为被记录就自动成为新决策。
 5. 对本来已识别为管理相关、但明确排除的表述，用 scope=no、简短 reason 和同一原文定位记录。没有单独的 reject_mention 工具；不要求逐句提交整份文书所有无关句子。未运行、未识别与明确排除不是一回事。
 6. 检查报告所见是证据，不要替它编造管理问题、检查选择原因或伪管理判断。程序会单独保留已交付检查报告的证据索引，供后续证据组织使用。
 
 performed_test_report 的额外任务：
 1. 仍须先读当前单位原文，再分别对 pre_exam_evaluation 和 evidence_arrival_reassessment 调用 review_diagnostic_candidate；两类都必须提交 disposition=yes/no/uncertain 和具体 reason，不能因程序已建立证据索引而跳过。
-2. 以动作为中心筛选。pre_exam_evaluation 的 target 可按报告类型识别为增强CT、MRI、病理等检查目标，但不得捏造临床团队当初选择该检查的原因。只要该检查本身属于PDAC根治路径可评价的补充证据动作，就应 yes；不得因报告没有医嘱、选择时间、指征或部署句而判 uncertain，选择过程不明由程序保留为回溯性评价限制。报告后的 evidence_arrival_reassessment 只须根据新证据存在可作答的PDAC根治路径后续动作即可 yes，并填写 action_type、target；可另填 management_question。该动作是你提出的待评审动作，不要求报告原文已经写出管理决定，也不得冒充病历记载的临床团队决策。单纯异常所见且无法形成根治路径动作时才 no 或 uncertain。
+2. 以动作为中心筛选。pre_exam_evaluation 可按报告类型选择增强CT、MR、EUS等具体 action_id，但不得捏造临床团队当初选择该检查的原因。只要该检查本身属于PDAC根治路径可评价的补充证据动作，就应 yes；不得因报告没有医嘱、选择时间、指征或部署句而判 uncertain，选择过程不明由程序保留为回溯性评价限制。报告后的 evidence_arrival_reassessment 只须根据新证据存在可作答的PDAC根治路径后续动作即可 yes，并选择 action_id；仅 OTHER_SPECIFIED 另填具体 target，可另填 management_question。该动作是你提出的待评审动作，不要求报告原文已经写出管理决定，也不得冒充病历记载的临床团队决策。单纯异常所见且无法形成根治路径动作时才 no 或 uncertain。
 3. PICC置管等输液通路安排不属于PDAC根治路径时，明确 disposition=no，并在 reason 写明范围外理由；不要靠程序关键词替你过滤。无法确定时用 uncertain 并说明缺什么。
 4. review_diagnostic_candidate 是你对程序候选的筛选，不是专家真值，也不要求把报告所见写成管理句。只有原文确实另有针对当前患者的管理判断时，才另用 propose_candidate 提交其逐字片段。
 
@@ -75,7 +75,8 @@ def build_prompt(unit, *, profile_note="", inline_token_budget=None):
         "\n## 任务\n逐项识别本处理单位中的候选管理判断表述；同一份文书可有多个，"
         "不要判断事件拆合、组织证据或episode。每个候选用 propose_candidate 提交"
         "实际 source_id、连续逐字 quote、scope 和 record_function；"
-        "scope=yes 且 new_decision/reassessment 时必须提交 action_type、target。"
+        "scope=yes 且 new_decision/reassessment 时必须从工具枚举提交 action_id；"
+        "仅 OTHER_SPECIFIED 另填具体 target，其他动作不要重复填写 target。"
         "必要时检索既往记录辅助区分新判断、执行和回述。"
         "已识别但明确排除的管理相关表述用 scope=no 加简短 reason，"
         "无需提交所有无关句子。检查报告所见由程序证据索引保留，不伪造管理判断。"
@@ -85,11 +86,12 @@ def build_prompt(unit, *, profile_note="", inline_token_budget=None):
         lines.append(
             "本处理单位还必须分别审核 pre_exam_evaluation 与 "
             "evidence_arrival_reassessment，各调用一次 review_diagnostic_candidate，"
-            "两类都给 disposition 和 reason，缺一不可。检查前候选的动作 target 可依据报告类型"
-            "识别，但不得编造检查选择原因。检查属于根治路径可评价的补证动作即可 yes，"
+            "两类都给 disposition 和 reason，缺一不可。检查前候选可依据报告类型选择具体 action_id，"
+            "但不得编造检查选择原因。检查属于根治路径可评价的补证动作即可 yes，"
             "不得因缺少医嘱、指征或部署句而 uncertain。报告后候选只要能根据新证据提出"
             "可作答的PDAC根治路径后续动作即可 yes，不要求报告已写明管理决定；该动作只是"
-            "待评审提议，不是病历记载的决策。给 action_type、target，可选 management_question；"
+            "待评审提议，不是病历记载的决策。给 action_id，仅 OTHER_SPECIFIED 另填具体 target，"
+            "可选 management_question；"
             "否则给 no 或 uncertain 及理由。PICC等输液通路若不属于根治路径，明确 no，"
             "reason 写明‘输液通路不属于PDAC根治路径’等实际理由。不要把报告所见编造成"
             "管理判断，也不要另传 unit_id；工具只审核程序绑定的当前单位。")

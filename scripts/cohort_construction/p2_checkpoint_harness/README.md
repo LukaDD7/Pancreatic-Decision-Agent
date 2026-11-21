@@ -17,6 +17,8 @@
   "local_id": "本阅读任务内的提案修订键",
   "scope": "yes | no | uncertain",
   "record_function": "new_decision | reassessment | repeat | execution | generic | uncertain",
+  "action_id": "yes且new_decision/reassessment时必填；从工具枚举选择",
+  "target": "仅OTHER_SPECIFIED必填的具体目标",
   "source_id": "实际来源",
   "quote": "同一来源中逐字、连续、非空的原文",
   "start": 0,
@@ -37,8 +39,12 @@
   `out_of_scope_candidates`，不进入 ordering/episodes 的 active 候选；不是患者排除，
   也不是未运行或无法判断。没有独立的 `reject_mention`，不要求逐句提交所有无关句子。
 - `record_function` 仍是发现阶段 LLM 的文书表述功能分类，不是已确认临床事实。
-- 不在 discovery 收集 `management_question`、动作改写、`prechoice_quotes`、
-  `postchoice_quotes`、`choice_time` 或证据关系。后续证据组织和可见时点另行处理。
+- 规范动作由 `action_id` 标识，程序从 `configs/action_dictionary.v0.2.draft.json` 展开
+  `action_type/target`；仅 `OTHER_SPECIFIED` 由调用方另给具体 `target`。旧自由文本若传入，
+  只保留为 `original_action_type/original_target` 供谱系审计。字典状态为
+  `DRAFT_NOT_CLINICAL_REFERENCE`，不是患者必做套餐或已冻结临床动作集。
+- 不在 discovery 收集 `prechoice_quotes`、`postchoice_quotes`、`choice_time` 或证据关系；
+  `management_question` 仅用于检查程序候选的可选复核问题。后续证据组织和可见时点另行处理。
 - 同一份文书的组合表述与具体组成动作都先保留为候选，不在发现阶段强行拆合；后续
   `same_event` 只能表示严格身份候选，不能冒充包含、子动作或重叠关系。
 
@@ -82,6 +88,14 @@ authorization 同时绑定 Discovery 结果 hash，不重跑发现。`HCP-LIVE-0
 裁决结构和遮蔽后仍可见的引文，自由文本理由及完整引文仅在研究原文页展示。`HCP-LIVE-032` 登记
 无 comparator 的待审核 CP 丢失及链式归并落点不一致反例；无法归并的待审核 CP 保留，迁移记录指向
 最终承接 CP，原 comparator 仍保留在裁决对象中。
+
+`management-trajectory-0.3.6` 消费病例级裁决的 `action_reviews`，不以清除触发标记代替复审。
+管理 CP 先按复审前动作和全部基线诊断 AFTER CP 固定 evidence-arrival 分组，再在分组后、全局裁决前
+替换动作；撤销独立诊断 CP 不改变该基线分组或管理 CP ID。复审以 `operation_start` 和
+`operation_source_ids` 绑定任务时间边界，替换动作按当前 CP 阶段校验动作字典的 `allowed_phases`。
+撤销独立诊断 CP 时保留报告与全部迁移，将该诊断迁移改为 `CONTEXT_ONLY` 并清除 CP 引用。材料 packet
+保留完整 `action_review`，私有 HTML 以折叠区展示处置、原动作、复审后动作和理由；旧裁决没有
+`action_reviews` 时保持原投影行为。
 
 `stages/case_organization.py` 同时把管理候选与程序 evidence artifact 送入一次病例级 Agent：
 - **Agent 只做关系记录**：为候选/证据节点连边，写关系类型、置信度、理由和必要的原文引文。
@@ -435,6 +449,15 @@ dry-run 打印 **run contract**：来源 hash、配置 hash、整个包的代码
   --case-result RUN/case_result.json --sources CASE/source_fhir_r4_bundle.json \
   --output NEW_PRIVATE_DIRECTORY
 ```
+
+候选 CP 的 `action_space.schema_version` 为 `management-action-plan-0.3.0`：三种临床 Mode
+仍为 `ADVANCE/HOLD_FOR_EVIDENCE/REDIRECT`，`ABSTAIN` 仍只是技术状态。每个动作必须提供
+字典枚举内的 `action_id`；`action_type/target` 是程序展开并保留在 schema 中的规范字段。
+`dictionary_version/dictionary_hash` 绑定上述草案字典，其中 hash 是字典规范 JSON（排序键、紧凑分隔符、
+UTF-8）的 SHA-256；它们不构成临床 Reference 或冻结声明。
+`stages/actions.py` 提供字典加载、按 ID 展开、按既有 `PHASES` 列出可用 ID 及版本/hash API；
+术后专用条目只列入 `POSTOPERATIVE_TRAJECTORY`，不能通过术前阶段查询取得。旧冻结 Discovery
+候选即使只有自由文本 `action_type/target`，仍按原记录投影，不在读取时伪造新 `action_id`。
 
 检查报告默认以 `report_time` 为可见性代理，缺失时才降级到 `verified_time`；检查前
 候选以 `exam_time` 引导，报告后候选显示当前报告。程序从明确手术时间字段提取主任务

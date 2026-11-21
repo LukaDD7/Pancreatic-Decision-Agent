@@ -13,6 +13,7 @@ live in ``tools/propose.py``.
 """
 from __future__ import annotations
 
+import json
 import re
 
 from .registry import Tool, ToolError
@@ -35,6 +36,9 @@ class SourceIndex:
         self.read_source_ranges = {}
         self.adjudication_context = None
         self.adjudication_source_reads = {}
+        self.full_read_receipts = {}
+        self.spilled_read_ranges = {}
+        self.spilled_read_lengths = {}
         # A source may appear in several units only if the unit grouping put it
         # there; keep the mapping explicit rather than guessing.
         self.source_units = {}
@@ -255,6 +259,57 @@ class SourceIndex:
                               properties=dict(source_id=dict(type="string"))),
             run=run)
 
+    def source_fully_delivered(self, source_id):
+        """Require the model-visible result, not merely a requested character range."""
+        source = self.require(source_id)
+        receipts = self.full_read_receipts.get(source_id)
+        if receipts is None:
+            return (0, len(source.get("text") or "")) in self.read_source_ranges.get(
+                source_id, [])
+        if None in receipts:
+            return True
+        for locator in receipts:
+            ranges = sorted(self.spilled_read_ranges.get(locator, []))
+            cursor = 0
+            for start, end in ranges:
+                if start > cursor:
+                    break
+                cursor = max(cursor, end)
+            if locator in self.spilled_read_lengths and cursor >= self.spilled_read_lengths[locator]:
+                return True
+        return False
+
+    def observe_tool_result(self, call, result):
+        if result.is_error:
+            return
+        name = call.get("name")
+        arguments = call.get("arguments") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except ValueError:
+                return
+        if name == "read_source":
+            source = self.by_id.get(arguments.get("source_id"))
+            if source is None or int(arguments.get("start", 0)) != 0:
+                return
+            end = arguments.get("end")
+            if end is not None and int(end) < len(source.get("text") or ""):
+                return
+            locator = (result.metadata or {}).get("locator") \
+                if (result.metadata or {}).get("spilled") else None
+            self.full_read_receipts.setdefault(source["source_id"], []).append(locator)
+        elif name == "read_spilled" and not (result.metadata or {}).get("spilled"):
+            try:
+                payload = json.loads(result.content)
+                locator = payload["path"]
+                start, end = int(payload["start"]), int(payload["end"])
+                total = int(payload["total_characters"])
+            except (ValueError, KeyError, TypeError):
+                return
+            self.spilled_read_ranges.setdefault(locator, []).append((start, end))
+            self.spilled_read_lengths[locator] = total
+
     def check_quote(self, citation, *, label="citation"):
         """Shared exact-source check for proposals, relations and demotions."""
         from .proposals import ProposalStore
@@ -292,6 +347,7 @@ class SourceIndex:
 
     # -- registration --------------------------------------------------
     def register(self, registry):
+        registry.result_observers.append(self.observe_tool_result)
         for factory in (self.tool_list_sources, self.tool_search_sources,
                         self.tool_read_source, self.tool_list_units,
                         self.tool_source_units, self.tool_read_unit):

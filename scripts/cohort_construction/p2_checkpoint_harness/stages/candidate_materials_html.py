@@ -387,6 +387,33 @@ def _candidate_actions(packet):
     )
 
 
+def _action_review(packet):
+    review = packet.get("action_review") or {}
+
+    def action_text(action):
+        action = action or {}
+        label = action.get("label") or action.get("action_type") or "未提供动作类型"
+        return f"{label}｜{action.get('target') or '未提供目标'}"
+
+    original = "；".join(action_text(action)
+                         for action in review.get("original_candidate_actions") or [])
+    revised = review.get("candidate_action") or {}
+    return _node(
+        "details", {"class": "action-review"},
+        _node("summary", {}, "病例级动作复审"),
+        _node("dl", {"class": "candidate-action-grid"},
+              _node("div", {}, _node("dt", {}, "处置"),
+                    _node("dd", {}, _h(review.get("disposition") or "未提供"))),
+              _node("div", {}, _node("dt", {}, "复审后 action_id"),
+                    _node("dd", {}, _h(revised.get("action_id") or "无"))),
+              _node("div", {}, _node("dt", {}, "复审后 target"),
+                    _node("dd", {}, _h(revised.get("target") or "无")))),
+        _node("p", {}, _node("strong", {}, "原动作："),
+              _h(original or "未提供")),
+        _node("p", {}, _node("strong", {}, "复审理由："),
+              _h(review.get("rationale") or "未提供")))
+
+
 def _navigation(packet):
     sequence = packet.get("sequence_navigation") or {}
 
@@ -597,12 +624,15 @@ def _packet_html(packet):
          if evaluation.get("primary_evaluation_eligible") is False else ""),
         (_node("p", {"class": "non-primary-note action-task-review"}, _h(
             "动作/任务语义待核：" + ", ".join(packet.get("action_task_review_flags") or [])
-            + "；术后诊断 AFTER 中的术前 NAT/切除候选动作原样保留，仅进入非主评价审核。"))
+            + ("；已消费病例级动作复审结论，触发标记保留用于审计。"
+               if packet.get("action_review") else
+               "；术后诊断 AFTER 中的术前 NAT/切除候选动作原样保留，仅进入非主评价审核。")))
          if packet.get("action_task_review_flags") else ""),
         _state_delta(packet),
         (_node("p", {"class": "small"},
                "Discovery 候选动作及理由含目标检查信息，已移至“研究原文”页；默认任务头不展示，避免泄漏。")
          if packet.get("kind") == "BEFORE_ACQUISITION" else _candidate_actions(packet)),
+        _action_review(packet) if packet.get("action_review") else "",
         _node("details", {"class": "migration-details"},
               _node("summary", {}, _h(
                   f"本 CP 的旧候选迁移与归并理由（{len(packet.get('migration_records') or [])} 项）")),

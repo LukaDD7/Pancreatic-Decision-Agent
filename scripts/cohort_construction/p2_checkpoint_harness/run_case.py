@@ -41,6 +41,7 @@ AUTH_REQUIRED = {
 }
 AUTH_BINDING = ("sources_sha256", "config_sha256", "code_sha256", "case_id")
 EXECUTION_CODE_PATHS = (
+    "configs/action_dictionary.v0.2.draft.json",
     "scripts/cohort_construction/model_api.py",
     "scripts/cohort_construction/p2_auto_checkpoint/fhir_io.py",
     "scripts/cohort_construction/p2_auto_checkpoint/extract.py",
@@ -461,7 +462,9 @@ def _unfinished(artifacts):
             kind="checkpoint_adjudication_incomplete",
             stop=(adjudication.get("summary") or {}).get("stop"),
             missing_checkpoint_ids=(adjudication.get("summary") or {}).get(
-                "missing_checkpoint_ids") or []))
+                "missing_checkpoint_ids") or [],
+            missing_action_review_checkpoint_ids=(adjudication.get("summary") or {}).get(
+                "missing_action_review_checkpoint_ids") or []))
     coverage = artifacts.get("coverage") or {}
     if coverage.get("units_not_run"):
         reasons.append(dict(kind="units_not_run",

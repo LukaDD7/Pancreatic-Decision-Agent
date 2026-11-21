@@ -62,6 +62,7 @@ class ToolRegistry:
         self.parallel_reads = max(1, int(parallel_reads))
         self.spill = spill
         self.calls = []
+        self.result_observers = []
 
     # -- registration --------------------------------------------------
     def register(self, tool: Tool):
@@ -181,6 +182,8 @@ class ToolRegistry:
             # rather than guessing from the tool's name.
             result.metadata = dict(result.metadata or {}, terminal=True)
         result = self._spill(result)
+        for observer in self.result_observers:
+            observer(call, result)
         self._log(session, call, result, turn=turn, step=step)
         return result
 
