@@ -400,6 +400,28 @@ class CandidateMaterialTests(unittest.TestCase):
                       if source["source_id"] == "S-M")
         self.assertNotIn("拟行胰十二指肠切除术", target["text"])
 
+    def test_identical_target_source_text_inherits_action_masks(self):
+        report_text = "影像所见。建议治疗后复查。"
+        self.sources[1]["text"] = report_text
+        duplicate = deepcopy(self.sources[1])
+        duplicate["source_id"] = "S-D-DUPLICATE"
+        self.sources.append(duplicate)
+        self.inventory[0]["source_ids"].append("S-D-DUPLICATE")
+        self.events = build_diagnostic_events(self.sources, self.inventory)
+        projection = self.diagnostic_projection("no", "yes")
+        arrival = next(cp for cp in projection["candidate_checkpoints"]
+                       if cp["kind"] == "evidence_arrival_reassessment")
+        start = report_text.index("建议治疗后复查")
+        arrival["masked_spans"].append(dict(
+            source_id="S-D", start=start, end=start + len("建议治疗后复查"),
+            quote="建议治疗后复查", mask_reason="CURRENT_GROUP_ANSWER_AND_ACTION_LEAKAGE"))
+        packet = self.packet("evidence_arrival_reassessment", projection)
+        for source_id in ("S-D", "S-D-DUPLICATE"):
+            card = next(row for row in packet["included_sources"]
+                        if row["source_id"] == source_id)
+            self.assertNotIn("建议治疗后复查", card["text"])
+            self.assertIn("影像所见", card["text"])
+
     def test_new_same_event_relation_masks_other_checkpoint_answer(self):
         self.sources[2]["clock"] = clock("2022-12-13 10:00:00")
         projection = deepcopy(self.projection)

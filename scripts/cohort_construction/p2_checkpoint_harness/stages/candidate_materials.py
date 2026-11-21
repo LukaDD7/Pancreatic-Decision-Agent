@@ -372,6 +372,20 @@ def project_candidate_materials(*, case_id, sources, candidates, projection,
         aliases = sorted({alias for event in diagnostic_targets
                           for alias in _diagnostic_aliases(event, source_by_id)},
                          key=len, reverse=True) if pre_exam else []
+        source_ids_by_text = {}
+        for source in sources:
+            if source.get("text"):
+                source_ids_by_text.setdefault(source["text"], []).append(source["source_id"])
+        for source_id in list(target_spans_by_source):
+            source = source_by_id.get(source_id)
+            if not source or not source.get("text"):
+                continue
+            for duplicate_id in source_ids_by_text.get(source["text"], []):
+                if duplicate_id == source_id:
+                    continue
+                target_spans_by_source.setdefault(duplicate_id, []).extend(
+                    dict(span, source_id=duplicate_id)
+                    for span in target_spans_by_source[source_id])
         included, excluded, mask_metadata = [], [], []
         whole_masked = []
         excluded_support_masked = []
