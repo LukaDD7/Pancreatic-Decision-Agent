@@ -14,7 +14,7 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 1. 逐页 `list_candidate_checkpoints`，诊断CP不裁决，管理CP按clock从早到晚处理。
 2. 每个管理CP调用 `read_checkpoint_adjudication_context`。程序返回当前CP和唯一最近保留comparator，不需要选择或填写comparator ID。
 3. 阅读上下文中的双方clock、kind、candidate_actions、member spans和 `diagnostic_target_source_ids`，再 `read_source(source_id,start=0)` 完整读取至少一份当前CP来源至文末（end省略），不得只读candidate附近片段就声称全篇没有新证据。
-4. 若上下文有 `timed_interval_report_groups`，逐组 `read_source` 其 `representative_source_id`。这些是程序按报告时钟确定落在当前区间的原始检验、影像、病理或高风险检查报告；同次检验项目已合组，只读一个代表项核对报告身份和时间，不需要逐项阅读。裁决理由必须处理这类新报告，不得再写“无新检查”。
+4. 若上下文有 `timed_interval_report_groups`，逐组 `read_source` 其 `representative_source_id`。这些是程序按报告时钟确定落在当前区间的原始检验、影像、病理或高风险检查报告；区间内检验合并为一个批次，只读一个最新异常代表项核对是否有新检验，不需要逐项阅读，也不能声称已读所有项目。裁决理由必须处理这类新报告，不得再写“无新检查”。
 5. 当前文书只是旧报告复述、既定计划、转科、执行或更具体安排时，直接 `SUPPORT_ONLY`，不需要引文，也不要求读取诊断comparator的报告正文。若文书记载的是comparator之后新发生的外院检查、治疗经过或疗效变化，则不属于旧复述，按证据演化继续判断。
 6. 准备声称 `RETAIN_CP+NEW_EVIDENCE_ROUND` 时，诊断comparator的目标报告必须在当前上下文中读取；此前其他CP的读取不替代本次读取。新证据关系不清时可选检索、读取相关原始证据，不要求为了提交REVIEW而补读诊断报告。
 7. 证据演化与来源核验分开。外院或来源不明的原报告未交付，不妨碍当前文书记录构成新证据：引用当前文书中的逐字复述，设置 `evidence_source_status=EXTERNAL_RESTATEMENT` 或 `UNATTRIBUTED_RESTATEMENT`，程序自动添加来源与底层时间待核标签。原报告可找到且证明是comparator旧报告时，仍须引用原报告，不得重新定时。

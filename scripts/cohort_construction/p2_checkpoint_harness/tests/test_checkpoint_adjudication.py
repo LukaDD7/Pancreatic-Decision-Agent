@@ -1021,7 +1021,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             "检验结果单位": "mmol/L", "结果正常标志": "H"})
         lab_normal = source("S-PH", "[检验结果值]\n7.40", "2026-03-02")
         lab_normal.update(kind="lab", original_fields={
-            "检验单号": "SYN-BG-1", "检验结果值": "7.40",
+            "检验单号": "SYN-BG-2", "检验结果值": "7.40",
             "检验结果单位": "", "结果正常标志": "N"})
         store, registry = make_store([
             checkpoint("CP-FIRST", [first]),
