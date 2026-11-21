@@ -186,7 +186,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             candidates=[member],
             projection=dict(candidate_checkpoints=[ct_checkpoint, transfer_checkpoint]))
 
-        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.1")
+        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.2")
         self.assertEqual(result["case_id"], "SYN-EUS")
         self.assertEqual(len(result["items"]), 1)
         item = result["items"][0]
@@ -1077,6 +1077,28 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         item = store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
                                 evolution="SAME_ROUND_SUPPORT", rationale="同报告含管理句。")["item"]
         self.assertEqual(item["comparator_checkpoint_id"], "CP-CT")
+
+    def test_comparator_target_copy_is_not_a_new_interval_report(self):
+        text = "再次评估拟行手术。"
+        member = candidate("EV-CURRENT", "S-CURRENT", text, text,
+                           clock="2026-03-03")
+        diagnostic = checkpoint("CP-CT", [], kind=AFTER, clock="2026-03-01",
+                                source_ids=["S-CT-OLD"])
+        old = source("S-CT-OLD", "增强CT未见远处转移。", "2026-03-01")
+        old.update(kind="imaging", source_sha256="same-report")
+        copy = source("S-CT-COPY", "增强CT未见远处转移。", "2026-03-02")
+        copy.update(kind="imaging", source_sha256="same-report")
+        store, registry = make_store([
+            diagnostic, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+            [member], [old, copy, source("S-CURRENT", text, "2026-03-03")])
+        context = registry.get("read_checkpoint_adjudication_context").run(
+            "CP-CURRENT")
+        self.assertEqual(context["timed_interval_report_groups"], [])
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+            evolution="SAME_ROUND_SUPPORT",
+            rationale="区间内仅有比较CP目标报告的副本，没有新增证据。")["item"]
+        self.assertEqual(item["disposition"], "SUPPORT_ONLY")
 
     def test_comparator_target_cannot_support_another_new_evidence_round(self):
         mr_text = "胰腺癌（胰头部，23X16mm）。\n远处转移：未见。"

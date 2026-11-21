@@ -18,7 +18,7 @@ from ..tools.sources import SourceIndex
 from .ordering import compare
 
 
-ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.1"
+ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.2"
 MANAGEMENT_KIND = "MANAGEMENT_REASSESSMENT"
 RETAIN = "RETAIN_CP"
 SUPPORT = "SUPPORT_ONLY"
@@ -431,26 +431,11 @@ class CheckpointAdjudicationStore:
                                 "管理动作句也不能作为新增患者证据。")
             source = self.source_index.require(span["source_id"])
             if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None \
-                    and comparator.get("kind") != MANAGEMENT_KIND:
-                target_ids = set(self.checkpoints.diagnostic_target_source_ids(comparator))
-                same_target = span["source_id"] in target_ids
-                if not same_target and source.get("source_sha256") is not None:
-                    source_dates = self._source_exam_dates(source)
-                    for target_id in target_ids:
-                        target = self.source_index.require(target_id)
-                        if target.get("source_sha256") != source.get("source_sha256"):
-                            continue
-                        target_dates = self._source_exam_dates(target)
-                        if source_dates and target_dates \
-                                and source_dates.isdisjoint(target_dates):
-                            continue
-                        same_target = True
-                        break
-                if same_target:
-                    raise ToolError(
-                        "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE: comparator已包含该目标报告"
-                        "或相同source_sha256的报告副本，同一报告不能再次形成证据演化轮次："
-                        + span["source_id"])
+                    and self._is_diagnostic_comparator_target(source, comparator):
+                raise ToolError(
+                    "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE: comparator已包含该目标报告"
+                    "或相同source_sha256的报告副本，同一报告不能再次形成证据演化轮次："
+                    + span["source_id"])
             if evolution == "NEW_EVIDENCE_ROUND":
                 self._require_original_for_report_restatement(
                     checkpoint, source, span["quote"])
@@ -686,12 +671,33 @@ class CheckpointAdjudicationStore:
             (row["clock"] or {}).get("value") or "9999", row["source_id"]))
         return rows
 
+    def _is_diagnostic_comparator_target(self, source, comparator):
+        if comparator.get("kind") == MANAGEMENT_KIND:
+            return False
+        target_ids = set(self.checkpoints.diagnostic_target_source_ids(comparator))
+        if source["source_id"] in target_ids:
+            return True
+        if source.get("source_sha256") is None:
+            return False
+        source_dates = self._source_exam_dates(source)
+        for target_id in target_ids:
+            target = self.source_index.require(target_id)
+            if target.get("source_sha256") != source.get("source_sha256"):
+                continue
+            target_dates = self._source_exam_dates(target)
+            if source_dates and target_dates and source_dates.isdisjoint(target_dates):
+                continue
+            return True
+        return False
+
     def _timed_interval_report_groups(self, checkpoint, comparator):
         groups = {}
         for row in self._interval_rows(checkpoint, comparator):
             if row["interval_relation"] != "IN_INTERVAL":
                 continue
             source = self.source_index.require(row["source_id"])
+            if self._is_diagnostic_comparator_target(source, comparator):
+                continue
             kind = source.get("kind")
             if kind == "lab":
                 group_key = ("lab_batch",)

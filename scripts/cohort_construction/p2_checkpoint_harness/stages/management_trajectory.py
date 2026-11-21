@@ -29,7 +29,7 @@ from .candidate_checkpoints import (
 from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.3.3"
+PROJECTION_VERSION = "management-trajectory-0.3.4"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
