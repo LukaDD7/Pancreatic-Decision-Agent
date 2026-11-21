@@ -29,7 +29,7 @@ from .candidate_checkpoints import (
 from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.3.1"
+PROJECTION_VERSION = "management-trajectory-0.3.2"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
@@ -565,7 +565,9 @@ def _pre_exam_anchor(event, source_by_id):
 def _diagnostic_gate(event, kind, review, operation_start, context_source_ids,
                      operation_start_clock=None, pre_anchor=None):
     flags = (event.get("audit") or {}).get("clock_inconsistent_flags") or []
-    if kind == AFTER and (event.get("audit") or {}).get("placeholder_only_event"):
+    if (event.get("audit") or {}).get("placeholder_only_event"):
+        if kind == BEFORE:
+            return False, "PLACEHOLDER_ONLY_REPORT_NOT_ACQUISITION_CANDIDATE", None, None
         return False, "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL", None, None
     pre_anchor = pre_anchor or _pre_exam_anchor(event, {})
     pre_basis = pre_anchor["basis"]
@@ -677,6 +679,25 @@ def _diagnostic_migration(case_id, event, kind, checkpoint_id, status, reason):
     )
 
 
+def _diagnostic_modality(event, source_by_id, review):
+    action = (review or {}).get("candidate_action") or {}
+    values = [event.get(key) for key in ("event_type", "diagnostic_type", "modality")]
+    values.extend((action.get("action_type"), action.get("target")))
+    for source_id in event.get("source_ids") or []:
+        source = source_by_id.get(source_id) or {}
+        values.extend((source.get("title"), source.get("document_profile")))
+    text = " ".join(str(value or "") for value in values).lower()
+    modalities = (
+        ("MRI", r"(?:^|[^a-z])(?:mr|mri)(?:[^a-z]|$)|磁共振"),
+        ("CT", r"(?:^|[^a-z])ct(?:[^a-z]|$)"),
+        ("EUS", r"(?:^|[^a-z])eus(?:[^a-z]|$)|超声内镜"),
+        ("PATHOLOGY", r"patholog|病理"),
+        ("LAPAROSCOPY", r"laparoscop|腹腔镜"),
+        ("PET", r"(?:^|[^a-z])pet(?:[^a-z]|$)"),
+    )
+    return next((name for name, pattern in modalities if re.search(pattern, text)), None)
+
+
 def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_start,
                          operation_start_clock=None):
     projected = [_visibility(deepcopy(event)) for event in events]
@@ -717,8 +738,13 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
                              _action_signature(review.get("candidate_action") or {}))
                 joint_group_id = (event.get("joint_evidence_group_id")
                                   or event.get("joint_group_id"))
-                group_key += (("joint", joint_group_id) if joint_group_id
-                              else ("event", event["event_id"]),)
+                if kind == BEFORE:
+                    modality = _diagnostic_modality(event, source_by_id, review)
+                    group_key += (("same_acquisition", modality) if modality
+                                  else ("event", event["event_id"]),)
+                else:
+                    group_key += (("joint", joint_group_id) if joint_group_id
+                                  else ("event", event["event_id"]),)
                 grouped[kind].setdefault(group_key, []).append(event)
         before_spec = specifications[(event["event_id"], BEFORE)]
         after_spec = specifications[(event["event_id"], AFTER)]
@@ -840,6 +866,96 @@ def _attach_management_to_diagnostics(management_drafts, diagnostic_drafts,
     return retained
 
 
+def _visible_diagnostic_state(diagnostic_events, clock, excluded_event_ids=()):
+    cutoff = _value(clock)
+    excluded = set(excluded_event_ids)
+    if not cutoff:
+        return None
+    return frozenset(
+        event["event_id"] for event in diagnostic_events
+        if event["event_id"] not in excluded
+        and _value(event.get("visibility_clock"))
+        and _value(event["visibility_clock"]) <= cutoff)
+
+
+def _absorb_redundant_before_checkpoints(management_drafts, diagnostic_drafts,
+                                         diagnostic_events, migration_by_event,
+                                         diagnostic_migration_by_key):
+    retained_diagnostics = []
+    redirects = {}
+    merges = []
+    reason = "SAME_EVIDENCE_STATE_MANAGEMENT_CP_RETAINED"
+    for diagnostic in sorted(diagnostic_drafts, key=lambda draft: (
+            _value(draft["checkpoint"]["clock"]) or "",
+            draft["checkpoint"]["checkpoint_id"])):
+        checkpoint = diagnostic["checkpoint"]
+        if checkpoint["kind"] != BEFORE or not checkpoint["primary_evaluation_eligible"]:
+            retained_diagnostics.append(diagnostic)
+            continue
+        clock = checkpoint["clock"]
+        before_state = _visible_diagnostic_state(
+            diagnostic_events, clock, diagnostic["diagnostic_event_ids"])
+        candidates = []
+        for management in management_drafts:
+            management_clock = management["checkpoint"]["clock"]
+            if not _value(management_clock) or not _value(clock) \
+                    or _value(management_clock) >= _value(clock) \
+                    or any(item.get("postoperative_trajectory")
+                           or _has_condition_or_action_increment(item["candidate"])
+                           for item in management["items"]):
+                continue
+            management_state = _visible_diagnostic_state(
+                diagnostic_events, management_clock)
+            if management_state is not None and management_state == before_state:
+                candidates.append(management)
+        if not candidates:
+            retained_diagnostics.append(diagnostic)
+            continue
+        destination = max(candidates, key=lambda draft: (
+            _value(draft["checkpoint"]["clock"]), draft["checkpoint"]["checkpoint_id"]))
+        destination_checkpoint = destination["checkpoint"]
+        destination_id = destination_checkpoint["checkpoint_id"]
+        checkpoint_id = checkpoint["checkpoint_id"]
+        destination_checkpoint["candidate_actions"] = _unique_candidate_actions(
+            destination_checkpoint["candidate_actions"] + checkpoint["candidate_actions"])
+        destination_checkpoint["diagnostic_event_ids"] = sorted(set(
+            destination_checkpoint.get("diagnostic_event_ids") or [])
+            | set(diagnostic["diagnostic_event_ids"]))
+        destination["diagnostic_event_ids"] = list(
+            destination_checkpoint["diagnostic_event_ids"])
+        merge = dict(
+            absorbed_checkpoint_id=checkpoint_id,
+            destination_checkpoint_id=destination_id,
+            absorbed_kind=BEFORE,
+            clock=deepcopy(clock),
+            diagnostic_event_ids=list(diagnostic["diagnostic_event_ids"]),
+            reason=reason,
+            evidence_state_comparison="deterministic_visible_diagnostic_event_ids",
+        )
+        destination_checkpoint.setdefault("absorbed_before_checkpoints", []).append(merge)
+        merges.append(deepcopy(merge))
+        redirects[checkpoint_id] = destination_id
+        for item in diagnostic["attached_items"]:
+            item["attached_to"] = destination_id
+            if item not in destination["attached_items"]:
+                destination["attached_items"].append(item)
+            migration_by_event[item["event_id"]]["to_checkpoint_id"] = destination_id
+        destination_checkpoint.setdefault("supporting_adjudications", []).extend(
+            checkpoint.get("supporting_adjudications") or [])
+        for event_id in diagnostic["diagnostic_event_ids"]:
+            migration = diagnostic_migration_by_key[(event_id, BEFORE)]
+            migration.update(migration_status="SUPPORT_ONLY", status="SUPPORT_ONLY",
+                             reason=reason, to_checkpoint_id=destination_id)
+        for event in diagnostic_events:
+            if event["event_id"] not in diagnostic["diagnostic_event_ids"]:
+                continue
+            event["candidate_checkpoint_ids"][BEFORE] = destination_id
+            for audit in event["generation_audits"]:
+                if audit["node_kind"] == BEFORE:
+                    audit.update(checkpoint_id=destination_id, reason=reason)
+    return retained_diagnostics, redirects, merges
+
+
 def _attach_support(prepared, drafts, migration_by_event):
     support_records = []
     for item in prepared:
@@ -958,8 +1074,10 @@ def _agent_evidence_projection(adjudication, diagnostic_events):
 
 
 def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
-              migration_by_event, support_records, operation_start=None):
+              migration_by_event, support_records, operation_start=None,
+              checkpoint_redirects=None):
     drafts = management_drafts + diagnostic_drafts
+    checkpoint_redirects = checkpoint_redirects or {}
     kind_order = {BEFORE: 0, REASSESSMENT: 1, AFTER: 2}
     drafts.sort(key=lambda draft: (
         _value(draft["checkpoint"]["clock"]) or "9999",
@@ -1003,7 +1121,8 @@ def _finalize(case_id, management_drafts, diagnostic_drafts, diagnostic_events,
         else:
             input_evidence = available
         adjudication = checkpoint.get("global_adjudication") or {}
-        comparator = checkpoint_by_id.get(adjudication.get("comparator_checkpoint_id"))
+        comparator_id = adjudication.get("comparator_checkpoint_id")
+        comparator = checkpoint_by_id.get(checkpoint_redirects.get(comparator_id, comparator_id))
         if checkpoint["kind"] == AFTER:
             new_evidence = sorted(event_ids)
         elif checkpoint["kind"] == REASSESSMENT \
@@ -1186,11 +1305,19 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
         checkpoint_adjudications)
     management_drafts = _attach_management_to_diagnostics(
         management_drafts, diagnostic_drafts, migration_by_event)
+    diagnostic_migration_by_key = {
+        (migration["event_id"], migration["node_kind"]): migration
+        for migration in diagnostic_migrations}
+    diagnostic_drafts, checkpoint_redirects, checkpoint_merges = \
+        _absorb_redundant_before_checkpoints(
+            management_drafts, diagnostic_drafts, projected_diagnostics,
+            migration_by_event, diagnostic_migration_by_key)
     all_drafts = management_drafts + diagnostic_drafts
     support_records = _attach_support(prepared, all_drafts, migration_by_event)
     checkpoints, cycles, states, episodes = _finalize(
         case_id, management_drafts, diagnostic_drafts, projected_diagnostics,
-        migration_by_event, support_records, operation_start=operation_start)
+        migration_by_event, support_records, operation_start=operation_start,
+        checkpoint_redirects=checkpoint_redirects)
     migrations.extend(diagnostic_migrations)
 
     candidate_migrations = [item for item in migrations
@@ -1215,6 +1342,7 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
             if len({checkpoint_id for checkpoint_id in event["candidate_checkpoint_ids"].values()
                     if checkpoint_id}) > 1),
         support_record_count=len(support_records),
+        before_acquisition_merge_count=len(checkpoint_merges),
         migration_status_counts=dict(sorted(Counter(
             item["migration_status"] for item in migrations).items())),
         migration_type_counts=dict(sorted(Counter(
@@ -1234,6 +1362,7 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
     return dict(
         format_version=PROJECTION_VERSION,
         candidate_checkpoints=checkpoints,
+        checkpoint_merges=checkpoint_merges,
         migrations=migrations,
         support_records=support_records,
         diagnostic_events=projected_diagnostics,

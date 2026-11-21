@@ -1,6 +1,7 @@
 """Goal-oriented trajectory projection tests; every clinical record is synthetic."""
 from copy import deepcopy
 import hashlib
+import json
 import unittest
 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.candidate_materials import (
@@ -99,6 +100,107 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(result["diagnostic_events"][0]["candidate_checkpoint_ids"], {
             BEFORE: before["checkpoint_id"], AFTER: after["checkpoint_id"]})
         self.assertEqual(result["summary"]["diagnostic_events_with_multiple_checkpoints"], 1)
+
+    def test_same_state_management_cp_absorbs_mr_before_without_report_leakage(self):
+        plan_text = "继续评估，拟行胰十二指肠切除术。"
+        management = candidate("EV-PLAN", "S-PLAN", plan_text, plan_text)
+        event = diagnostic("DE-MR", "MR-1", exam="2026-03-02 08:00",
+                           report="2026-03-02 12:00")
+        sources = [source("S-CONTEXT", "既往临床资料。"),
+                   source("S-PLAN", plan_text), source("MR-1", "MR原始报告秘密。")]
+        result = self.project(
+            candidates=[management], sources=sources, events=[event], reviews=[
+                review("DE-MR", BEFORE, target="胰腺MRI",
+                       action_type="ORDER_DIAGNOSTIC_TEST"),
+                review("DE-MR", AFTER)])
+        self.assertEqual([cp["kind"] for cp in result["candidate_checkpoints"]],
+                         [REASSESSMENT, AFTER])
+        retained, after = result["candidate_checkpoints"]
+        self.assertIn("胰腺MRI", {action["target"]
+                                 for action in retained["candidate_actions"]})
+        self.assertEqual(retained["diagnostic_event_ids"], ["DE-MR"])
+        self.assertEqual(result["diagnostic_events"][0]["candidate_checkpoint_ids"][BEFORE],
+                         retained["checkpoint_id"])
+        before_migration = next(row for row in result["migrations"]
+                                if row.get("node_kind") == BEFORE)
+        self.assertEqual(before_migration["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(before_migration["reason"],
+                         "SAME_EVIDENCE_STATE_MANAGEMENT_CP_RETAINED")
+        self.assertEqual(before_migration["to_checkpoint_id"], retained["checkpoint_id"])
+        self.assertTrue(result["summary"]["migration_conserved"])
+        packet = project_candidate_materials(
+            case_id="SYN-TRAJECTORY", sources=sources, candidates=[management],
+            projection=result, candidate_episodes=result["management_episodes"]
+        )["packets"][0]
+        self.assertNotIn("MR-1", {item["source_id"] for item in packet["included_sources"]})
+        self.assertNotIn("MR原始报告秘密", json.dumps(packet, ensure_ascii=False))
+        self.assertEqual(after["kind"], AFTER)
+        self.assertEqual(after["input_evidence_ids"], ["DE-MR"])
+
+    def test_new_evidence_between_management_and_before_keeps_both(self):
+        plan_text = "继续评估，拟行胰十二指肠切除术。"
+        management = candidate("EV-PLAN", "S-PLAN", plan_text, plan_text)
+        events = [diagnostic("DE-LAB", "LAB-1", exam="2026-03-01 20:00",
+                             report="2026-03-01 21:00"),
+                  diagnostic("DE-MR", "MR-1", exam="2026-03-02 08:00",
+                             report="2026-03-02 12:00")]
+        sources = [source("S-CONTEXT", "既往临床资料。"),
+                   source("S-PLAN", plan_text), source("LAB-1", "新检验报告。"),
+                   source("MR-1", "MR原始报告秘密。")]
+        result = self.project(
+            candidates=[management], sources=sources, events=events, reviews=[
+                review("DE-LAB", AFTER),
+                review("DE-MR", BEFORE, target="胰腺MRI",
+                       action_type="ORDER_DIAGNOSTIC_TEST"),
+                review("DE-MR", AFTER)])
+        mr_before_id = next(event["candidate_checkpoint_ids"][BEFORE]
+                            for event in result["diagnostic_events"]
+                            if event["event_id"] == "DE-MR")
+        mr_before = next(cp for cp in result["candidate_checkpoints"]
+                         if cp["checkpoint_id"] == mr_before_id)
+        self.assertEqual(mr_before["kind"], BEFORE)
+        self.assertEqual(len([cp for cp in result["candidate_checkpoints"]
+                              if cp["kind"] == REASSESSMENT]), 1)
+        before_migration = next(row for row in result["migrations"]
+                                if row["event_id"] == "DE-MR" and row.get("node_kind") == BEFORE)
+        self.assertEqual(before_migration["migration_status"], "RETAINED")
+        self.assertTrue(result["summary"]["migration_conserved"])
+
+    def test_comparator_to_absorbed_before_uses_retained_management_state(self):
+        first_text = "继续评估，拟行胰十二指肠切除术。"
+        later_text = "复查后再次评估手术。"
+        items = [candidate("EV-FIRST", "S-FIRST", first_text, first_text),
+                 candidate("EV-LATER", "S-LATER", later_text, later_text,
+                           clock="2026-03-03", condition_changed=True)]
+        event = diagnostic("DE-MR", "MR-1")
+        sources = [source("S-CONTEXT", "既往临床资料。"),
+                   source("S-FIRST", first_text), source("S-LATER", later_text,
+                                                         clock="2026-03-03"),
+                   source("MR-1", "MR报告。")]
+        kwargs = dict(candidates=items, sources=sources, events=[event], reviews=[
+            review("DE-MR", BEFORE, target="胰腺MRI",
+                   action_type="ORDER_DIAGNOSTIC_TEST"),
+            review("DE-MR", AFTER)])
+        provisional = self.project(**kwargs)
+        first_id = next(cp["checkpoint_id"] for cp in provisional["candidate_checkpoints"]
+                        if cp["kind"] == REASSESSMENT)
+        before_id = self.project(sources=sources, events=[event], reviews=kwargs["reviews"]
+                                 )["diagnostic_events"][0]["candidate_checkpoint_ids"][BEFORE]
+        later_id = next(cp["checkpoint_id"] for cp in provisional["candidate_checkpoints"]
+                        if cp["kind"] == REASSESSMENT and cp["checkpoint_id"] != first_id)
+        result = self.project(**dict(kwargs, adjudications=[
+            dict(checkpoint_id=first_id, disposition="RETAIN_CP", evolution="FIRST_VISIBLE",
+                 comparator_checkpoint_id=None, evidence_supports=[], rationale="首见"),
+            dict(checkpoint_id=later_id, disposition="RETAIN_CP",
+                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=before_id,
+                 evidence_supports=["DE-MR"], rationale="MRI后复查")]))
+        later = next(cp for cp in result["candidate_checkpoints"]
+                     if cp["checkpoint_id"] == later_id)
+        self.assertEqual(later["new_evidence_event_ids"], ["DE-MR"])
+        self.assertEqual(later["evidence_evolution_status"],
+                         "AGENT_ADJUDICATED_EVIDENCE_REVIEW_REQUIRED")
+        self.assertNotIn(before_id, {cp["checkpoint_id"]
+                                    for cp in result["candidate_checkpoints"]})
 
     def test_duplicate_surgery_documents_merge_and_keep_every_support_source(self):
         records = [
@@ -397,7 +499,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
                              "NON_ACTIONABLE_CANDIDATE_CONTEXT_ONLY")
             self.assertEqual(migrations[event_id]["to_checkpoint_id"],
                              checkpoint["checkpoint_id"])
-        self.assertEqual(result["format_version"], "management-trajectory-0.3.1")
+        self.assertEqual(result["format_version"], "management-trajectory-0.3.2")
         materials = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=[source("S-COURSE", text)],
             candidates=items, projection=result,
@@ -1286,7 +1388,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
                 self.assertEqual(migration["reason"], expected_reason)
                 self.assertIsNone(migration["to_checkpoint_id"])
 
-    def test_before_same_time_actions_require_explicit_joint_declaration(self):
+    def test_same_time_same_modality_before_candidates_merge_without_agent_declaration(self):
         context = source("S-CONTEXT", "既往临床资料。")
         ct_sources = []
         for source_id in ("CT-1", "CT-2"):
@@ -1302,14 +1404,12 @@ class ManagementTrajectoryTests(unittest.TestCase):
         reviews = [review(event["event_id"], BEFORE, target="增强CT",
                           action_type="ORDER_DIAGNOSTIC_TEST") for event in events]
         result = self.project(sources=sources, events=events, reviews=reviews)
-        self.assertEqual(len(result["candidate_checkpoints"]), 2)
-        self.assertEqual(len({cp["diagnostic_event_ids"][0]
-                              for cp in result["candidate_checkpoints"]}), 2)
-        self.assertTrue(all(cp["kind"] == BEFORE
-                            for cp in result["candidate_checkpoints"]))
-        self.assertTrue(all(row["migration_status"] == "RETAINED"
-                            for row in result["migrations"]
-                            if row.get("node_kind") == BEFORE))
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(result["candidate_checkpoints"][0]["diagnostic_event_ids"],
+                         ["DE-CT-1", "DE-CT-2"])
+        self.assertEqual(result["candidate_checkpoints"][0]["kind"], BEFORE)
+        self.assertEqual([row["migration_status"] for row in result["migrations"]
+                          if row.get("node_kind") == BEFORE], ["RETAINED", "MERGED"])
         for event in result["diagnostic_events"]:
             self.assertIn("SAME_EXAM_TIME_MULTIPLE_EVENTS_REVIEW_REQUIRED",
                           event["audit"]["content_review_flags"])
@@ -1376,10 +1476,14 @@ class ManagementTrajectoryTests(unittest.TestCase):
         event = diagnostic("DE-PLACEHOLDER", "CT-PLACEHOLDER")
         event["audit"] = dict(placeholder_only_event=True)
         result = self.project(
-            sources=[source("CT-PLACEHOLDER", "[original_findings] 已写")],
-            events=[event], reviews=[review("DE-PLACEHOLDER", BEFORE, disposition="no"),
+            sources=[source("S-CONTEXT", "既往资料。"),
+                     source("CT-PLACEHOLDER", "[original_findings] 已写")],
+            events=[event], reviews=[review("DE-PLACEHOLDER", BEFORE),
                                      review("DE-PLACEHOLDER", AFTER)])
         self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(result["migrations"][0]["migration_status"], "REVIEW_REQUIRED")
+        self.assertEqual(result["migrations"][0]["reason"],
+                         "PLACEHOLDER_ONLY_REPORT_NOT_ACQUISITION_CANDIDATE")
         self.assertEqual(result["migrations"][1]["migration_status"], "REVIEW_REQUIRED")
         self.assertEqual(result["migrations"][1]["reason"],
                          "PLACEHOLDER_ONLY_REPORT_NOT_EVIDENCE_ARRIVAL")
