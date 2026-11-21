@@ -720,8 +720,8 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_projection.py",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_actions.py"
       ],
-      "status": "synthetic_counterexamples_and_adversarial_audit_passed_live_validation_pending",
-      "limitations": "The 26-action dictionary is DRAFT_NOT_CLINICAL_REFERENCE and not a patient-specific acceptable-action set. Agent review is a candidate audit, not clinical confirmation; fresh SCALE-01 behavior is validated separately."
+      "status": "r49_fixed_discovery_and_fresh_full_pipeline_live_validation_passed",
+      "limitations": "The 26-action dictionary is DRAFT_NOT_CLINICAL_REFERENCE and not a patient-specific acceptable-action set. Agent review is a candidate audit, not clinical confirmation. Both r49 SCALE-01 runs removed the postoperatively visible preoperative-CT independent CP and rendered 9 CPs with conserved migrations; the fresh run also standardized postoperative-pathology actions. OTHER_SPECIFIED still includes broad preoperative-assessment wording and needs further specificity review. SCALE-02/05/06/09 were not rerun in r49."
     }
   ]
 }
