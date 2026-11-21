@@ -448,7 +448,9 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertIn("最少必要读取", skill.body)
         self.assertIn("search_checkpoint_sources", skill.body)
         self.assertIn("SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE", skill.body)
+        self.assertIn("EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT", skill.body)
         self.assertIn("不得原样重复提交", adjudication.ADJUDICATION_SYSTEM_PROMPT)
+        self.assertIn("未来检验引文", adjudication.ADJUDICATION_SYSTEM_PROMPT)
 
     def test_management_comparator_reuses_prior_current_detail_read(self):
         first_text = "拟行手术。"
@@ -1355,6 +1357,44 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             evidence_supports=[dict(source_id="S-MR-NEW", quote=findings)],
             rationale="引用同日新MR原始报告可以形成新证据轮次。")["item"]
         self.assertEqual(item["evidence_supports"][0]["source_id"], "S-MR-NEW")
+
+    def make_lab_restatement_case(self, report_value, report_clock):
+        first_text = "拟完善检查。"
+        current_text = "查房记录。高敏肌钙蛋白I(cTnI) 1.204μg/L。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, "查房记录。",
+                            clock="2026-03-03")
+        report = source("S-TROP", "高敏肌钙蛋白I(cTnI)\n" + report_value, report_clock)
+        report.update(kind="lab", original_fields={
+            "检验项目名称": "高敏肌钙蛋白I(cTnI)", "检验结果值": report_value})
+        current_source = source("S-CURRENT", current_text, "2026-03-03")
+        current_source["kind"] = "document"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"), report,
+                               current_source])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        return store, dict(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(
+                source_id="S-CURRENT", quote="高敏肌钙蛋白I(cTnI) 1.204μg/L")],
+            rationale="当前文书记录新的肌钙蛋白结果。")
+
+    def test_same_lab_name_with_different_value_is_not_report_restatement(self):
+        store, call = self.make_lab_restatement_case("2.016", "2026-03-02")
+        item = store.adjudicate(**call)["item"]
+        self.assertEqual(item["disposition"], "RETAIN_CP")
+
+    def test_exact_lab_restatement_from_future_report_is_rejected(self):
+        store, call = self.make_lab_restatement_case("1.204", "2026-03-04")
+        with self.assertRaises(ToolError) as caught:
+            store.adjudicate(**call)
+        self.assertIn("EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT", str(caught.exception))
+        self.assertIn("S-TROP@2026-03-04", str(caught.exception))
+        self.assertIn("不得标为来源未明", str(caught.exception))
 
     def test_diagnostic_report_read_before_current_context_does_not_satisfy_gate(self):
         current_text = "会诊后建议手术。"

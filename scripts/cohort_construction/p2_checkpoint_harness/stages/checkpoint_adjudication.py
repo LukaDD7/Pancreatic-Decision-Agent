@@ -61,7 +61,7 @@ RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生�
 新动作、新计划、转科和执行本身不是证据演化；comparator已有报告及其副本、后续文书对同一旧报告的复述和未来报告也不能作为新增证据。若原始报告可找到，仍须核对并引用原始报告，不能用后一份文书给旧证据重新定时。只有证据是否新增、先后关系或同刻顺序确实无法判断时才用REVIEW_REQUIRED+UNCERTAIN；该状态也会保留独立候选CP，不等于归并或删除。
 
 evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、来源时钟、报告身份、引文和span重叠；未来检查计划等与当前目标管理动作重叠的引文必须拒绝，不能靠关键词改判临床真值。逐项提交后立即继续，不要反复重新列出全部CP。
-若返回SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE，下一步必须read_source错误中列出的匹配候选，核对后用原始报告source_id和原文quote替换复述引文；不得原样重复提交。若原报告不能证明严格晚于comparator或无法支持证据演化，改判SUPPORT_ONLY；来源或关系确实不明时改REVIEW_REQUIRED+UNCERTAIN，不得继续用旧复述重试。"""
+若返回SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE，下一步必须read_source错误中列出的匹配候选，核对后用原始报告source_id和原文quote替换复述引文；不得原样重复提交。若返回EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT，删除对应未来检验引文，不得标为来源未明；仅可另引当前时点已发生的新生理状态或治疗经过，否则改SUPPORT_ONLY，关系确实不明时改REVIEW_REQUIRED+UNCERTAIN。原报告不能证明严格晚于comparator或无法支持证据演化时，同样改判，不得继续用旧复述重试。"""
 
 
 def _event_id(candidate, index):
@@ -330,9 +330,20 @@ class CheckpointAdjudicationStore:
 
     @classmethod
     def _report_content_matches(cls, original, payload):
-        original_text = cls._normalized_report_text(original)
+        if original.get("kind") == "lab":
+            fields = original.get("original_fields") or {}
+            name = cls._normalized_report_text(str(fields.get("检验项目名称") or ""))
+            value = cls._normalized_report_text(str(fields.get("检验结果值") or ""))
+            payload_text = cls._normalized_report_text(payload)
+            if not name or not value or name not in payload_text:
+                return False
+            if re.fullmatch(r"[-+]?\d+(?:\.\d+)?", value):
+                return re.search(r"(?<![\d.])" + re.escape(value) + r"(?![\d.])",
+                                 payload_text) is not None
+            return value in payload_text
+        original_text = cls._normalized_report_text(original.get("text"))
         payload_text = cls._normalized_report_text(payload)
-        original_fragments = cls._report_fragments(original)
+        original_fragments = cls._report_fragments(original.get("text"))
         payload_fragments = cls._report_fragments(payload)
         if any(len(fragment) >= 10 and fragment in payload_text
                for fragment in original_fragments):
@@ -348,16 +359,30 @@ class CheckpointAdjudicationStore:
         if source.get("kind") != "document":
             return
         matched_original_ids = []
+        future_originals = []
         current_clock = _clock_value(checkpoint)
         for original in self.source_index.sources:
             visibility = (((original.get("clocks") or {}).get("report_time") or {}).get("value")
                           or _clock_value(original))
             if original["source_id"] == source["source_id"] \
-                    or original.get("kind") == "document" \
-                    or not visibility or not current_clock or visibility > current_clock:
+                    or original.get("kind") == "document" or not visibility:
                 continue
-            if self._report_content_matches(original.get("text"), quote):
+            if not self._report_content_matches(original, quote):
+                continue
+            if current_clock and visibility > current_clock:
+                if original.get("kind") == "lab":
+                    future_originals.append((original["source_id"], visibility))
+            elif current_clock:
                 matched_original_ids.append(original["source_id"])
+        if future_originals:
+            raise ToolError(
+                "EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT: 当前文书复述的检验与下列同项目、"
+                "同结果值原报告匹配，但原报告时钟晚于当前CP，属于未来信息，不能作为当前证据，"
+                "也不得标为来源未明。删除对应检验引文；仅可另引当前时点已发生的新生理状态或"
+                "治疗经过，否则改SUPPORT_ONLY，关系不清时改REVIEW_REQUIRED+UNCERTAIN。"
+                "未来原报告及报告时钟：" + ",".join(
+                    source_id + "@" + visibility
+                    for source_id, visibility in future_originals[:5]))
         if matched_original_ids:
             raise ToolError(
                 "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE: 引文与当前时点已可见的"
