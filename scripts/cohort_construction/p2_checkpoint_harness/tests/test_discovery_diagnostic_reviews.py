@@ -7,7 +7,6 @@ from scripts.cohort_construction.p2_checkpoint_harness.harness import (
     Harness, HarnessConfig,
 )
 from scripts.cohort_construction.p2_checkpoint_harness.pipeline import CaseRunner
-from scripts.cohort_construction.p2_checkpoint_harness.stages.actions import action_ids
 from scripts.cohort_construction.p2_checkpoint_harness.stages.discovery import build_prompt
 from scripts.cohort_construction.p2_checkpoint_harness.tests.test_pipeline import (
     StubTransport, _finish, _proposal,
@@ -75,17 +74,18 @@ class DiagnosticReviewToolTests(unittest.TestCase):
         self.assertEqual(result["disposition"], "no")
         self.assertIsNone(result["candidate_action"])
 
-    def test_yes_requires_action_id_and_other_requires_specific_target(self):
+    def test_yes_allows_missing_or_unlisted_free_text_action(self):
         tool = _store().tool_review_diagnostic_candidate()
-        with self.assertRaisesRegex(ToolError, "DIAGNOSTIC_ACTION_ID_REQUIRED"):
-            tool.run(candidate_kind="pre_exam_evaluation", disposition="yes",
-                     reason="需要检查", target="增强CT")
-        with self.assertRaisesRegex(ToolError, "ACTION_TARGET_REQUIRED_FOR_OTHER_SPECIFIED"):
-            tool.run(candidate_kind="evidence_arrival_reassessment", disposition="yes",
-                     reason="需要额外动作", action_id="OTHER_SPECIFIED")
-        with self.assertRaisesRegex(ToolError, "ACTION_TARGET_ABSTRACT_FOR_OTHER_SPECIFIED"):
-            tool.run(candidate_kind="evidence_arrival_reassessment", disposition="yes",
-                     reason="抽象目标不够", action_id="OTHER_SPECIFIED", target="完善检查")
+        missing = tool.run(candidate_kind="pre_exam_evaluation", disposition="yes",
+                           reason="检查本身属于补证动作")
+        self.assertIsNone(missing["candidate_action"])
+        other = tool.run(
+            candidate_kind="evidence_arrival_reassessment", disposition="yes",
+            reason="减黄是字典外参考动作", action_id="OTHER_SPECIFIED",
+            action_type="BILIARY_DRAINAGE", target="内镜下胆道支架置入减黄")
+        self.assertEqual(other["candidate_action"]["target"], "内镜下胆道支架置入减黄")
+        self.assertEqual(other["candidate_action"]["original_action_type"],
+                         "BILIARY_DRAINAGE")
 
     def test_reason_is_required_for_every_disposition(self):
         tool = _store().tool_review_diagnostic_candidate()
@@ -112,14 +112,15 @@ class DiagnosticReviewToolTests(unittest.TestCase):
 
 
 class ManagementActionTests(unittest.TestCase):
-    def test_new_decision_and_reassessment_require_and_save_action(self):
+    def test_new_decision_and_reassessment_allow_missing_action(self):
         store = _store("document")
         tool = store.tool_propose_candidate()
         for function in ("new_decision", "reassessment"):
             with self.subTest(function=function):
-                with self.assertRaisesRegex(ToolError, "CANDIDATE_ACTION_ID_REQUIRED"):
-                    tool.run(local_id=function, scope="yes", record_function=function,
-                             source_id="S-I", quote=REPORT, target="增强CT")
+                result = tool.run(local_id=function, scope="yes", record_function=function,
+                                  source_id="S-I", quote=REPORT)
+                self.assertTrue(result["accepted"])
+                self.assertIsNone(store.proposals[function]["record"]["candidate_action"])
         result = tool.run(local_id="decision", scope="yes", record_function="new_decision",
                           source_id="S-I", quote=REPORT,
                           action_id="DIAG_PANCREATIC_CONTRAST_CT",
@@ -131,7 +132,7 @@ class ManagementActionTests(unittest.TestCase):
         self.assertEqual(action["target"], "胰腺增强CT扫描")
         self.assertEqual(action["original_action_type"], "reassess_resectability")
         self.assertEqual(action["original_target"], "胰头肿瘤")
-        self.assertEqual(tool.input_schema["properties"]["action_id"]["enum"], action_ids())
+        self.assertNotIn("enum", tool.input_schema["properties"]["action_id"])
 
     def test_scope_no_does_not_need_an_action(self):
         result = _store("document").tool_propose_candidate().run(
@@ -218,7 +219,7 @@ class DiagnosticPipelineTests(unittest.TestCase):
         self.assertIn("不得因缺少医嘱、指征或部署句而 uncertain", prompt)
         self.assertIn("不要求报告已写明管理决定", prompt)
         self.assertIn("action_id", prompt)
-        self.assertIn("仅 OTHER_SPECIFIED 另填具体 target", prompt)
+        self.assertIn("动作可留空或用 OTHER_SPECIFIED 自由描述", prompt)
 
 
 if __name__ == "__main__":

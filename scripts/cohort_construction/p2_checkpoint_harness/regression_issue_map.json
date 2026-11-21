@@ -721,7 +721,30 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_actions.py"
       ],
       "status": "r49_fixed_discovery_and_fresh_full_pipeline_live_validation_passed",
-      "limitations": "The 26-action dictionary is DRAFT_NOT_CLINICAL_REFERENCE and not a patient-specific acceptable-action set. Agent review is a candidate audit, not clinical confirmation. Both r49 SCALE-01 runs removed the postoperatively visible preoperative-CT independent CP and rendered 9 CPs with conserved migrations; the fresh run also standardized postoperative-pathology actions. OTHER_SPECIFIED still includes broad preoperative-assessment wording and needs further specificity review. SCALE-02/05/06/09 were not rerun in r49."
+      "limitations": "The 26-action dictionary is DRAFT_NOT_CLINICAL_REFERENCE and not a patient-specific acceptable-action set. Agent review is a candidate audit, not clinical confirmation. Both r49 SCALE-01 runs removed the postoperatively visible preoperative-CT independent CP and rendered 9 CPs with conserved migrations; the fresh run also standardized postoperative-pathology actions. OTHER_SPECIFIED still includes broad preoperative-assessment wording and needs further specificity review. SCALE-02/05/06/09 were not rerun in r49. HAR-LIVE-039 supersedes mandatory canonical actions and phase validation in subsequent versions."
+    },
+    {
+      "id": "HAR-LIVE-039",
+      "problem": "The r49 action dictionary became an erroneous cognitive and structural gate: Discovery required action_id, rejected abstract or unlisted actions, action review required a phase-valid replacement, and downstream projections filtered null-action candidates out of independent CPs. A valid but unlisted management action such as patient-specific biliary drainage could therefore cause tool errors or distort candidate selection. Formal report time was also worded as actual result visibility although clinicians may review images earlier.",
+      "change_type": "optional_open_action_reference_and_report_time_proxy_wording",
+      "real_counterexample": {
+        "case_id": "SYNTHETIC_FROM_SCALE01_ACTION_REVIEW",
+        "observation": "A CP must remain valid with no reference action or with OTHER_SPECIFIED free text such as endoscopic biliary stent drainage; report time is a documentation proxy, not the clinician's actual image-review time.",
+        "private_baseline": "private/p2_harness_live_20261119/live-r49/SCALE-01-fresh-r02/run/case_result.json"
+      },
+      "positive_control": "Discovery accepts new_decision/reassessment and diagnostic yes with null action; downstream projections retain those management and diagnostic CPs with an empty action list while repeat/execution remain support; OTHER_SPECIFIED preserves free action_type/target; retained CP review accepts null or unlisted actions without action-phase rejection. Report-time wording explicitly permits earlier clinician image review.",
+      "negative_control": "Source/span verification, mandatory current and operative source reading for phase-conflict review, management-CP deletion prohibition, migration conservation, and evidence-evolution guards remain enforced.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_diagnostic_reviews.py::DiagnosticReviewToolTests::test_yes_allows_missing_or_unlisted_free_text_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_diagnostic_reviews.py::ManagementActionTests::test_new_decision_and_reassessment_allow_missing_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_management_candidate_without_reference_action_remains_a_checkpoint",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_diagnostic_candidate_without_reference_action_remains_a_checkpoint",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_missing_action_candidate_has_own_checkpoint_instead_of_being_dropped",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_adjudication.py::ActionReviewAdjudicationTests::test_retained_checkpoint_action_is_optional_and_open",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_projection.py::ActionReviewProjectionTests::test_retained_checkpoint_allows_missing_action_and_does_not_phase_validate"
+      ],
+      "status": "synthetic_counterexamples_passed_live_validation_pending",
+      "limitations": "Reference actions are optional LLM annotations, not a complete or clinically validated action set and not blind-review answers. Operation/report clock conflict review is a conservative reconstruction guard, not a claim about the clinician's actual awareness time."
     }
   ]
 }

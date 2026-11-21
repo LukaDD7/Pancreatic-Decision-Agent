@@ -473,7 +473,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertEqual(report["text"], "病理报告。")
         self.assertNotIn("拟开始新辅助化疗", support["text"])
 
-    def test_non_actionable_spans_stay_visible_as_support_not_answer_masks(self):
+    def test_missing_action_decision_is_masked_while_repeat_stays_visible(self):
         evidence = "新辅助化疗6疗程，肿瘤体积缩小。"
         restatement = "上述疗效变化提示可重新评估。"
         decision = "排除禁忌后限期手术。"
@@ -488,29 +488,31 @@ class ManagementTrajectoryTests(unittest.TestCase):
         result = self.project(candidates=items, sources=[source("S-COURSE", text)])
         self.assertEqual(len(result["candidate_checkpoints"]), 1)
         checkpoint = result["candidate_checkpoints"][0]
-        self.assertEqual(checkpoint["member_event_ids"], ["EV-DECISION"])
-        self.assertEqual(checkpoint["supporting_event_ids"],
-                         ["EV-EVIDENCE", "EV-RESTATEMENT"])
-        self.assertEqual([span["quote"] for span in checkpoint["masked_spans"]], [decision])
+        self.assertEqual(checkpoint["member_event_ids"], ["EV-DECISION", "EV-RESTATEMENT"])
+        self.assertEqual(len(checkpoint["candidate_actions"]), 1)
+        self.assertEqual(checkpoint["candidate_actions"][0]["event_id"], "EV-DECISION")
+        self.assertEqual(checkpoint["supporting_event_ids"], ["EV-EVIDENCE"])
+        self.assertEqual([span["quote"] for span in checkpoint["masked_spans"]], [text])
         migrations = {row["event_id"]: row for row in result["migrations"]}
-        for event_id in ("EV-EVIDENCE", "EV-RESTATEMENT"):
-            self.assertEqual(migrations[event_id]["migration_status"], "CONTEXT_ONLY")
-            self.assertEqual(migrations[event_id]["reason"],
-                             "NON_ACTIONABLE_CANDIDATE_CONTEXT_ONLY")
-            self.assertEqual(migrations[event_id]["to_checkpoint_id"],
-                             checkpoint["checkpoint_id"])
-        self.assertEqual(result["format_version"], "management-trajectory-0.3.6")
+        self.assertEqual(migrations["EV-EVIDENCE"]["migration_status"], "SUPPORT_ONLY")
+        self.assertEqual(migrations["EV-EVIDENCE"]["reason"],
+                         "RECORD_FUNCTION_NOT_INDEPENDENT_DECISION")
+        self.assertEqual(migrations["EV-EVIDENCE"]["to_checkpoint_id"],
+                         checkpoint["checkpoint_id"])
+        self.assertEqual(migrations["EV-RESTATEMENT"]["reason"],
+                         "MERGED_SAME_UNRESOLVED_MANAGEMENT_QUESTION")
+        self.assertEqual(result["format_version"], "management-trajectory-0.3.7")
         materials = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=[source("S-COURSE", text)],
             candidates=items, projection=result,
             relations=[dict(source_event_id="EV-DECISION",
                             target_event_id="EV-EVIDENCE", relation="same_event")])
         visible = materials["packets"][0]["included_sources"][0]["text"]
-        self.assertIn(evidence, visible)
-        self.assertIn(restatement, visible)
+        self.assertNotIn(evidence, visible)
+        self.assertNotIn(restatement, visible)
         self.assertNotIn(decision, visible)
 
-    def test_unattached_context_only_source_remains_visible_on_timeline(self):
+    def test_missing_action_candidate_has_own_checkpoint_instead_of_being_dropped(self):
         context_text = "既往治疗经过及肿瘤体积缩小。"
         decision_text = "再次评估后拟行胰十二指肠切除术。"
         context = candidate("EV-CONTEXT", "S-CONTEXT", context_text, context_text,
@@ -520,16 +522,19 @@ class ManagementTrajectoryTests(unittest.TestCase):
         sources = [source("S-CONTEXT", context_text),
                    source("S-DECISION", decision_text, clock="2026-03-02")]
         result = self.project(candidates=[context, decision], sources=sources)
+        self.assertEqual(len(result["candidate_checkpoints"]), 2)
         migration = next(row for row in result["migrations"]
                          if row["event_id"] == "EV-CONTEXT")
-        self.assertEqual(migration["migration_status"], "CONTEXT_ONLY")
-        self.assertIsNone(migration["to_checkpoint_id"])
-        packet = project_candidate_materials(
+        self.assertEqual(migration["migration_status"], "RETAINED")
+        self.assertIsNotNone(migration["to_checkpoint_id"])
+        material = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=sources,
-            candidates=[context, decision], projection=result)["packets"][0]
+            candidates=[context, decision], projection=result)
+        packet = next(row for row in material["packets"]
+                      if "EV-CONTEXT" in row["migration_event_ids"])
         visible = next(row["text"] for row in packet["included_sources"]
                        if row["source_id"] == "S-CONTEXT")
-        self.assertEqual(visible, context_text)
+        self.assertNotEqual(visible, context_text)
 
     def test_repeat_with_real_condition_increment_is_restored_as_retained(self):
         text = "新增黄疸，再次讨论后仍拟行胰十二指肠切除术。"

@@ -5,7 +5,6 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
-import re
 
 
 PHASES = {
@@ -19,15 +18,6 @@ PHASES = {
 DEFAULT_DICTIONARY_PATH = (
     Path(__file__).resolve().parents[4] / "configs" / "action_dictionary.v0.2.draft.json"
 )
-_ABSTRACT_TARGET_TERMS = (
-    "完善检查", "综合治疗", "手术评估", "可切除性再评估", "可切除性评估",
-)
-_BARE_ABSTRACT_TARGETS = {
-    "检查", "完善", "评估", "再评估", "影像", "imaging", "手术", "surgery",
-    "治疗", "新辅助治疗", "支持治疗", "随访", "穿刺", "穿刺活检", "mdt",
-}
-
-
 def load_dictionary(path=None):
     source = Path(path) if path is not None else DEFAULT_DICTIONARY_PATH
     value = json.loads(source.read_text(encoding="utf-8"))
@@ -92,24 +82,37 @@ def dictionary_hash(*, dictionary=None):
 
 def canonical_action(action_id, *, target=None, phase=None, dictionary=None):
     action = get_action(action_id, dictionary=dictionary)
-    if phase is not None and phase not in action["allowed_phases"]:
-        if phase not in PHASES:
-            raise ValueError("ACTION_PHASE_UNKNOWN:" + str(phase))
-        raise ValueError("ACTION_PHASE_NOT_ALLOWED:%s:%s" % (action_id, phase))
-    if action_id == "OTHER_SPECIFIED":
-        specific = target.strip() if isinstance(target, str) else ""
-        if not specific:
-            raise ValueError("ACTION_TARGET_REQUIRED_FOR_OTHER_SPECIFIED")
-        normalized = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", specific.lower())
-        if any(term in normalized for term in _ABSTRACT_TARGET_TERMS) \
-                or normalized in _BARE_ABSTRACT_TARGETS:
-            raise ValueError("ACTION_TARGET_ABSTRACT_FOR_OTHER_SPECIFIED:" + specific)
-        action["target"] = specific
+    if action_id == "OTHER_SPECIFIED" and isinstance(target, str) and target.strip():
+        action["target"] = target.strip()
     return {key: deepcopy(action[key]) for key in (
         "action_id", "action_type", "label", "target", "allowed_phases")}
+
+
+def reference_action(action_id=None, action_type=None, target=None, *, dictionary=None):
+    provided_id = action_id.strip() if isinstance(action_id, str) else ""
+    provided_type = action_type.strip() if isinstance(action_type, str) else ""
+    provided_target = target.strip() if isinstance(target, str) else ""
+    if not provided_id and not provided_type and not provided_target:
+        return None
+    try:
+        action = canonical_action(
+            provided_id or "OTHER_SPECIFIED",
+            target=provided_target or provided_type,
+            dictionary=dictionary)
+    except ValueError:
+        action = canonical_action(
+            "OTHER_SPECIFIED", target=provided_target or provided_type or provided_id,
+            dictionary=dictionary)
+        action["original_action_id"] = provided_id
+    if provided_type:
+        action["original_action_type"] = provided_type
+    if provided_target:
+        action["original_target"] = provided_target
+    return action
 
 
 __all__ = [
     "PHASES", "DEFAULT_DICTIONARY_PATH", "load_dictionary", "action_ids", "get_action",
     "action_ids_for_phase", "dictionary_version", "dictionary_hash", "canonical_action",
+    "reference_action",
 ]

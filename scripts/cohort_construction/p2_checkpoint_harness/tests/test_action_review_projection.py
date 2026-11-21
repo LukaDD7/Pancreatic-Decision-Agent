@@ -67,7 +67,7 @@ class ActionReviewProjectionTests(unittest.TestCase):
         return value
 
     def adjudications(self, *reviews):
-        return dict(format="p2-checkpoint-adjudication-0.3.0", items=[],
+        return dict(format="p2-checkpoint-adjudication-0.3.1", items=[],
                     action_reviews=list(reviews))
 
     def test_remove_postoperative_ct_preserves_report_and_conserves_migrations(self):
@@ -258,7 +258,7 @@ class ActionReviewProjectionTests(unittest.TestCase):
                          "新辅助化疗")
         self.assertEqual(old["summary"]["action_reviewed_count"], 0)
         self.assertEqual(old["summary"]["action_review_disposition_counts"], {})
-        self.assertEqual(old["format_version"], "management-trajectory-0.3.6")
+        self.assertEqual(old["format_version"], "management-trajectory-0.3.7")
 
     def test_invalid_unknown_duplicate_and_unflagged_reviews_are_rejected(self):
         reviewed = self.action_review(self.checkpoint)
@@ -284,10 +284,14 @@ class ActionReviewProjectionTests(unittest.TestCase):
             self.project(**dict(preoperative_kwargs,
                                 adjudications=self.adjudications(unflagged)))
 
-        noncanonical = deepcopy(reviewed)
-        noncanonical["candidate_action"]["target"] = "离线程序自行改写的靶点"
-        with self.assertRaisesRegex(ValueError, "not canonical"):
-            self.project(**dict(self.kwargs, adjudications=self.adjudications(noncanonical)))
+        free_text = deepcopy(reviewed)
+        free_text["candidate_action"] = dict(
+            action_id="OTHER_SPECIFIED", action_type="OTHER_SPECIFIED",
+            target="内镜下胆道支架置入减黄")
+        result = self.project(**dict(
+            self.kwargs, adjudications=self.adjudications(free_text)))
+        self.assertEqual(result["candidate_checkpoints"][0]["candidate_actions"][0]["target"],
+                         "内镜下胆道支架置入减黄")
 
     def test_action_review_must_bind_operation_time_and_source_boundary(self):
         reviewed = self.action_review(self.checkpoint)
@@ -314,14 +318,18 @@ class ActionReviewProjectionTests(unittest.TestCase):
                     self.project(**dict(
                         self.kwargs, adjudications=self.adjudications(value)))
 
-    def test_postoperative_review_rejects_preoperative_dictionary_action(self):
+    def test_retained_checkpoint_allows_missing_action_and_does_not_phase_validate(self):
+        reviewed = self.action_review(self.checkpoint)
+        reviewed["candidate_action"] = None
+        result = self.project(**dict(self.kwargs, adjudications=self.adjudications(reviewed)))
+        self.assertEqual(result["candidate_checkpoints"][0]["candidate_actions"], [])
+        self.assertEqual(result["action_cycles"][0]["candidate_actions"], [])
+
         reviewed = self.action_review(self.checkpoint)
         reviewed["candidate_action"] = canonical_action("DIAG_PANCREATIC_CONTRAST_CT")
-        with self.assertRaisesRegex(
-                ValueError,
-                "ACTION_PHASE_NOT_ALLOWED:DIAG_PANCREATIC_CONTRAST_CT:"
-                "POSTOPERATIVE_TRAJECTORY"):
-            self.project(**dict(self.kwargs, adjudications=self.adjudications(reviewed)))
+        result = self.project(**dict(self.kwargs, adjudications=self.adjudications(reviewed)))
+        self.assertEqual(result["candidate_checkpoints"][0]["candidate_actions"][0]["action_id"],
+                         "DIAG_PANCREATIC_CONTRAST_CT")
 
     def test_dictionary_phase_controls_mismatch_with_legacy_keyword_fallback(self):
         records = [

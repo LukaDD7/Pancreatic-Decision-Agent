@@ -186,7 +186,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             candidates=[member],
             projection=dict(candidate_checkpoints=[ct_checkpoint, transfer_checkpoint]))
 
-        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.3.0")
+        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.3.1")
         self.assertEqual(result["case_id"], "SYN-EUS")
         self.assertEqual(len(result["items"]), 1)
         item = result["items"][0]

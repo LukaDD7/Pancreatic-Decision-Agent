@@ -11,7 +11,7 @@ import hashlib
 import json
 
 from .registry import Tool, ToolError
-from ..stages.actions import action_ids, canonical_action
+from ..stages.actions import reference_action
 
 
 def _digest(value):
@@ -19,18 +19,8 @@ def _digest(value):
                                      separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _action(action_id, action_type, target, *, required_error):
-    if not isinstance(action_id, str) or not action_id.strip():
-        raise ToolError(required_error)
-    try:
-        action = canonical_action(action_id.strip(), target=target)
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
-    if isinstance(action_type, str) and action_type.strip():
-        action["original_action_type"] = action_type.strip()
-    if isinstance(target, str) and target.strip():
-        action["original_target"] = target.strip()
-    return action
+def _action(action_id, action_type, target):
+    return reference_action(action_id, action_type, target)
 
 
 class ProposalStore:
@@ -138,9 +128,7 @@ class ProposalStore:
                 raise ToolError("UNCERTAIN_SCOPE_REQUIRES_UNCERTAINTY")
             candidate_action = None
             if scope == "yes" and record_function in ("new_decision", "reassessment"):
-                candidate_action = _action(
-                    action_id, action_type, target,
-                    required_error="CANDIDATE_ACTION_ID_REQUIRED")
+                candidate_action = _action(action_id, action_type, target)
             verdict, span = self._span_verdict(source_id, quote, start, end)
             record = dict(
                 local_id=local_id, scope=scope, record_function=record_function,
@@ -177,8 +165,8 @@ class ProposalStore:
             name="propose_candidate",
             description=("提交一个候选管理判断表述或一条已识别但明确排除的管理相关表述。"
                          "quote 必须逐字来自同一 source_id 的连续原文；start/end 为字符区间。"
-                         "scope=yes 且 new_decision/reassessment 时必填 action_id；"
-                         "仅 OTHER_SPECIFIED 另填具体 target，其他动作不要重复填写 target。"
+                         "动作仅作可选参考，可全部留空；可用字典 action_id，未列出时用 "
+                         "OTHER_SPECIFIED 并自由填写 action_type/target，程序不审核动作完整性或临床正确性。"
                          "这不是事件拆合、证据组织或 episode 工具。"),
             input_schema=dict(
                 type="object", additionalProperties=False,
@@ -197,12 +185,12 @@ class ProposalStore:
                     rationale=dict(type="string"),
                     reason=dict(type="string", description="scope=no 时的简短排除理由。"),
                     uncertainty=dict(type="string"),
-                    action_id=dict(type="string", enum=action_ids(), description=(
-                        "规范动作ID；scope=yes 且 new_decision/reassessment 时必填。")),
+                    action_id=dict(type="string", description=(
+                        "可选参考动作ID；未列出时用 OTHER_SPECIFIED，也可留空。")),
                     action_type=dict(type="string", description=(
-                        "可选旧自由文本，只保存为 original_action_type，不覆盖字典规范动作类型。")),
+                        "可选自由文本动作类型；OTHER_SPECIFIED 时原样保留供参考。")),
                     target=dict(type="string", description=(
-                        "仅 OTHER_SPECIFIED 必填具体目标；其他 action_id 忽略该值并仅保留 original_target。")))),
+                        "可选自由文本动作目标；不设抽象词或封闭集合校验。")))),
             run=run, writes=True)
 
     def tool_review_diagnostic_candidate(self):
@@ -218,9 +206,7 @@ class ProposalStore:
                 raise ToolError("DIAGNOSTIC_REVIEW_REASON_REQUIRED")
             candidate_action = None
             if disposition == "yes":
-                candidate_action = _action(
-                    action_id, action_type, target,
-                    required_error="DIAGNOSTIC_ACTION_ID_REQUIRED")
+                candidate_action = _action(action_id, action_type, target)
             review_id = "DR-" + _digest([self.unit_id, candidate_kind])[:16]
             previous = self.diagnostic_reviews.get(candidate_kind)
             record = dict(
@@ -250,8 +236,8 @@ class ProposalStore:
         return Tool(
             name="review_diagnostic_candidate",
             description=("审核当前 performed_test_report 的一个程序检查候选。"
-                         "两类候选各提交一次；yes 必填 action_id，仅 OTHER_SPECIFIED 另填具体 target；"
-                         "其他动作不要重复填写 target。no/uncertain 也必须有理由。"
+                         "两类候选各提交一次；动作仅作可选参考，可留空或用 OTHER_SPECIFIED 自由描述；"
+                         "程序不审核动作完整性或临床正确性。no/uncertain 也必须有理由。"
                          "unit_id 由程序绑定，不能由 Agent 指定。"),
             input_schema=dict(
                 type="object", additionalProperties=False,
@@ -261,12 +247,12 @@ class ProposalStore:
                         "pre_exam_evaluation", "evidence_arrival_reassessment"]),
                     disposition=dict(type="string", enum=["yes", "no", "uncertain"]),
                     reason=dict(type="string", minLength=1),
-                    action_id=dict(type="string", enum=action_ids(), description=(
-                        "disposition=yes 时必填的规范动作ID。")),
+                    action_id=dict(type="string", description=(
+                        "可选参考动作ID；未列出时用 OTHER_SPECIFIED，也可留空。")),
                     action_type=dict(type="string", description=(
-                        "可选旧自由文本，只保存为 original_action_type。")),
+                        "可选自由文本动作类型；OTHER_SPECIFIED 时原样保留供参考。")),
                     target=dict(type="string", description=(
-                        "仅 OTHER_SPECIFIED 必填具体目标；其他 action_id 忽略并仅保留 original_target。")),
+                        "可选自由文本动作目标；不设抽象词或封闭集合校验。")),
                     management_question=dict(type="string"))),
             run=run, writes=True)
 

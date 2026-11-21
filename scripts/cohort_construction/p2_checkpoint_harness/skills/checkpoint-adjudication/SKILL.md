@@ -13,7 +13,7 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 
 1. 逐页 `list_candidate_checkpoints`，找出 `review_flags` 含 `ACTION_TASK_MISMATCH_REVIEW_REQUIRED` 的CP。先调用 `read_checkpoint_action_review_context`，阅读当前CP、候选动作、phase、手术边界和可用字典动作。
 2. `read_source(source_id,start=0)` 完整读取至少一份当前来源及至少一份 `operation_source_ids` 中的手术记录，均省略end。若结果被spill替换为头尾预览，必须用 `read_spilled` 对该locator分页读完，预览不算全文。不能只凭 `ACTION_TASK_MISMATCH_REVIEW_REQUIRED` 标签或动作名称下结论。
-3. 每个标记CP调用一次 `review_checkpoint_action`。若术后才回报的检查不再具有独立的术前评价任务，用 `REMOVE_INDEPENDENT_CP` 撤销独立诊断CP；报告原文仍由程序保留为上下文。若仍有独立术后管理任务，用 `RETAIN_CP_WITH_ACTION` 并填写具体 `action_id`；仅 `OTHER_SPECIFIED` 另填具体 `target`，不要另造自由文本action_type。
+3. 每个标记CP调用一次 `review_checkpoint_action`。report time只是正式报告时间代理，不是医生实际阅片或知晓结果的时刻；医生可能提前阅片。但报告时间代理落在手术后的术前检查不再承担独立的术前评价任务时，用 `REMOVE_INDEPENDENT_CP` 撤销独立诊断CP；报告原文仍由程序保留为上下文。若仍有独立术后管理任务，用 `RETAIN_CP_WITH_ACTION` 保留CP，动作参考可全部留空，也可用 `OTHER_SPECIFIED` 自由描述字典外动作，不做动作阶段或完整性校验。
 4. 管理CP不能用这个动作工具删除。动作复审完成后才进入管理CP证据演化裁决；被撤销的诊断CP立即退出比较状态，程序自动确定下一个最近保留comparator，不需要Agent选择。
 
 ## 默认路径：最少必要读取

@@ -144,22 +144,29 @@ class ActionReviewAdjudicationTests(unittest.TestCase):
                 rationale="已完整读取术后回报及手术记录。")["item"]
             self.assertTrue(item["source_reads_verified"])
 
-    def test_phase_dictionary_validation_and_action_replacement(self):
+    def test_retained_checkpoint_action_is_optional_and_open(self):
         store, registry = self.make_store()
         registry.get("read_checkpoint_action_review_context").run("CP-CT")
         registry.get("read_source").run("S-CT")
         registry.get("read_source").run("S-OP")
-        with self.assertRaisesRegex(ToolError, "ACTION_PHASE_NOT_ALLOWED"):
-            store.review_action(
-                checkpoint_id="CP-CT", disposition="RETAIN_CP_WITH_ACTION",
-                action_id="DIAG_PANCREATIC_CONTRAST_CT", rationale="术后不能再次当作术前CT。")
         item = store.review_action(
             checkpoint_id="CP-CT", disposition="RETAIN_CP_WITH_ACTION",
-            action_id="POSTOP_FOLLOW_UP_CT", rationale="按术后随访任务复核。")["item"]
-        self.assertEqual(item["candidate_action"]["target"], "术后复查胸腹盆增强CT")
+            rationale="保留独立术后管理任务，不要求填写参考动作。")["item"]
+        self.assertIsNone(item["candidate_action"])
+
+        store, registry = self.make_store()
+        registry.get("read_checkpoint_action_review_context").run("CP-CT")
+        registry.get("read_source").run("S-CT")
+        registry.get("read_source").run("S-OP")
+        item = store.review_action(
+            checkpoint_id="CP-CT", disposition="RETAIN_CP_WITH_ACTION",
+            action_id="OTHER_SPECIFIED", action_type="BILIARY_DRAINAGE",
+            target="经皮胆道引流减黄", rationale="字典外动作仅作参考。")["item"]
+        self.assertEqual(item["candidate_action"]["target"], "经皮胆道引流减黄")
+        self.assertEqual(item["candidate_action"]["original_action_type"],
+                         "BILIARY_DRAINAGE")
         self.assertEqual(item["actor"], "case_level_action_review_llm")
         self.assertTrue(item["source_reads_verified"])
-        self.assertIn("可切除性再评估", str(item["original_candidate_actions"]))
 
     def test_removed_diagnostic_checkpoint_reconnects_comparator(self):
         store, registry = self.make_store()
@@ -170,7 +177,7 @@ class ActionReviewAdjudicationTests(unittest.TestCase):
         registry.get("read_source").run("S-CT")
         registry.get("read_source").run("S-OP")
         store.review_action(checkpoint_id="CP-CT", disposition="REMOVE_INDEPENDENT_CP",
-                            rationale="术后才可见，不再承担术前评价。")
+                            rationale="报告时间代理在术后，不再承担独立术前评价。")
         self.assertNotIn("CP-CT", store.retained_checkpoint_ids)
         registry.get("read_checkpoint_adjudication_context").run("CP-FIRST")
         registry.get("read_source").run("S-OLD")

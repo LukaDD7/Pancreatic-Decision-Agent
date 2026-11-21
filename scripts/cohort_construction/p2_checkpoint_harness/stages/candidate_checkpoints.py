@@ -313,11 +313,9 @@ def _classify(candidate, source):
         return "REVIEW_REQUIRED", "RESEARCH_SCOPE_UNCERTAIN"
     if function not in {"new_decision", "reassessment"}:
         return "REVIEW_REQUIRED", "RECORD_FUNCTION_REQUIRES_REVIEW"
-    if _candidate_action(candidate) is None:
-        return "REVIEW_REQUIRED", "DISCOVERY_CONCRETE_ACTION_REQUIRED"
     if not _has_clock(candidate.get("clock")) and not _has_clock((source or {}).get("clock")):
         return "REVIEW_REQUIRED", "MISSING_EVALUATION_CLOCK"
-    return "RETAINED", "ACTIONABLE_CANDIDATE_PENDING_REVIEW"
+    return "RETAINED", "MANAGEMENT_CANDIDATE_PENDING_REVIEW"
 
 
 def _group_id(case_id, source_id, event_ids):
@@ -384,7 +382,7 @@ def _management_checkpoint(case_id, group, source):
         masked_spans=_masked_spans(group, source),
         record_functions=sorted({item["candidate"].get("record_function")
                                  for item in retained}),
-        actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
+        actionability_status="DISCOVERY_REVIEWED_MANAGEMENT_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
         candidate_actions=[action for action in (
@@ -438,10 +436,10 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
         source_ids=source_ids,
         member_event_ids=[],
         record_functions=[],
-        actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
+        actionability_status="DISCOVERY_REVIEWED_MANAGEMENT_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
-        candidate_actions=[action],
+        candidate_actions=[action] if action else [],
         discovery_review=deepcopy(review),
         action_space=_action_space(),
         task_scope=_task_scope(),
@@ -459,7 +457,7 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
             common,
             management_question=(review.get("management_question") or
                                  "在此时点，是否应安排%s？请给出 Mode 和具体管理动作。" %
-                                 action["target"]),
+                                 (action or {}).get("target") or "目标检查"),
             clock=_clock(
                 event.get("exam_time") if pre_time_basis == "exam_time" else
                 event.get("specimen_time")
@@ -677,8 +675,6 @@ def project_candidate_checkpoints(*, case_id, candidates, sources, diagnostic_ev
                 return "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE"
             if review.get("disposition") != "yes":
                 return "DISCOVERY_AGENT_REVIEW_UNCERTAIN"
-            if _candidate_action(review) is None:
-                return "DISCOVERY_CONCRETE_ACTION_REQUIRED"
             if not clock_available:
                 if node_kind == "pre_exam_evaluation":
                     return "MISSING_EXAM_AND_REPORT_TIME_FOR_EVALUATION_ANCHOR"

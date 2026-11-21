@@ -26,11 +26,11 @@ from .candidate_checkpoints import (
     _valid_span,
     validate_candidate_spans,
 )
-from .actions import canonical_action, get_action
+from .actions import get_action
 from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.3.6"
+PROJECTION_VERSION = "management-trajectory-0.3.7"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
@@ -210,7 +210,7 @@ def _routine_postoperative(item, operation_start):
 def _preoperative_action_conflict(candidate):
     action = candidate.get("candidate_action") or {}
     action_id = action.get("action_id")
-    if action_id:
+    if action_id and action_id != "OTHER_SPECIFIED":
         try:
             dictionary_action = get_action(action_id)
         except ValueError:
@@ -253,8 +253,6 @@ def _masked_spans_for_items(items, source_by_id):
     spans = []
     by_source = {}
     for item in items:
-        if _candidate_action(item["candidate"]) is None:
-            continue
         if item.get("source_id") and _valid_span(item["candidate"]):
             by_source.setdefault(item["source_id"], []).append(item)
     for source_id, group in sorted(by_source.items()):
@@ -299,7 +297,7 @@ def _management_checkpoint(case_id, group):
         masked_spans=[],
         record_functions=sorted({item["candidate"].get("record_function")
                                  for item in items if item["candidate"].get("record_function")}),
-        actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
+        actionability_status="DISCOVERY_REVIEWED_MANAGEMENT_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
         candidate_actions=_unique_candidate_actions(
@@ -604,8 +602,6 @@ def _diagnostic_gate(event, kind, review, operation_start, context_source_ids,
         return False, "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE", None, None
     if review.get("disposition") != "yes":
         return False, "DISCOVERY_AGENT_REVIEW_UNCERTAIN", None, None
-    if _candidate_action(review) is None:
-        return False, "DISCOVERY_CONCRETE_ACTION_REQUIRED", None, None
     if kind == BEFORE:
         if not pre_basis:
             return False, "MISSING_EXAM_AND_REPORT_TIME_FOR_EVALUATION_ANCHOR", None, None
@@ -671,7 +667,7 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
         supporting_event_ids=[],
         masked_spans=[],
         record_functions=[],
-        actionability_status="DISCOVERY_AGENT_ACTIONABLE_CANDIDATE",
+        actionability_status="DISCOVERY_REVIEWED_MANAGEMENT_CANDIDATE",
         review_status="REVIEW_REQUIRED",
         candidate_status="CANDIDATE_NOT_CONFIRMED_CLINICAL_DECISION",
         candidate_actions=[action for action in actions if action],
@@ -832,20 +828,6 @@ def _project_diagnostics(case_id, events, reviews_by_unit, sources, operation_st
     return projected, drafts, migrations
 
 
-def _action_review_phase(checkpoint, task_time_bounds):
-    primary = checkpoint.get("primary_evaluation_eligible")
-    if primary is None:
-        primary = _evaluation_scope(
-            _value(checkpoint.get("clock")),
-            _value(task_time_bounds.get("operation_start"))
-        )["primary_evaluation_eligible"]
-    if primary is False:
-        return "POSTOPERATIVE_TRAJECTORY"
-    explicit = [action.get("phase") for action in checkpoint.get("candidate_actions") or []
-                if action.get("phase") in PHASES]
-    return explicit[0] if explicit else "INITIAL_RESECTABILITY_ASSESSMENT"
-
-
 def _validate_action_review(review, checkpoint, *, management, task_time_bounds):
     checkpoint_id = review.get("checkpoint_id")
     if review.get("operation_start") != task_time_bounds.get("operation_start"):
@@ -888,18 +870,8 @@ def _validate_action_review(review, checkpoint, *, management, task_time_bounds)
             raise ValueError("removed action review must not retain an action: %s"
                              % checkpoint_id)
         return
-    if not isinstance(action, dict):
-        raise ValueError("retained action review requires candidate_action: %s"
-                         % checkpoint_id)
-    try:
-        expected = canonical_action(
-            action.get("action_id"), target=action.get("target"),
-            phase=_action_review_phase(checkpoint, task_time_bounds))
-    except ValueError as error:
-        raise ValueError("invalid action review candidate_action: %s: %s"
-                         % (checkpoint_id, error)) from error
-    if set(action) != set(expected) or action != expected:
-        raise ValueError("action review candidate_action is not canonical: %s"
+    if action is not None and not isinstance(action, dict):
+        raise ValueError("retained action review action must be an object or null: %s"
                          % checkpoint_id)
 
 
@@ -955,8 +927,9 @@ def _apply_action_reviews(projected_diagnostics, diagnostic_drafts,
         dispositions[review["disposition"]] += 1
         if review["disposition"] == "RETAIN_CP_WITH_ACTION":
             _attach_action_review(checkpoint, review)
-            checkpoint["candidate_actions"] = [_reviewed_action(
-                review, checkpoint["diagnostic_event_ids"][0])]
+            checkpoint["candidate_actions"] = (
+                [_reviewed_action(review, checkpoint["diagnostic_event_ids"][0])]
+                if review.get("candidate_action") is not None else [])
             continue
         removed_diagnostic_ids.add(checkpoint_id)
         kind = checkpoint["kind"]
@@ -1002,8 +975,9 @@ def _apply_management_action_reviews(management_drafts, action_review_audit,
         action_review_audit["dispositions"][review["disposition"]] += 1
         _attach_action_review(checkpoint, review)
         event_ids = checkpoint.get("member_event_ids") or []
-        checkpoint["candidate_actions"] = [_reviewed_action(
-            review, event_ids[0] if event_ids else None)]
+        checkpoint["candidate_actions"] = (
+            [_reviewed_action(review, event_ids[0] if event_ids else None)]
+            if review.get("candidate_action") is not None else [])
     return management_drafts
 
 
@@ -1452,9 +1426,6 @@ def project_management_trajectory(*, case_id, candidates, sources, diagnostic_ev
         source_id = _source_id(candidate)
         source = source_by_id.get(source_id)
         status, reason = _classify(candidate, source)
-        if status != "TASK_OUT_OF_SCOPE" and _valid_span(candidate) \
-                and _candidate_action(candidate) is None:
-            status, reason = "CONTEXT_ONLY", "NON_ACTIONABLE_CANDIDATE_CONTEXT_ONLY"
         action = candidate.get("candidate_action") or {}
         action_text = " ".join((action.get("action_type") or "", action.get("target") or ""))
         quote = (candidate.get("span") or {}).get("quote") or ""

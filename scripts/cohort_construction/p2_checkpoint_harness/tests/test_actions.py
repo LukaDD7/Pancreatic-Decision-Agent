@@ -4,7 +4,7 @@ import unittest
 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.actions import (
     PHASES, action_ids, action_ids_for_phase, canonical_action, dictionary_hash,
-    dictionary_version, get_action, load_dictionary,
+    dictionary_version, get_action, load_dictionary, reference_action,
 )
 
 
@@ -59,8 +59,9 @@ class ActionDictionaryTests(unittest.TestCase):
             self.assertIn(action_id, postoperative)
             for phase in set(PHASES) - {"POSTOPERATIVE_TRAJECTORY"}:
                 self.assertNotIn(action_id, action_ids_for_phase(phase))
-            with self.assertRaisesRegex(ValueError, "ACTION_PHASE_NOT_ALLOWED"):
-                canonical_action(action_id, phase="INITIAL_RESECTABILITY_ASSESSMENT")
+            self.assertEqual(
+                canonical_action(action_id, phase="INITIAL_RESECTABILITY_ASSESSMENT")["action_id"],
+                action_id)
         with self.assertRaisesRegex(ValueError, "ACTION_PHASE_UNKNOWN"):
             action_ids_for_phase("PREOPERATIVE")
 
@@ -84,18 +85,20 @@ class ActionDictionaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ACTION_ID_UNKNOWN"):
             get_action("imaging")
 
-    def test_other_specified_requires_a_nonabstract_target(self):
-        action = canonical_action("OTHER_SPECIFIED", target="腹腔镜下腹膜结节活检")
-        self.assertEqual(action["target"], "腹腔镜下腹膜结节活检")
-        self.assertEqual(action["action_type"], "OTHER_SPECIFIED")
-        for target in (None, "", "  ", "完善检查", " 完善 检查 ", "综合治疗", "手术评估",
-                       "可切除性再评估", "surgery", "imaging", "手术。"):
+    def test_action_reference_is_optional_open_and_not_phase_validated(self):
+        self.assertIsNone(reference_action())
+        action = reference_action(
+            "OTHER_SPECIFIED", "BILIARY_DRAINAGE", "内镜下胆道支架置入减黄")
+        self.assertEqual(action["target"], "内镜下胆道支架置入减黄")
+        self.assertEqual(action["original_action_type"], "BILIARY_DRAINAGE")
+        fallback = reference_action("UNLISTED_LOCAL_PROCEDURE", target="超声引导下腹腔穿刺引流")
+        self.assertEqual(fallback["action_id"], "OTHER_SPECIFIED")
+        self.assertEqual(fallback["original_action_id"], "UNLISTED_LOCAL_PROCEDURE")
+        for target in (None, "", "  ", "完善检查", "可切除性再评估", "手术。"):
             with self.subTest(target=target):
-                code = ("ACTION_TARGET_REQUIRED_FOR_OTHER_SPECIFIED"
-                        if target is None or not target.strip()
-                        else "ACTION_TARGET_ABSTRACT_FOR_OTHER_SPECIFIED")
-                with self.assertRaisesRegex(ValueError, code):
-                    canonical_action("OTHER_SPECIFIED", target=target)
+                self.assertEqual(
+                    canonical_action("OTHER_SPECIFIED", target=target)["action_id"],
+                    "OTHER_SPECIFIED")
 
 
 if __name__ == "__main__":

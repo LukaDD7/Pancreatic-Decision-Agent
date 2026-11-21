@@ -100,7 +100,7 @@ class CandidateCheckpointTests(unittest.TestCase):
         self.assertEqual(checkpoint["management_question_source"],
                          "program_generated_task_header_not_model_quote")
         self.assertEqual(checkpoint["actionability_status"],
-                         "DISCOVERY_AGENT_ACTIONABLE_CANDIDATE")
+                         "DISCOVERY_REVIEWED_MANAGEMENT_CANDIDATE")
         self.assertEqual(len(checkpoint["candidate_actions"]), 5)
         self.assertEqual(checkpoint["review_status"], "REVIEW_REQUIRED")
         self.assertTrue(all(item["to_checkpoint_id"] == checkpoint["checkpoint_id"]
@@ -679,13 +679,22 @@ class CandidateCheckpointTests(unittest.TestCase):
                          "SAME_DIAGNOSTIC_ACTION_MANAGEMENT_CP_RETAINED")
         self.assertTrue(later["generation_audits"][0]["generated"])
 
-    def test_management_candidate_without_concrete_action_is_not_a_checkpoint(self):
+    def test_management_candidate_without_reference_action_remains_a_checkpoint(self):
         text = "拟行手术。"
         item = candidate("EV-NO-ACTION", "S", text, text, candidate_action={})
         result = self.project([item], [source("S", text)])
-        self.assertEqual(result["candidate_checkpoints"], [])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(result["candidate_checkpoints"][0]["candidate_actions"], [])
         self.assertEqual(result["migrations"][0]["reason"],
-                         "DISCOVERY_CONCRETE_ACTION_REQUIRED")
+                         "MANAGEMENT_CANDIDATE_PENDING_REVIEW")
+
+    def test_diagnostic_candidate_without_reference_action_remains_a_checkpoint(self):
+        result = self.project(
+            events=[diagnostic()],
+            reviews=[review("pre_exam_evaluation", diagnostic_event_id="DE-MR",
+                            candidate_action=None)])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(result["candidate_checkpoints"][0]["candidate_actions"], [])
 
     def test_same_source_support_record_has_checkpoint_destination(self):
         text = "拟行手术。前次已执行。"

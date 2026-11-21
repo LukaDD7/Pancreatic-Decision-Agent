@@ -17,11 +17,11 @@ from ..tools.proposals import ProposalStore
 from ..tools.sources import SourceIndex
 from .ordering import compare
 from .actions import (
-    action_ids_for_phase, canonical_action, get_action, PHASES,
+    action_ids_for_phase, get_action, reference_action, PHASES,
 )
 
 
-ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.3.0"
+ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.3.1"
 MANAGEMENT_KIND = "MANAGEMENT_REASSESSMENT"
 RETAIN = "RETAIN_CP"
 SUPPORT = "SUPPORT_ONLY"
@@ -60,7 +60,7 @@ ACTION_DISPOSITIONS = {REMOVE_ACTION_CP, RETAIN_ACTION_CP}
 ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，先复审程序标记的候选动作与任务阶段冲突，再审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
-先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints及其review_flags。凡review_flags含ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，read_source从start=0完整读取至少一份当前来源及至少一份手术记录原文；若结果被spill为头尾预览，必须用read_spilled分页读完locator，再调用一次review_checkpoint_action。复审只能REMOVE_INDEPENDENT_CP撤销无独立评价任务的诊断CP，或RETAIN_CP_WITH_ACTION从动作字典选择一个具体action_id；管理CP不能由本工具删除。已撤销诊断CP立即退出后续comparator，程序自动重接最近保留状态。
+先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints及其review_flags。凡review_flags含ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，read_source从start=0完整读取至少一份当前来源及至少一份手术记录原文；若结果被spill为头尾预览，必须用read_spilled分页读完locator，再调用一次review_checkpoint_action。复审只能REMOVE_INDEPENDENT_CP撤销无独立评价任务的诊断CP，或RETAIN_CP_WITH_ACTION保留CP；后者可留空动作，也可自由描述字典外动作，动作不是必答题。管理CP不能由本工具删除。已撤销诊断CP立即退出后续comparator，程序自动重接最近保留状态。
 动作复审全部完成后，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，其他诊断CP不需要证据演化裁决，全部完成后finish。
 
 程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。若上下文返回timed_interval_report_groups，必须逐组read_source其representative_source_id，核对程序已确定落在当前区间的原始报告；区间内检验已合并为一个批次，只需读取一个最新异常代表项，不代表已阅读所有检验项目，不得声称未看到新报告。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
@@ -1200,8 +1200,9 @@ class CheckpointAdjudicationStore:
             removal_allowed=checkpoint.get("kind") != MANAGEMENT_KIND,
             note=("这是候选动作与已记录手术阶段的冲突复审，不是专家临床确认。"
                   "必须完整读取至少一份当前来源及一份手术记录。"
-                  "术后才可见的术前CT/MR报告不能继续承担术前可切除性再评估；"
-                  "若该报告到达不构成独立评价任务，撤销独立CP，报告仍保留为上下文。"))
+                  "report time只是文书时间代理，不是医生实际阅片或知晓结果的时刻；医生可能在正式报告前已阅片。"
+                  "但报告时间代理落在手术后的术前CT/MR，不应继续承担独立的术前可切除性再评估CP；"
+                  "若不构成独立术后评价任务，撤销独立CP，报告仍保留为上下文。动作参考可留空或自由填写。"))
 
     def action_review_context_tool(self):
         return Tool(
@@ -1224,7 +1225,8 @@ class CheckpointAdjudicationStore:
                 "OPERATION_RECORD_NOT_FULLY_READ: 至少一份手术记录必须实际完整返回给模型；"
                 "若结果spilled，必须用read_spilled分页读完locator全部内容：" + ",".join(source_ids))
 
-    def review_action(self, checkpoint_id, disposition, rationale, action_id=None, target=None):
+    def review_action(self, checkpoint_id, disposition, rationale, action_id=None,
+                      action_type=None, target=None):
         checkpoint = self.checkpoints.by_id.get(checkpoint_id)
         if checkpoint is None:
             self._remember_problem("UNKNOWN_CHECKPOINT_ID", checkpoint_id)
@@ -1245,15 +1247,7 @@ class CheckpointAdjudicationStore:
         self._require_operation_record_read()
         revised_action = None
         if disposition == RETAIN_ACTION_CP:
-            if not isinstance(action_id, str) or not action_id:
-                raise ToolError("ACTION_REVIEW_ACTION_ID_REQUIRED")
-            try:
-                revised_action = canonical_action(
-                    action_id, target=target, phase=self._action_review_phase(checkpoint))
-            except ValueError as exc:
-                raise ToolError(str(exc)) from exc
-        elif action_id is not None or target is not None:
-            raise ToolError("REMOVE_INDEPENDENT_CP_CANNOT_INCLUDE_ACTION")
+            revised_action = reference_action(action_id, action_type, target)
         item = dict(
             checkpoint_id=checkpoint_id, disposition=disposition,
             rationale=rationale.strip(), actor=ACTION_REVIEW_ACTOR,
@@ -1272,16 +1266,17 @@ class CheckpointAdjudicationStore:
     def action_review_tool(self):
         return Tool(
             name="review_checkpoint_action",
-            description=("复审动作与手术阶段冲突；仅可撤销诊断CP的独立评价任务，或用字典action_id保留并改动作。"
-                         "不能用自由文本action_type替代action_id。"),
+            description=("复审候选任务与手术时间边界；可撤销诊断CP的独立评价任务，或保留CP。"
+                         "保留时动作参考可留空，可用字典action_id，也可用OTHER_SPECIFIED自由描述；不做动作阶段或完整性校验。"),
             input_schema=dict(
                 type="object", additionalProperties=False,
                 required=["checkpoint_id", "disposition", "rationale"],
                 properties=dict(
                     checkpoint_id=dict(type="string", minLength=1),
                     disposition=dict(type="string", enum=sorted(ACTION_DISPOSITIONS)),
-                    action_id=dict(type="string"),
-                    target=dict(type="string", description="仅OTHER_SPECIFIED必填具体目标。"),
+                    action_id=dict(type="string", description="可选参考动作ID；可留空。"),
+                    action_type=dict(type="string", description="可选自由文本动作类型。"),
+                    target=dict(type="string", description="可选自由文本动作目标。"),
                     rationale=dict(type="string", minLength=1))),
             run=self.review_action, writes=True, requires_prior_tool_results=True)
 

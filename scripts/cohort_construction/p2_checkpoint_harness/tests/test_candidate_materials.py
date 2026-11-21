@@ -245,11 +245,11 @@ class CandidateMaterialTests(unittest.TestCase):
         self.assertEqual(material["summary"]["material_no_visible_context_count"], 0)
         self.assertEqual(material["summary"]["migration_reason_counts"], {
             "DISCOVERY_AGENT_REJECTED_OUT_OF_RESEARCH_SCOPE": 2,
-            "ACTIONABLE_CANDIDATE_PENDING_REVIEW": 1})
+            "MANAGEMENT_CANDIDATE_PENDING_REVIEW": 1})
         migration = next(item for item in material["migrations"]
                          if item.get("event_id") == "EV-M")
         self.assertEqual(migration["migration_status"], "RETAINED")
-        self.assertEqual(migration["reason"], "ACTIONABLE_CANDIDATE_PENDING_REVIEW")
+        self.assertEqual(migration["reason"], "MANAGEMENT_CANDIDATE_PENDING_REVIEW")
         self.assertEqual(migration["to_checkpoint_id"],
                          material["packets"][0]["checkpoint_id"])
 
