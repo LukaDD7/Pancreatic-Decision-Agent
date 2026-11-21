@@ -254,6 +254,8 @@ class CandidateMaterialsHtmlTests(unittest.TestCase):
         self.assertIn("SYNTHETIC-KNOWLEDGE-V1", header)
         self.assertIn("实际 included source IDs", header)
         self.assertIn("CP-PRE-SOURCE, CP-PRE-CONTEXT", header)
+        self.assertIn("<summary>展开审计来源 ID（2）</summary>", header)
+        self.assertNotIn("<details open><summary>展开审计来源 ID", header)
 
         post = packet(
             "CP-POST", "AFTER_EVIDENCE_ARRIVAL", title="新证据状态",

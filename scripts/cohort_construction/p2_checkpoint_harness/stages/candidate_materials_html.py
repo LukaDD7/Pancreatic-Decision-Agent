@@ -560,8 +560,12 @@ def _packet_html(packet):
                     _node("dd", {}, _h(_task_value(
                         task_header.get("knowledge_version", packet.get("knowledge_version")))))),
               _node("div", {}, _node("dt", {}, "实际 included source IDs"),
-                    _node("dd", {}, _h(", ".join(included_source_ids)
-                                       if included_source_ids else "无（included_sources 为空）"))),
+                    _node("dd", {}, _node(
+                        "details", {},
+                        _node("summary", {}, f"展开审计来源 ID（{len(included_source_ids)}）"),
+                        _node("p", {"class": "small"}, _h(
+                            ", ".join(included_source_ids)
+                            if included_source_ids else "无（included_sources 为空）"))))),
               _node("div", {}, _node("dt", {}, "时点角色"),
                     _node("dd", {}, _h(evaluation.get("role") or "未提供"))),
               _node("div", {}, _node("dt", {}, "显示顺序"),
