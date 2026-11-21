@@ -18,7 +18,7 @@ from ..tools.sources import SourceIndex
 from .ordering import compare
 
 
-ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.2"
+ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.3"
 MANAGEMENT_KIND = "MANAGEMENT_REASSESSMENT"
 RETAIN = "RETAIN_CP"
 SUPPORT = "SUPPORT_ONLY"
@@ -307,16 +307,33 @@ class CheckpointAdjudicationStore:
 
     @staticmethod
     def _normalize_evidence_date(value):
-        match = re.match(r"^(\d{4})[-年](\d{1,2})[-月](\d{1,2})", value or "")
+        match = re.match(
+            r"^(\d{4})[-年](\d{1,2})[-月](\d{1,2})(?:日)?"
+            r"(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?", value or "")
         if not match:
             return None
-        return "%04d-%02d-%02d" % tuple(int(part) for part in match.groups())
+        date = "%04d-%02d-%02d" % tuple(int(part) for part in match.groups()[:3])
+        if match.group(4) is None:
+            return date
+        result = date + " %02d:%02d" % (int(match.group(4)), int(match.group(5)))
+        if match.group(6) is not None:
+            result += ":%02d" % int(match.group(6))
+        return result
 
     @classmethod
     def _source_exam_dates(cls, source):
         value = ((source.get("clocks") or {}).get("exam_time") or {}).get("value")
         date = cls._normalize_evidence_date(value)
         return {date} if date else set()
+
+    @staticmethod
+    def _source_exam_number(source):
+        value = (source.get("provenance") or {}).get("exam_no_raw")
+        if value is None:
+            value = (source.get("original_fields") or {}).get("检查号")
+        if value is None or str(value).strip().lower() in {"", "nan", "none", "null"}:
+            return None
+        return str(value).strip()
 
     @staticmethod
     def _normalized_report_text(text):
@@ -642,14 +659,16 @@ class CheckpointAdjudicationStore:
         title = source.get("title") or ""
         high_risk_title = any(term in title for term in (
             "EUS", "超声内镜", "腹腔镜", "穿刺", "活检"))
-        return source.get("kind") in {"imaging", "pathology"} or high_risk_title
+        return source.get("kind") in {
+            "imaging", "pathology", "procedure", "operation"
+        } or high_risk_title
 
-    def _interval_rows(self, checkpoint, comparator):
+    def _interval_rows(self, checkpoint, comparator, *, include_current=False):
         current_source_ids = set(checkpoint.get("source_ids") or ())
         rows = []
         for source in self.source_index.sources:
             source_id = source["source_id"]
-            if source_id in current_source_ids:
+            if not include_current and source_id in current_source_ids:
                 continue
             clock = source.get("clock") or {}
             if not clock.get("value"):
@@ -680,19 +699,27 @@ class CheckpointAdjudicationStore:
         if source.get("source_sha256") is None:
             return False
         source_dates = self._source_exam_dates(source)
+        source_exam_number = self._source_exam_number(source)
         for target_id in target_ids:
             target = self.source_index.require(target_id)
             if target.get("source_sha256") != source.get("source_sha256"):
                 continue
+            target_exam_number = self._source_exam_number(target)
+            if source_exam_number and target_exam_number \
+                    and source_exam_number != target_exam_number:
+                continue
             target_dates = self._source_exam_dates(target)
-            if source_dates and target_dates and source_dates.isdisjoint(target_dates):
+            same_precision = source_dates and target_dates and {
+                len(value) for value in source_dates
+            } == {len(value) for value in target_dates}
+            if same_precision and source_dates.isdisjoint(target_dates):
                 continue
             return True
         return False
 
     def _timed_interval_report_groups(self, checkpoint, comparator):
         groups = {}
-        for row in self._interval_rows(checkpoint, comparator):
+        for row in self._interval_rows(checkpoint, comparator, include_current=True):
             if row["interval_relation"] != "IN_INTERVAL":
                 continue
             source = self.source_index.require(row["source_id"])

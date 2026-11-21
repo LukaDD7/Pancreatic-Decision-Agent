@@ -186,7 +186,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             candidates=[member],
             projection=dict(candidate_checkpoints=[ct_checkpoint, transfer_checkpoint]))
 
-        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.2")
+        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.3")
         self.assertEqual(result["case_id"], "SYN-EUS")
         self.assertEqual(len(result["items"]), 1)
         item = result["items"][0]
@@ -1062,6 +1062,57 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertEqual(item["disposition"], "RETAIN_CP")
         self.assertEqual(item["evidence_supports"][0]["source_id"], "S-AG")
 
+    def test_current_checkpoint_attached_lab_is_new_interval_evidence(self):
+        first_text = "拟行手术。"
+        current_text = "检验回报后再次评估手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text,
+                            "再次评估手术。", clock="2026-03-03")
+        lab = source("S-LAB", "[检验结果值]\n7.40", "2026-03-02")
+        lab.update(kind="lab", original_fields={
+            "检验单号": "SYN-PH", "检验结果值": "7.40",
+            "结果正常标志": "N"})
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03",
+                       source_ids=["S-CURRENT", "S-LAB"])],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               source("S-CURRENT", current_text, "2026-03-03"), lab])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        context = registry.get("read_checkpoint_adjudication_context").run(
+            "CP-CURRENT")
+        self.assertEqual(context["timed_interval_report_groups"][0]
+                         ["representative_source_id"], "S-LAB")
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN", rationale="正常检验不改变管理。")
+
+    def test_interval_procedure_report_cannot_be_silently_merged(self):
+        first_text = "拟行腹腔镜评估。"
+        current_text = "腹腔镜报告后再次评估手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text,
+                            "再次评估手术。", clock="2026-03-03")
+        procedure = source("S-PROC", "腹腔镜探查未见腹膜转移。", "2026-03-02")
+        procedure.update(kind="procedure", title="腹腔镜探查")
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               source("S-CURRENT", current_text, "2026-03-03"), procedure])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        context = registry.get("read_checkpoint_adjudication_context").run(
+            "CP-CURRENT")
+        self.assertEqual(context["timed_interval_report_groups"][0]
+                         ["representative_source_id"], "S-PROC")
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN", rationale="既有手术计划的重复。")
+
     def test_diagnostic_target_is_kept_when_report_contains_management_span(self):
         text = "增强CT未见转移。CT后拟行手术。"
         ct_text = "增强CT未见转移。"
@@ -1188,6 +1239,66 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             evidence_supports=[dict(source_id="S-MR-NEW", quote="未见远处转移")],
             rationale="正文哈希相同但检查日期不同的新报告可以构成新增证据。")["item"]
         self.assertEqual(item["evidence_supports"][0]["source_id"], "S-MR-NEW")
+
+    def test_same_hash_with_different_same_day_exam_time_can_be_new_evidence(self):
+        report_text = "MR增强示胰头肿块，未见远处转移。"
+        current_text = "再次评估后安排EUS+FNA。"
+        member = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,
+                           clock="2026-03-03 12:00:00")
+        diagnostic = checkpoint("CP-MR", [], kind=AFTER, clock="2026-03-03 10:00:00",
+                                source_ids=["S-MR-OLD"])
+        diagnostic["clock"]["precision"] = "second"
+        current_checkpoint = checkpoint(
+            "CP-CURRENT", [member], clock="2026-03-03 12:00:00")
+        current_checkpoint["clock"]["precision"] = "second"
+        old_mr = source("S-MR-OLD", report_text, "2026-03-03 10:00:00")
+        new_mr = source("S-MR-NEW", report_text, "2026-03-03 11:00:00")
+        old_mr["clock"]["precision"] = new_mr["clock"]["precision"] = "second"
+        old_mr.update(kind="imaging", source_sha256="same-text",
+                      clocks=dict(exam_time=dict(value="2026-03-03 08:00")))
+        new_mr.update(kind="imaging", source_sha256="same-text",
+                      clocks=dict(exam_time=dict(value="2026-03-03 09:00")))
+        current_source = source("S-CURRENT", current_text, "2026-03-03 12:00:00")
+        current_source["clock"]["precision"] = "second"
+        store, registry = make_store([
+            diagnostic, current_checkpoint], [member], [old_mr, new_mr, current_source])
+        context = registry.get("read_checkpoint_adjudication_context").run(
+            "CP-CURRENT")
+        self.assertEqual(context["timed_interval_report_groups"][0]
+                         ["representative_source_id"], "S-MR-NEW")
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-MR-NEW", quote="未见远处转移")],
+            rationale="同日不同检查时间的新报告构成新增证据。")["item"]
+        self.assertEqual(item["evidence_supports"][0]["source_id"], "S-MR-NEW")
+
+    def test_same_hash_with_different_exam_number_can_be_new_evidence(self):
+        report_text = "病理示胰腺导管腺癌。"
+        current_text = "病理回报后再次评估手术。"
+        member = candidate("EV-CURRENT", "S-CURRENT", current_text, current_text,
+                           clock="2026-03-03")
+        diagnostic = checkpoint("CP-PATH", [], kind=AFTER, clock="2026-03-01",
+                                source_ids=["S-PATH-OLD"])
+        old_path = source("S-PATH-OLD", report_text, "2026-03-01")
+        new_path = source("S-PATH-NEW", report_text, "2026-03-02")
+        old_path.update(kind="pathology", source_sha256="same-text",
+                        provenance=dict(exam_no_raw="EXAM-OLD"))
+        new_path.update(kind="pathology", source_sha256="same-text",
+                        provenance=dict(exam_no_raw="EXAM-NEW"))
+        store, registry = make_store([
+            diagnostic, checkpoint("CP-CURRENT", [member], clock="2026-03-03")],
+            [member], [old_path, new_path, source("S-CURRENT", current_text, "2026-03-03")])
+        context = registry.get("read_checkpoint_adjudication_context").run(
+            "CP-CURRENT")
+        self.assertEqual(context["timed_interval_report_groups"][0]
+                         ["representative_source_id"], "S-PATH-NEW")
+        item = store.adjudicate(
+            checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-PATH-NEW", quote="胰腺导管腺癌")],
+            rationale="不同检查号的新病理报告构成新增证据。")["item"]
+        self.assertEqual(item["evidence_supports"][0]["source_id"], "S-PATH-NEW")
 
     def test_unpadded_recitation_date_cannot_bypass_original_report_guard(self):
         first_text = "拟完善检查。"
