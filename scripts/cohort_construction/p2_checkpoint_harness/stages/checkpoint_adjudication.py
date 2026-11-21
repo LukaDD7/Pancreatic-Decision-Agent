@@ -18,7 +18,7 @@ from ..tools.sources import SourceIndex
 from .ordering import compare
 
 
-ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.0"
+ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.2.1"
 MANAGEMENT_KIND = "MANAGEMENT_REASSESSMENT"
 RETAIN = "RETAIN_CP"
 SUPPORT = "SUPPORT_ONLY"
@@ -56,7 +56,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 
 程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。若上下文返回timed_interval_report_groups，必须逐组read_source其representative_source_id，核对程序已确定落在当前区间的原始报告；区间内检验已合并为一个批次，只需读取一个最新异常代表项，不代表已阅读所有检验项目，不得声称未看到新报告。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
 
-RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生变化的患者信息，且承载该信息的当前来源不晚于当前CP。证据演化与原始来源是否交付是两个维度：可以来自本院原始报告、外院证据，或当前文书对新增检查的复述。当前文书明确记载comparator之后的新检查、治疗经过或疗效变化时，即使原报告未交付，也可引用该复述并设置evidence_source_status=EXTERNAL_RESTATEMENT或UNATTRIBUTED_RESTATEMENT；程序自动生成来源及时间待核标签，不因原报告缺失否定证据演化或删除CP。
+RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生变化的患者信息，且承载该信息的当前来源不晚于当前CP。证据演化的底线是新增，不要求异常、阳性、具有专科特异性或实际改变管理方向。常规检验、术前监测、阴性结果和正常结果只要是在comparator之后新回报，仍构成证据演化，不得据此判SUPPORT_ONLY。证据演化与原始来源是否交付是两个维度：可以来自本院原始报告、外院证据，或当前文书对新增检查的复述。当前文书明确记载comparator之后的新检查、治疗经过或疗效变化时，即使原报告未交付，也可引用该复述并设置evidence_source_status=EXTERNAL_RESTATEMENT或UNATTRIBUTED_RESTATEMENT；程序自动生成来源及时间待核标签，不因原报告缺失否定证据演化或删除CP。
 
 新动作、新计划、转科和执行本身不是证据演化；comparator已有报告及其副本、后续文书对同一旧报告的复述和未来报告也不能作为新增证据。若原始报告可找到，仍须核对并引用原始报告，不能用后一份文书给旧证据重新定时。只有证据是否新增、先后关系或同刻顺序确实无法判断时才用REVIEW_REQUIRED+UNCERTAIN；该状态也会保留独立候选CP，不等于归并或删除。
 
@@ -945,6 +945,16 @@ class CheckpointAdjudicationStore:
                 "检验已合为一个批次，必须逐组read_source代表项后再裁决："
                 + ",".join(missing))
 
+    def _require_support_has_no_new_interval_reports(self, checkpoint, comparator):
+        groups = self._timed_interval_report_groups(checkpoint, comparator)
+        if groups:
+            raise ToolError(
+                "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW: 程序已确认comparator之后、"
+                "当前CP之前存在新原始报告，新增即构成证据演化；常规、阴性、正常、术前监测或"
+                "未改变管理方向均不能作为SUPPORT_ONLY理由。请引用新报告改"
+                "RETAIN_CP+NEW_EVIDENCE_ROUND；仅时间或来源关系确实不明时改"
+                "REVIEW_REQUIRED+UNCERTAIN。")
+
     def _require_comparator_read(self, checkpoint, comparator, *,
                                  require_diagnostic_target):
         checkpoint_id = comparator["checkpoint_id"]
@@ -1077,6 +1087,8 @@ class CheckpointAdjudicationStore:
         self._require_current_source_read(checkpoint)
         if comparator is not None and disposition in {RETAIN, SUPPORT}:
             self._require_timed_interval_reports(checkpoint, comparator)
+        if comparator is not None and disposition == SUPPORT:
+            self._require_support_has_no_new_interval_reports(checkpoint, comparator)
         if comparator is not None:
             self._require_comparator_read(
                 checkpoint, comparator,
@@ -1207,6 +1219,7 @@ def build_prompt(checkpoints, *, case_id):
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个。先逐页list_candidate_checkpoints查看全部CP；诊断CP不裁决，每个管理CP恰好adjudicate_checkpoint一次。
 按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP及唯一最近保留comparator，不得自行选择比较对象。诊断CP也属于已保留状态。动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
 每次裁决前读取当前来源原文。SUPPORT_ONLY不强制读取诊断comparator报告；仅NEW_EVIDENCE_ROUND或关系不清时用search_checkpoint_sources按需检索，NEW_EVIDENCE_ROUND须在当前CP/comparator上下文中读取诊断comparator目标报告。区间索引不要求逐项处置。
+证据演化的底线是新增，不要求异常、阳性、专科特异性或改变管理。comparator后新回报的常规检验、术前监测及正常/阴性结果同样构成证据演化；程序已确认的timed_interval_report_groups存在时不得SUPPORT_ONLY。
 RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且原始证据严格晚于comparator、不晚于当前CP。comparator目标报告及其在后续文书中的旧复述均不可用；BEFORE_ACQUISITION comparator的未来目标报告只用于识别比较对象。时间不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count)

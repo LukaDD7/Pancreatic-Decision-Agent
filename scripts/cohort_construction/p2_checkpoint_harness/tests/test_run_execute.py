@@ -249,7 +249,7 @@ class ExecutedRunTests(unittest.TestCase):
 
         def adjudicate(runner):
             runner.checkpoint_adjudication = dict(
-                format="p2-checkpoint-adjudication-0.2.0", case_id=runner.case_id,
+                format="p2-checkpoint-adjudication-0.2.1", case_id=runner.case_id,
                 items=[], summary=dict(stop="answered", complete=False,
                                        missing_checkpoint_ids=["CP-M-MISSING"]))
             runner.stage_stops.append(dict(stage="checkpoint_adjudication", stop="answered"))

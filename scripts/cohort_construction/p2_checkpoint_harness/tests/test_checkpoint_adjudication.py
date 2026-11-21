@@ -186,7 +186,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             candidates=[member],
             projection=dict(candidate_checkpoints=[ct_checkpoint, transfer_checkpoint]))
 
-        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.0")
+        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.2.1")
         self.assertEqual(result["case_id"], "SYN-EUS")
         self.assertEqual(len(result["items"]), 1)
         item = result["items"][0]
@@ -451,6 +451,9 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertIn("EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT", skill.body)
         self.assertIn("不得原样重复提交", adjudication.ADJUDICATION_SYSTEM_PROMPT)
         self.assertIn("未来检验引文", adjudication.ADJUDICATION_SYSTEM_PROMPT)
+        self.assertIn("证据演化的底线是新增", skill.body)
+        self.assertIn("常规检验、术前监测、阴性结果和正常结果",
+                      adjudication.ADJUDICATION_SYSTEM_PROMPT)
 
     def test_management_comparator_reuses_prior_current_detail_read(self):
         first_text = "拟行手术。"
@@ -485,7 +488,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
         second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
                            clock="2026-03-03")
-        ct = source("S-CT", "增强CT未见远处转移。", "2026-03-02")
+        ct = source("S-CT", "增强CT未见远处转移。", "2026-03-01")
         ct["kind"] = "imaging"
         store, registry = make_store([
             checkpoint("CP-FIRST", [first]),
@@ -508,8 +511,8 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertNotIn("interval_evidence_review", item)
         page = registry.get("list_checkpoint_interval_sources").run(
             checkpoint_id="CP-SECOND", comparator_checkpoint_id="CP-FIRST")
-        self.assertEqual(page["total"], 1)
-        self.assertNotIn("text", page["sources"][0])
+        self.assertEqual(page["total"], 0)
+        self.assertEqual(page["sources"], [])
 
     def test_current_source_is_required_and_interval_evidence_can_be_cited_directly(self):
         first_text = "拟行手术。"
@@ -1050,6 +1053,11 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "TIMED_INTERVAL_REPORT_NOT_READ"):
             store.adjudicate(**call)
         registry.get("read_source").run("S-AG")
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                evolution="REPEATED_PLAN",
+                rationale="常规术前检验且未改变管理方向，因此没有证据演化。")
         item = store.adjudicate(**call)["item"]
         self.assertEqual(item["disposition"], "RETAIN_CP")
         self.assertEqual(item["evidence_supports"][0]["source_id"], "S-AG")

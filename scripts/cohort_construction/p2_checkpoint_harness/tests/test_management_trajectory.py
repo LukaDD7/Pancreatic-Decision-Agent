@@ -499,7 +499,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
                              "NON_ACTIONABLE_CANDIDATE_CONTEXT_ONLY")
             self.assertEqual(migrations[event_id]["to_checkpoint_id"],
                              checkpoint["checkpoint_id"])
-        self.assertEqual(result["format_version"], "management-trajectory-0.3.2")
+        self.assertEqual(result["format_version"], "management-trajectory-0.3.3")
         materials = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=[source("S-COURSE", text)],
             candidates=items, projection=result,
