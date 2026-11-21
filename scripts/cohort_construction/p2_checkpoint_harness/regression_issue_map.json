@@ -743,8 +743,29 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_adjudication.py::ActionReviewAdjudicationTests::test_retained_checkpoint_action_is_optional_and_open",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_projection.py::ActionReviewProjectionTests::test_retained_checkpoint_allows_missing_action_and_does_not_phase_validate"
       ],
+      "status": "fresh_full_pipeline_live_validation_passed",
+      "limitations": "The fresh r50 SCALE-01 run completed all 38 Discovery units with no action/tool errors, accepted null and free-text actions, and rendered 10 CPs with conserved migrations. Reference actions remain optional LLM annotations, not a complete or clinically validated action set and not blind-review answers. HAR-LIVE-040 separately records the null-action time-review bypass found in this run."
+    },
+    {
+      "id": "HAR-LIVE-040",
+      "problem": "The first r50 fresh run accepted null diagnostic actions but thereby bypassed the action-dependent postoperative conflict flag. CP-D-9b20fc3898f377a385b5 represented a CT acquired before the recorded operation but reported afterward, yet remained an independent CP without review. A time-order guard must not depend on an optional action annotation.",
+      "change_type": "action_independent_acquisition_report_operation_conflict_review",
+      "real_counterexample": {
+        "case_id": "SCALE-01",
+        "observation": "CT exam_time 2022-12-14 14:31:11 preceded operation_start 2022-12-15 09:00, while report_time 2022-12-15 15:55:12 followed it. The after-arrival Discovery action was null and r50 provisionally retained the CP without action review.",
+        "private_baseline": "private/p2_harness_live_20261119/live-r50/SCALE-01-fresh-r02/run/case_result.json"
+      },
+      "positive_control": "An after-arrival CP whose precise exam time precedes the operation and whose report proxy follows it receives ACTION_TASK_MISMATCH_REVIEW_REQUIRED even when candidate_action is null. The review context supplies acquisition clocks and does not require an action.",
+      "negative_control": "A CT both acquired and reported after the operation receives no acquisition/report inversion flag; coarse same-day clocks do not assert an order. Optional open actions, source reading, span checks and migration conservation remain unchanged.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_preoperative_exam_reported_after_operation_needs_review_without_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_postoperative_recurrence_reassessment_is_not_preoperative_action_mismatch",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_preoperative_exam_reported_after_operation_needs_review_without_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_candidate_checkpoints.py::CandidateCheckpointTests::test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_adjudication.py::ActionReviewAdjudicationTests::test_action_review_context_includes_acquisition_clock_without_action"
+      ],
       "status": "synthetic_counterexamples_passed_live_validation_pending",
-      "limitations": "Reference actions are optional LLM annotations, not a complete or clinically validated action set and not blind-review answers. Operation/report clock conflict review is a conservative reconstruction guard, not a claim about the clinician's actual awareness time."
+      "limitations": "The flag requests candidate review; it neither proves the clinician's actual image-review time nor automatically deletes a CP. The historical flag name is retained for interface compatibility although the trigger no longer requires an action."
     }
   ]
 }

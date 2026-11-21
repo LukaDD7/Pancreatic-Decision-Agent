@@ -57,7 +57,7 @@ REMOVE_ACTION_CP = "REMOVE_INDEPENDENT_CP"
 RETAIN_ACTION_CP = "RETAIN_CP_WITH_ACTION"
 ACTION_DISPOSITIONS = {REMOVE_ACTION_CP, RETAIN_ACTION_CP}
 
-ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，先复审程序标记的候选动作与任务阶段冲突，再审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
+ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后，先复审程序标记的检查执行—报告时间代理—手术边界及候选任务冲突，再审核一个病例的全部候选Checkpoint（CP）是否体现患者证据演化。
 这些CP、动作和裁决都只是研究候选，不是临床真值、专家Reference或已确认的独立临床决策点。不要重新发现候选，不要修改CP或原文。
 
 先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints及其review_flags。凡review_flags含ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，read_source从start=0完整读取至少一份当前来源及至少一份手术记录原文；若结果被spill为头尾预览，必须用read_spilled分页读完locator，再调用一次review_checkpoint_action。复审只能REMOVE_INDEPENDENT_CP撤销无独立评价任务的诊断CP，或RETAIN_CP_WITH_ACTION保留CP；后者可留空动作，也可自由描述字典外动作，动作不是必答题。管理CP不能由本工具删除。已撤销诊断CP立即退出后续comparator，程序自动重接最近保留状态。
@@ -1192,17 +1192,25 @@ class CheckpointAdjudicationStore:
             phase=phase, operation_start=deepcopy(self.task_time_bounds.get("operation_start")),
             operation_source_ids=operation_source_ids,
             operation_source_evidence=deepcopy(self.task_time_bounds.get("evidence") or []),
+            acquisition_clocks=[dict(
+                source_id=source["source_id"],
+                exam_time=deepcopy((source.get("clocks") or {}).get("exam_time")),
+                specimen_time=deepcopy((source.get("clocks") or {}).get("specimen_time")))
+                for source_id in checkpoint.get("source_ids") or []
+                for source in [self.source_index.require(source_id)]
+                if (source.get("clocks") or {}).get("exam_time")
+                or (source.get("clocks") or {}).get("specimen_time")],
             trigger_flags=[flag for flag in checkpoint.get("review_flags") or []
                            if flag == ACTION_REVIEW_FLAG],
             available_actions=[get_action(action_id)
                                for action_id in action_ids_for_phase(phase)],
             dispositions=sorted(ACTION_DISPOSITIONS),
             removal_allowed=checkpoint.get("kind") != MANAGEMENT_KIND,
-            note=("这是候选动作与已记录手术阶段的冲突复审，不是专家临床确认。"
+            note=("这是候选评价任务与检查执行、报告时间代理及已记录手术阶段的冲突复审，不是专家临床确认。"
                   "必须完整读取至少一份当前来源及一份手术记录。"
                   "report time只是文书时间代理，不是医生实际阅片或知晓结果的时刻；医生可能在正式报告前已阅片。"
-                  "但报告时间代理落在手术后的术前CT/MR，不应继续承担独立的术前可切除性再评估CP；"
-                  "若不构成独立术后评价任务，撤销独立CP，报告仍保留为上下文。动作参考可留空或自由填写。"))
+                  "但手术开始前已完成、报告时间代理落在手术后的CT/MR，不应继续承担独立的术前可切除性再评估CP；"
+                  "若不构成独立术后评价任务，撤销独立CP，报告仍保留为上下文。动作参考可留空或自由填写，是否留空不影响本复审。"))
 
     def action_review_context_tool(self):
         return Tool(

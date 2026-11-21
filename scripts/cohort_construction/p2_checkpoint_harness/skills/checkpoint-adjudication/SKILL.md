@@ -7,13 +7,13 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 
 ## 职责边界
 
-你审核程序生成的候选CP，不重新发现候选，不修改原文，不创建临床Reference。程序负责comparator、时钟、报告身份、引文和span核验；你负责复审动作与任务阶段是否冲突，并判断当前文书是同轮支持、真正出现新患者证据，还是关系待核。
+你审核程序生成的候选CP，不重新发现候选，不修改原文，不创建临床Reference。程序负责comparator、时钟、报告身份、引文和span核验；你负责复审检查执行—报告时间代理—手术边界与候选任务是否冲突，并判断当前文书是同轮支持、真正出现新患者证据，还是关系待核。
 
-## 先处理阶段冲突动作
+## 先处理时间与任务冲突
 
-1. 逐页 `list_candidate_checkpoints`，找出 `review_flags` 含 `ACTION_TASK_MISMATCH_REVIEW_REQUIRED` 的CP。先调用 `read_checkpoint_action_review_context`，阅读当前CP、候选动作、phase、手术边界和可用字典动作。
+1. 逐页 `list_candidate_checkpoints`，找出 `review_flags` 含 `ACTION_TASK_MISMATCH_REVIEW_REQUIRED` 的CP。先调用 `read_checkpoint_action_review_context`，阅读当前CP、可选候选动作、`acquisition_clocks`、phase和手术边界；字典动作仅为可选参考。
 2. `read_source(source_id,start=0)` 完整读取至少一份当前来源及至少一份 `operation_source_ids` 中的手术记录，均省略end。若结果被spill替换为头尾预览，必须用 `read_spilled` 对该locator分页读完，预览不算全文。不能只凭 `ACTION_TASK_MISMATCH_REVIEW_REQUIRED` 标签或动作名称下结论。
-3. 每个标记CP调用一次 `review_checkpoint_action`。report time只是正式报告时间代理，不是医生实际阅片或知晓结果的时刻；医生可能提前阅片。但报告时间代理落在手术后的术前检查不再承担独立的术前评价任务时，用 `REMOVE_INDEPENDENT_CP` 撤销独立诊断CP；报告原文仍由程序保留为上下文。若仍有独立术后管理任务，用 `RETAIN_CP_WITH_ACTION` 保留CP，动作参考可全部留空，也可用 `OTHER_SPECIFIED` 自由描述字典外动作，不做动作阶段或完整性校验。
+3. 每个标记CP调用一次 `review_checkpoint_action`。report time只是正式报告时间代理，不是医生实际阅片或知晓结果的时刻；医生可能提前阅片。但手术开始前已完成、报告时间代理落在手术后的检查不再承担独立的术前评价任务时，用 `REMOVE_INDEPENDENT_CP` 撤销独立诊断CP；报告原文仍由程序保留为上下文。若仍有独立术后管理任务，用 `RETAIN_CP_WITH_ACTION` 保留CP，动作参考可全部留空，也可用 `OTHER_SPECIFIED` 自由描述字典外动作，不做动作阶段或完整性校验；是否留空不影响本复审。
 4. 管理CP不能用这个动作工具删除。动作复审完成后才进入管理CP证据演化裁决；被撤销的诊断CP立即退出比较状态，程序自动确定下一个最近保留comparator，不需要Agent选择。
 
 ## 默认路径：最少必要读取

@@ -1464,9 +1464,25 @@ class ManagementTrajectoryTests(unittest.TestCase):
         self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED",
                       result["action_cycles"][0]["review_flags"])
 
+    def test_preoperative_exam_reported_after_operation_needs_review_without_action(self):
+        event = diagnostic("DE-POST-CT-NO-ACTION", "CT-POST-NO-ACTION",
+                           exam="2026-03-02 08:00", report="2026-03-02 12:00")
+        no_action_review = review("DE-POST-CT-NO-ACTION", AFTER)
+        no_action_review["candidate_action"] = None
+        result = self.project(
+            sources=[source("S-CONTEXT", "既往资料。"),
+                     source("CT-POST-NO-ACTION", "术前CT报告。")],
+            events=[event], reviews=[no_action_review],
+            bounds=dict(operation_start=dict(value="2026-03-02 10:00", precision="minute")))
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["candidate_actions"], [])
+        self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED", checkpoint["review_flags"])
+        self.assertIn("ACTION_TASK_MISMATCH_REVIEW_REQUIRED",
+                      result["action_cycles"][0]["review_flags"])
+
     def test_postoperative_recurrence_reassessment_is_not_preoperative_action_mismatch(self):
         event = diagnostic("DE-POST-RECURRENCE", "CT-RECURRENCE",
-                           exam="2026-03-02 08:00", report="2026-03-02 12:00")
+                           exam="2026-03-02 11:00", report="2026-03-02 12:00")
         result = self.project(
             sources=[source("S-CONTEXT", "既往资料。"), source("CT-RECURRENCE", "CT报告。")],
             events=[event], reviews=[review(

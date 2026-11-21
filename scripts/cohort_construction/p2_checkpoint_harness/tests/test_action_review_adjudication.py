@@ -95,6 +95,20 @@ class ActionReviewAdjudicationTests(unittest.TestCase):
             task_time_bounds=bounds)
         return store, registry
 
+    def test_action_review_context_includes_acquisition_clock_without_action(self):
+        store, registry = self.make_store()
+        checkpoint = store.checkpoints.by_id["CP-CT"]
+        checkpoint["candidate_actions"] = []
+        store.source_index.require("S-CT")["clocks"] = dict(
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 15:55", precision="minute"))
+        context = registry.get("read_checkpoint_action_review_context").run("CP-CT")
+        self.assertEqual(context["acquisition_clocks"], [dict(
+            source_id="S-CT",
+            exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            specimen_time=None)])
+        self.assertIn("是否留空不影响本复审", context["note"])
+
     def test_full_current_and_operation_records_are_required(self):
         store, registry = self.make_store()
         listed = registry.get("list_candidate_checkpoints").run()["checkpoints"]

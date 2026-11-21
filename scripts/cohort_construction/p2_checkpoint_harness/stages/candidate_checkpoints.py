@@ -399,7 +399,8 @@ def _management_checkpoint(case_id, group, source):
     )
 
 
-def _action_task_review_flags(node_kind, review, postoperative):
+def _action_task_review_flags(node_kind, review, postoperative, *, event=None,
+                              operation_start=None):
     action = (review or {}).get("candidate_action") or {}
     action_type = str(action.get("action_type") or "").upper()
     target = str(action.get("target") or "")
@@ -411,7 +412,14 @@ def _action_task_review_flags(node_kind, review, postoperative):
         "根治性切除", "根治术", "胰十二指肠切除", "胰体尾切除", "胰腺切除"))
     mismatch = action_type == "START_NAT" or preoperative_resection_type \
         or preoperative_resection_target
-    if node_kind == "evidence_arrival_reassessment" and postoperative and mismatch:
+    exam_time = _clock((event or {}).get("exam_time")).get("value")
+    preoperative_acquisition_after_operation = bool(
+        exam_time and operation_start and exam_time < operation_start
+        and len(exam_time) > 10 and len(operation_start) > 10
+        and (_clock((event or {}).get("exam_time")).get("precision") or "unknown").lower()
+        not in {"date", "day", "unknown"})
+    if node_kind == "evidence_arrival_reassessment" and postoperative \
+            and (mismatch or preoperative_acquisition_after_operation):
         return ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"]
     return []
 
@@ -429,7 +437,8 @@ def _diagnostic_checkpoint(case_id, event, node_kind, review, *, pre_time_basis=
     action = _candidate_action(review, event_id=event["event_id"])
     scope = _evaluation_scope(evaluation_clock, operation_start)
     review_flags = _action_task_review_flags(
-        node_kind, review, not scope["primary_evaluation_eligible"])
+        node_kind, review, not scope["primary_evaluation_eligible"],
+        event=event, operation_start=operation_start)
     common = dict(
         checkpoint_id=checkpoint_id,
         kind=node_kind,

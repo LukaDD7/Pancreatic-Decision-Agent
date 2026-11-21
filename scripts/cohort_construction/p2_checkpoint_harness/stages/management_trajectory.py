@@ -638,8 +638,16 @@ def _diagnostic_checkpoint(case_id, event_group, kind, reviews, clocks, bases,
     specifications = specifications or []
     review_flags = sorted({flag for spec in specifications
                            for flag in spec.get("review_flags") or []})
+    preoperative_acquisition_after_operation = any(
+        _value(event.get("exam_time"))
+        and _value(event.get("exam_time")) < operation_start
+        and len(_value(event.get("exam_time"))) > 10 and len(operation_start) > 10
+        and (_clock(event.get("exam_time")).get("precision") or "unknown").lower()
+        not in {"date", "day", "unknown"}
+        for event in event_group) if operation_start else False
     if not before and operation_start and _value(clocks[0]) >= operation_start \
-            and any(_preoperative_action_conflict(review) for review in reviews):
+            and (preoperative_acquisition_after_operation
+                 or any(_preoperative_action_conflict(review) for review in reviews)):
         review_flags = sorted(set(review_flags + ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"]))
     evaluation_time_role = "before_acquisition_not_confirmed_choice_time" if before \
         else "after_report_visibility_proxy"

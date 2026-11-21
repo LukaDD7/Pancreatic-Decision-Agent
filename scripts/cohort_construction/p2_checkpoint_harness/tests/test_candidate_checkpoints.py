@@ -460,9 +460,26 @@ class CandidateCheckpointTests(unittest.TestCase):
                 self.assertEqual(result["migrations"][1]["action_task_review_flags"],
                                  ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
 
-    def test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag(self):
+    def test_preoperative_exam_reported_after_operation_needs_review_without_action(self):
         event = diagnostic(
             exam_time=dict(value="2026-03-02 08:00", precision="minute"),
+            report_time=dict(value="2026-03-02 12:00", precision="minute"))
+        result = project_candidate_checkpoints(
+            case_id="SYN", candidates=[], sources=[source("S-CONTEXT", "既往临床资料。")],
+            diagnostic_events=[event], diagnostic_reviews=[
+                review("pre_exam_evaluation", "no", diagnostic_event_id="DE-MR"),
+                review("evidence_arrival_reassessment", diagnostic_event_id="DE-MR",
+                       candidate_action=None)],
+            task_time_bounds=dict(operation_start=dict(
+                value="2026-03-02 10:00", precision="minute")))
+        post = result["candidate_checkpoints"][0]
+        self.assertEqual(post["candidate_actions"], [])
+        self.assertEqual(post["action_task_review_flags"],
+                         ["ACTION_TASK_MISMATCH_REVIEW_REQUIRED"])
+
+    def test_postoperative_after_diagnostic_action_has_no_task_mismatch_flag(self):
+        event = diagnostic(
+            exam_time=dict(value="2026-03-02 11:00", precision="minute"),
             report_time=dict(value="2026-03-02 12:00", precision="minute"))
         result = project_candidate_checkpoints(
             case_id="SYN", candidates=[], sources=[source("S-CONTEXT", "既往临床资料。")],
