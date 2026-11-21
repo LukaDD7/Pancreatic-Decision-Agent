@@ -60,6 +60,8 @@ def prepare_call(registry, call):
     current = context["current"]
     if current.get("source_ids"):
         registry.get("read_source").run(current["source_ids"][0])
+    for group in context.get("timed_interval_report_groups") or []:
+        registry.get("read_source").run(group["representative_source_id"])
     comparator = context["comparator"] or context["review_comparator"]
     if comparator and call.get("disposition") == "RETAIN_CP" \
             and call.get("evolution") == "NEW_EVIDENCE_ROUND":
@@ -1006,6 +1008,47 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertNotIn("S-CT", store.source_index.read_source_ids)
         item = store.adjudicate(**call)["item"]
         self.assertEqual(item["comparator_checkpoint_id"], "CP-CT")
+
+    def test_timed_interval_lab_report_is_grouped_and_must_be_read(self):
+        first_text = "拟行胰十二指肠切除术。"
+        current_text = "血气分析回报后再次评估手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text,
+                            "再次评估手术。", clock="2026-03-03")
+        lab_high = source("S-AG", "[检验结果值]\n23.50", "2026-03-02")
+        lab_high.update(kind="lab", original_fields={
+            "检验单号": "SYN-BG-1", "检验结果值": "23.50",
+            "检验结果单位": "mmol/L", "结果正常标志": "H"})
+        lab_normal = source("S-PH", "[检验结果值]\n7.40", "2026-03-02")
+        lab_normal.update(kind="lab", original_fields={
+            "检验单号": "SYN-BG-1", "检验结果值": "7.40",
+            "检验结果单位": "", "结果正常标志": "N"})
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               source("S-CURRENT", current_text, "2026-03-03"),
+                               lab_high, lab_normal], autoread=False)
+        registry.get("read_checkpoint_adjudication_context").run("CP-FIRST")
+        registry.get("read_source").run("S-FIRST")
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见管理锚点。")
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        self.assertEqual(len(context["timed_interval_report_groups"]), 1)
+        group = context["timed_interval_report_groups"][0]
+        self.assertEqual(group["source_count"], 2)
+        self.assertEqual(group["representative_source_id"], "S-AG")
+        registry.get("read_source").run("S-CURRENT")
+        call = dict(checkpoint_id="CP-CURRENT", disposition="RETAIN_CP",
+                    evolution="NEW_EVIDENCE_ROUND",
+                    evidence_supports=[dict(source_id="S-AG", quote="23.50")],
+                    rationale="同次血气报告在比较CP后到达，构成新增患者证据。")
+        with self.assertRaisesRegex(ToolError, "TIMED_INTERVAL_REPORT_NOT_READ"):
+            store.adjudicate(**call)
+        registry.get("read_source").run("S-AG")
+        item = store.adjudicate(**call)["item"]
+        self.assertEqual(item["disposition"], "RETAIN_CP")
+        self.assertEqual(item["evidence_supports"][0]["source_id"], "S-AG")
 
     def test_diagnostic_target_is_kept_when_report_contains_management_span(self):
         text = "增强CT未见转移。CT后拟行手术。"

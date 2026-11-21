@@ -54,7 +54,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 
 先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints。诊断CP不需要裁决，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，全部完成后finish。
 
-程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
+程序自动确定唯一最近保留comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。若上下文返回timed_interval_report_groups，必须逐组read_source其representative_source_id，核对程序已确定落在当前区间的原始报告；同次检验的多个项目已合组，只需读取一个代表项，不得声称未看到新报告。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
 
 RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生变化的患者信息，且承载该信息的当前来源不晚于当前CP。证据演化与原始来源是否交付是两个维度：可以来自本院原始报告、外院证据，或当前文书对新增检查的复述。当前文书明确记载comparator之后的新检查、治疗经过或疗效变化时，即使原报告未交付，也可引用该复述并设置evidence_source_status=EXTERNAL_RESTATEMENT或UNATTRIBUTED_RESTATEMENT；程序自动生成来源及时间待核标签，不因原报告缺失否定证据演化或删除CP。
 
@@ -475,6 +475,9 @@ class CheckpointAdjudicationStore:
                                if review_comparator_id and review_comparator_id != comparator_id
                                else None),
             interval_review_required=False,
+            timed_interval_report_groups=(self._timed_interval_report_groups(
+                checkpoint, self.checkpoints.require(comparator_id))
+                if comparator_id else []),
             evidence_policy=dict(
                 comparator_targets_reusable_as_new_evidence=False,
                 matched_old_restatement_requires_original_source=True,
@@ -485,7 +488,8 @@ class CheckpointAdjudicationStore:
                   "证据演化和来源核验分开：外院或未明来源的新证据复述可支持独立CP，"
                   "但必须标注来源属性，原报告及底层证据时间保持待核。"
                   "comparator已有的目标报告及其旧复述不得重新定时；原报告可找到时仍须核对。"
-                  "REVIEW_REQUIRED保留独立候选CP，不自动归并。区间资料索引仅在有疑问时可选查看。"))
+                  "REVIEW_REQUIRED保留独立候选CP，不自动归并。一般区间资料索引仅在有疑问时可选查看；"
+                  "timed_interval_report_groups中的时间明确原始报告必须按组读取代表项。"))
 
     def adjudication_context_tool(self):
         def run(checkpoint_id):
@@ -501,7 +505,7 @@ class CheckpointAdjudicationStore:
         return Tool(
             name="read_checkpoint_adjudication_context",
             description=("一次读取当前CP和程序自动确定的最近保留comparator；"
-                         "返回诊断目标source_ids。区间资料默认不强制核查。"),
+                         "返回诊断目标source_ids及必须按组核对的时间明确区间报告。"),
             input_schema=dict(type="object", additionalProperties=False,
                               required=["checkpoint_id"],
                               properties=dict(checkpoint_id=dict(type="string", minLength=1))),
@@ -653,6 +657,47 @@ class CheckpointAdjudicationStore:
             row["interval_relation"] == "UNRESOLVED_CLOCK",
             (row["clock"] or {}).get("value") or "9999", row["source_id"]))
         return rows
+
+    def _timed_interval_report_groups(self, checkpoint, comparator):
+        groups = {}
+        for row in self._interval_rows(checkpoint, comparator):
+            if row["interval_relation"] != "IN_INTERVAL":
+                continue
+            source = self.source_index.require(row["source_id"])
+            kind = source.get("kind")
+            if kind == "lab":
+                fields = source.get("original_fields") or {}
+                group_key = ("lab", fields.get("检验单号") or "",
+                             row["clock"].get("value"))
+            elif self._interval_original_read_required(source):
+                group_key = ("source", row["source_id"])
+            else:
+                continue
+            group = groups.setdefault(group_key, dict(
+                kind="LAB_REPORT" if kind == "lab" else "ORIGINAL_REPORT",
+                clock=deepcopy(row["clock"]), source_ids=[], items=[]))
+            group["source_ids"].append(row["source_id"])
+            fields = source.get("original_fields") or {}
+            group["items"].append(dict(
+                source_id=row["source_id"], title=source.get("title"),
+                result=fields.get("检验结果值"), unit=fields.get("检验结果单位"),
+                abnormal_flag=fields.get("结果正常标志")))
+        results = []
+        for group in groups.values():
+            group["source_ids"].sort()
+            group["items"].sort(key=lambda item: item["source_id"])
+            abnormal = [item for item in group["items"]
+                        if str(item.get("abnormal_flag") or "").strip().upper()
+                        in {"H", "L", "HH", "LL", "A", "ABNORMAL", "阳性", "↑", "↓"}]
+            group["representative_source_id"] = (
+                abnormal[0] if abnormal else group["items"][0])["source_id"]
+            group["source_count"] = len(group["source_ids"])
+            group["note"] = ("同次检验项目已合组；读取一个代表项核对报告时间，"
+                             "引用具体结果时可再读对应项目。")
+            results.append(group)
+        results.sort(key=lambda group: (
+            group["clock"].get("value") or "", group["representative_source_id"]))
+        return results
 
     def list_interval_sources(self, checkpoint_id, comparator_checkpoint_id=None,
                               offset=0, limit=200):
@@ -851,6 +896,17 @@ class CheckpointAdjudicationStore:
                     "INTERVAL_EVIDENCE_NOT_MARKED_USED: 作为新增证据引用的区间资料"
                     "必须标记READ_AND_USED：" + ",".join(not_used))
 
+    def _require_timed_interval_reports(self, checkpoint, comparator):
+        groups = self._timed_interval_report_groups(checkpoint, comparator)
+        missing = [group["representative_source_id"] for group in groups
+                   if group["representative_source_id"]
+                   not in self.source_index.read_source_ids]
+        if missing:
+            raise ToolError(
+                "TIMED_INTERVAL_REPORT_NOT_READ: 程序发现时间明确落在当前区间的原始报告；"
+                "同次检验已合组，必须逐组read_source代表项后再裁决："
+                + ",".join(missing))
+
     def _require_comparator_read(self, checkpoint, comparator, *,
                                  require_diagnostic_target):
         checkpoint_id = comparator["checkpoint_id"]
@@ -981,6 +1037,8 @@ class CheckpointAdjudicationStore:
                     "无论其保留或待核，都不能重新声明首见锚点。")
 
         self._require_current_source_read(checkpoint)
+        if comparator is not None and disposition in {RETAIN, SUPPORT}:
+            self._require_timed_interval_reports(checkpoint, comparator)
         if comparator is not None:
             self._require_comparator_read(
                 checkpoint, comparator,
