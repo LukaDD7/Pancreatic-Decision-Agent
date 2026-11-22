@@ -496,8 +496,15 @@ class CheckpointAdjudicationStore:
                 citation.get("source_id"), citation.get("quote"),
                 citation.get("start"), citation.get("end"))
             if not verdict.get("ok"):
+                occurrences = verdict.get("occurrences") or []
+                guidance = ("不要手填或修补start/end；证据接口只提交source_id和quote。"
+                            "用search_checkpoint_sources或read_source核对原文，扩大quote，"
+                            "加入相邻的独特上下文使其在来源中只出现一次，再重新提交。")
+                if occurrences:
+                    guidance += "该quote出现位置：" + ",".join(
+                        "%d-%d" % tuple(span) for span in occurrences[:10])
                 raise ToolError("EVIDENCE_SPAN_NOT_VERIFIED:"
-                                + str(verdict.get("reason")))
+                                + str(verdict.get("reason")) + "；" + guidance)
             for member in self.checkpoints.member_spans.get(
                     checkpoint["checkpoint_id"], ()):
                 if span["source_id"] == member["source_id"] and max(

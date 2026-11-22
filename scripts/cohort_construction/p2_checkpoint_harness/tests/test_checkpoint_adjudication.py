@@ -228,6 +228,36 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertEqual(result["item"]["evidence_supports"][0]["end"],
                          evidence_text.index(quote) + len(quote))
 
+    def test_repeated_evidence_quote_error_requires_unique_context_not_manual_offsets(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "化疗后重新评估根治切除。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        evidence_text = "首次病程：肿瘤体积缩小。再次复述：肿瘤体积缩小。"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03"),
+                              source("S-MRI", evidence_text, "2026-03-02")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        with self.assertRaisesRegex(ToolError, "不要手填或修补start/end") as caught:
+            store.adjudicate(
+                checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-MRI", quote="肿瘤体积缩小",
+                                        start=164, end=280)], rationale="重复引文。")
+        self.assertIn("扩大quote", str(caught.exception))
+        self.assertIn("5-11", str(caught.exception))
+        item = store.adjudicate(
+            checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-MRI", quote="首次病程：肿瘤体积缩小")],
+            rationale="用独特上下文定位新证据。")["item"]
+        self.assertEqual(item["evidence_supports"][0]["start"], 0)
+
     def test_context_only_new_evidence_advances_comparator_without_retaining_management_cp(self):
         first_text = "拟行胰十二指肠切除术。"
         middle_text = "检验回报后继续既定手术计划。"
