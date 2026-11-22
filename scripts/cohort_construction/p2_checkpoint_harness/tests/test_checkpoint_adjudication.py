@@ -509,6 +509,76 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         self.assertEqual(item["evidence_source_status"], "EXTERNAL_RESTATEMENT")
         self.assertEqual(item["disposition"], "RETAIN_CP")
 
+    def test_first_visible_can_cite_external_baseline_without_claiming_new_evidence(self):
+        text = "外院PET-MRI提示胰体尾肿块，考虑胰腺癌。完善评估后限期手术。"
+        first = candidate("EV-FIRST", "S-FIRST", text, "完善评估后限期手术。")
+        store, _ = make_store([checkpoint("CP-FIRST", [first])], [first],
+                              [source("S-FIRST", text, "2026-03-01")])
+        item = store.adjudicate(
+            checkpoint_id="CP-FIRST", disposition="RETAIN_CP", evolution="FIRST_VISIBLE",
+            evidence_source_status="EXTERNAL_RESTATEMENT",
+            evidence_supports=[dict(source_id="S-FIRST", quote="外院PET-MRI提示胰体尾肿块")],
+            rationale="首见管理锚点依据外院复述，原报告未交付。")["item"]
+        self.assertIsNone(item["comparator_checkpoint_id"])
+        self.assertEqual(item["evolution"], "FIRST_VISIBLE")
+        self.assertEqual(item["evidence_source_status"], "EXTERNAL_RESTATEMENT")
+        self.assertCountEqual(item["review_tags"], [
+            "EXTERNAL_EVIDENCE_ORIGINAL_NOT_VERIFIED", "EVIDENCE_TIME_NOT_VERIFIED"])
+
+    def test_secondhand_status_still_cannot_relabel_same_round_support(self):
+        first_text = "拟行手术。"
+        current_text = "外院MRI提示肿瘤，继续既定手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        current = candidate("EV-CURRENT", "S-CURRENT", current_text, "继续既定手术。",
+                            clock="2026-03-02")
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-02")],
+            [first, current], [source("S-FIRST", first_text, "2026-03-01"),
+                               source("S-CURRENT", current_text, "2026-03-02")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        with self.assertRaisesRegex(
+                ToolError, "SECONDHAND_STATUS_REQUIRES_RETAIN_OR_CONTEXT_NEW_EVIDENCE_ROUND"):
+            store.adjudicate(
+                checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                evolution="SAME_ROUND_SUPPORT", evidence_source_status="EXTERNAL_RESTATEMENT",
+                evidence_supports=[dict(source_id="S-CURRENT", quote="外院MRI提示肿瘤")],
+                rationale="不能用来源标签把同轮支持改成证据演化。")
+
+    def test_first_visible_external_restatement_requires_delivered_original(self):
+        current_text = "外院MR：胰头部可见肿块，大小约23X16mm。拟评估手术。"
+        report_text = "[original_findings]\n胰头部可见肿块，大小约23X16mm。"
+        current = candidate("EV-FIRST", "S-CURRENT", current_text, "拟评估手术。")
+        current_source = source("S-CURRENT", current_text, "2026-03-02")
+        current_source["kind"] = "document"
+        report = source("S-MR", report_text, "2026-03-01")
+        report["kind"] = "imaging"
+        store, _ = make_store([checkpoint("CP-FIRST", [current])], [current],
+                              [current_source, report])
+        with self.assertRaisesRegex(ToolError, "SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE"):
+            store.adjudicate(
+                checkpoint_id="CP-FIRST", disposition="RETAIN_CP", evolution="FIRST_VISIBLE",
+                evidence_source_status="EXTERNAL_RESTATEMENT",
+                evidence_supports=[dict(source_id="S-CURRENT", quote="胰头部可见肿块，大小约23X16mm")],
+                rationale="已交付原报告不能标为未核验。")
+
+    def test_first_visible_cannot_cite_other_management_action_as_baseline(self):
+        first_text = "首见病程记录。拟评估手术。"
+        other_text = "外院PET-MRI提示肿块，后续再次评估手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, "拟评估手术。")
+        other = candidate("EV-OTHER", "S-OTHER", other_text, other_text)
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]), checkpoint("CP-OTHER", [other])],
+            [first, other], [source("S-FIRST", first_text, "2026-03-01"),
+                             source("S-OTHER", other_text, "2026-03-01")])
+        with self.assertRaisesRegex(ToolError, "EVIDENCE_OVERLAPS_MANAGEMENT_CANDIDATE"):
+            store.adjudicate(
+                checkpoint_id="CP-FIRST", disposition="RETAIN_CP", evolution="FIRST_VISIBLE",
+                evidence_source_status="EXTERNAL_RESTATEMENT",
+                evidence_supports=[dict(source_id="S-OTHER", quote=other_text)],
+                rationale="其他管理动作句不能作为首见依据。")
+
     def test_checkpoint_list_is_compact_but_detail_retains_actions_and_spans(self):
         text = "拟行胰十二指肠切除术。"
         member = candidate("EV-FIRST", "S-FIRST", text, text)

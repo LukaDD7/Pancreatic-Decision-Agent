@@ -836,6 +836,28 @@
       ],
       "status": "fresh_full_pipeline_two_case_double_gate_and_browser_validation_passed",
       "limitations": "Complete fresh SCALE-05 r56 used 369 requests and SCALE-09 r55 used 358 requests; they rendered 12 and 15 candidate CPs with conserved migrations and no empty visible context. Two and four management adjudications respectively became CONTEXT_ONLY; all 27 rendered CPs passed browser traversal. These are uncontrolled fresh runs, not paired clinical-effectiveness measurements. SCALE-05 retains one REVIEW_REQUIRED management CP for source/time uncertainty and one empty-new-evidence-state review flag. SCALE-09 requires clinical review of the inference that worsening liver tests did not substantively affect a document repeating no contraindication to surgery. Candidate topology and Agent rationale are not expert Reference or clinical accuracy validation. The incomplete r55 SCALE-05 run is not included in the preview."
+    },
+    {
+      "id": "HAR-LIVE-044",
+      "problem": "A fresh SCALE-06 FIRST_VISIBLE management anchor cited an external PET-MRI restatement and correctly marked EXTERNAL_RESTATEMENT, but the secondhand-source guard accepted only NEW_EVIDENCE_ROUND. The legal first-visible baseline citation was therefore rejected repeatedly and adjudication could never finish.",
+      "change_type": "first_visible_external_baseline_source_tag_compatibility",
+      "real_counterexample": {
+        "case_id": "SCALE-06",
+        "run": "live-r58/SCALE-06",
+        "checkpoint_id": "CP-M-23c44a18f8e91295b9aa",
+        "observation": "The first admission course based its surgical-workup plan on an external PET-MRI restatement. FIRST_VISIBLE has no comparator and does not claim new evidence, but EXTERNAL_RESTATEMENT triggered SECONDHAND_STATUS_REQUIRES_RETAIN_OR_CONTEXT_NEW_EVIDENCE_ROUND; the run remained INCOMPLETE."
+      },
+      "positive_control": "RETAIN_CP+FIRST_VISIBLE may cite baseline external evidence without a comparator or a new-evolution claim. Original-report and underlying-time review tags remain mandatory. NEW_EVIDENCE_ROUND behavior is unchanged.",
+      "negative_control": "SUPPORT_ONLY cannot use a secondhand-source label to relabel same-round support as evidence evolution. Existing source-clock, original-report matching, unique-span, management-action-overlap and evidence-identity checks remain active.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_first_visible_can_cite_external_baseline_without_claiming_new_evidence",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_secondhand_status_still_cannot_relabel_same_round_support",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_external_restatement_can_retain_new_evidence_with_specific_review_tags",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_first_visible_external_restatement_requires_delivered_original",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_first_visible_cannot_cite_other_management_action_as_baseline"
+      ],
+      "status": "structural_patch_regression_validated_pending_uniform_fresh_ten_case_run",
+      "limitations": "This patch resolves an interface contradiction, not a clinical semantic tightening. The r57 wrong-stage operational runs and r58 pre-patch runs are excluded from the formal uniform ten-case preview. Full Harness passed 507 tests and default tests passed 171. Fresh patched-model validation is still required."
     }
   ]
 }

@@ -512,7 +512,7 @@ class CheckpointAdjudicationStore:
                     raise ToolError(
                         "EVIDENCE_OVERLAPS_CURRENT_MEMBER: 当前目标管理动作span（包括未来检查计划）"
                         "不能作为新增患者证据；请移除该引文，关系不清时改REVIEW_REQUIRED+UNCERTAIN。")
-            if evolution == "NEW_EVIDENCE_ROUND":
+            if evolution in {"FIRST_VISIBLE", "NEW_EVIDENCE_ROUND"}:
                 for member_checkpoint_id, members in self.checkpoints.management_member_spans.items():
                     if member_checkpoint_id == checkpoint["checkpoint_id"]:
                         continue
@@ -541,7 +541,7 @@ class CheckpointAdjudicationStore:
                     "COMPARATOR_TARGET_CANNOT_BE_NEW_EVIDENCE: comparator已包含该目标报告"
                     "或相同source_sha256的报告副本，同一报告不能再次形成证据演化轮次："
                     + span["source_id"])
-            if evolution == "NEW_EVIDENCE_ROUND":
+            if evolution in {"FIRST_VISIBLE", "NEW_EVIDENCE_ROUND"}:
                 self._require_original_for_report_restatement(
                     checkpoint, source, span["quote"])
             relation = compare(source, checkpoint)["relation"]
@@ -1247,7 +1247,10 @@ class CheckpointAdjudicationStore:
                     review_tags.append(tag)
         source_review_tag = SECONDHAND_REVIEW_TAGS.get(evidence_source_status)
         if source_review_tag:
-            if disposition not in {RETAIN, CONTEXT} or evolution != "NEW_EVIDENCE_ROUND":
+            secondhand_evolution_allowed = (
+                disposition == RETAIN and evolution in {"FIRST_VISIBLE", "NEW_EVIDENCE_ROUND"}
+            ) or (disposition == CONTEXT and evolution == "NEW_EVIDENCE_ROUND")
+            if not secondhand_evolution_allowed:
                 raise ToolError("SECONDHAND_STATUS_REQUIRES_RETAIN_OR_CONTEXT_NEW_EVIDENCE_ROUND")
             if not evidence_supports:
                 raise ToolError("SECONDHAND_STATUS_REQUIRES_EVIDENCE_SUPPORT")
