@@ -547,7 +547,9 @@ class CheckpointAdjudicationStore:
                                else None),
             interval_review_required=False,
             timed_interval_report_groups=(self._timed_interval_report_groups(
-                checkpoint, self.checkpoints.require(comparator_id))
+                checkpoint, self.checkpoints.require(comparator_id),
+                exclude_comparators=([self.checkpoints.require(same_time_comparator_id)]
+                                     if same_time_comparator_id else []))
                 if comparator_id else []),
             evidence_policy=dict(
                 comparator_targets_reusable_as_new_evidence=False,
@@ -759,13 +761,16 @@ class CheckpointAdjudicationStore:
             return True
         return False
 
-    def _timed_interval_report_groups(self, checkpoint, comparator):
+    def _timed_interval_report_groups(self, checkpoint, comparator, *,
+                                      exclude_comparators=()):
         groups = {}
         for row in self._interval_rows(checkpoint, comparator, include_current=True):
             if row["interval_relation"] != "IN_INTERVAL":
                 continue
             source = self.source_index.require(row["source_id"])
-            if self._is_diagnostic_comparator_target(source, comparator):
+            if self._is_diagnostic_comparator_target(source, comparator) or any(
+                    self._is_diagnostic_comparator_target(source, excluded)
+                    for excluded in exclude_comparators):
                 continue
             kind = source.get("kind")
             if kind == "lab":
@@ -1008,8 +1013,10 @@ class CheckpointAdjudicationStore:
                     "INTERVAL_EVIDENCE_NOT_MARKED_USED: 作为新增证据引用的区间资料"
                     "必须标记READ_AND_USED：" + ",".join(not_used))
 
-    def _require_timed_interval_reports(self, checkpoint, comparator):
-        groups = self._timed_interval_report_groups(checkpoint, comparator)
+    def _require_timed_interval_reports(self, checkpoint, comparator, *,
+                                        exclude_comparators=()):
+        groups = self._timed_interval_report_groups(
+            checkpoint, comparator, exclude_comparators=exclude_comparators)
         missing = [group["representative_source_id"] for group in groups
                    if group["representative_source_id"]
                    not in self.source_index.read_source_ids]
@@ -1019,8 +1026,10 @@ class CheckpointAdjudicationStore:
                 "检验已合为一个批次，必须逐组read_source代表项后再裁决："
                 + ",".join(missing))
 
-    def _require_support_has_no_new_interval_reports(self, checkpoint, comparator):
-        groups = self._timed_interval_report_groups(checkpoint, comparator)
+    def _require_support_has_no_new_interval_reports(self, checkpoint, comparator, *,
+                                                     exclude_comparators=()):
+        groups = self._timed_interval_report_groups(
+            checkpoint, comparator, exclude_comparators=exclude_comparators)
         if groups:
             raise ToolError(
                 "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW: 程序已确认comparator之后、"
@@ -1186,10 +1195,15 @@ class CheckpointAdjudicationStore:
         if comparator_checkpoint_id in same_time_retained and len(latest_retained) == 1:
             evidence_comparators.append(self.checkpoints.require(next(iter(latest_retained))))
         for evidence_comparator in evidence_comparators:
+            excluded = ([comparator] if comparator is not None
+                        and evidence_comparator["checkpoint_id"] != comparator_checkpoint_id
+                        else [])
             if disposition in {RETAIN, SUPPORT}:
-                self._require_timed_interval_reports(checkpoint, evidence_comparator)
+                self._require_timed_interval_reports(
+                    checkpoint, evidence_comparator, exclude_comparators=excluded)
             if disposition == SUPPORT:
-                self._require_support_has_no_new_interval_reports(checkpoint, evidence_comparator)
+                self._require_support_has_no_new_interval_reports(
+                    checkpoint, evidence_comparator, exclude_comparators=excluded)
         if comparator is not None:
             self._require_comparator_read(
                 checkpoint, comparator,

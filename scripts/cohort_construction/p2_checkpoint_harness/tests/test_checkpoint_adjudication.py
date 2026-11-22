@@ -792,6 +792,29 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                              evolution="SAME_ROUND_SUPPORT",
                              rationale="不能借同刻comparator隐藏较早基线后的新CT。")
 
+    def test_same_clock_diagnostic_target_is_not_new_after_earlier_baseline(self):
+        first = candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。")
+        current = candidate("EV-CURRENT", "S-CURRENT", "CT后继续既定计划。", "CT后继续既定计划。",
+                            clock="2026-03-03")
+        ct = source("S-CT", "增强CT未见远处转移。", "2026-03-02")
+        ct["kind"] = "imaging"
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-CT", [], kind=AFTER, clock="2026-03-03", source_ids=["S-CT"]),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, current], [source("S-FIRST", "拟行手术。", "2026-03-01"), ct,
+                               source("S-CURRENT", "CT后继续既定计划。", "2026-03-03")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        self.assertEqual(context["comparator_checkpoint_id"], "CP-FIRST")
+        self.assertEqual(context["same_time_comparator_checkpoint_id"], "CP-CT")
+        self.assertEqual(context["timed_interval_report_groups"], [])
+        item = store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                                evolution="SAME_ROUND_SUPPORT",
+                                rationale="CT已是同刻诊断comparator的目标，不是另一轮新证据。")["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-CT")
+
     def test_finish_rejects_missing_unknown_and_duplicate_adjudications(self):
         first_text = "拟行手术。"
         second_text = "再次讨论拟行手术。"

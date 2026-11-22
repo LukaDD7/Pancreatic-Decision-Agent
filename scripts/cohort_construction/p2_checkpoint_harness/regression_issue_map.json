@@ -802,13 +802,14 @@
       "required_tests": [
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_support_uses_semantic_comparator_but_unknown_clock_requires_review",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_support_cannot_hide_new_report_after_earlier_baseline",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_diagnostic_target_is_not_new_after_earlier_baseline",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_review_required_enters_later_strictly_earlier_comparator",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_candidates_cannot_each_claim_first_visible",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_global_adjudication_allows_same_clock_support_and_rejects_later_comparator",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_global_adjudication_allows_mixed_precision_same_clock_support"
       ],
       "status": "synthetic_regression_and_adversarial_audit_counterexamples_passed_live_pending",
-      "limitations": "The adversarial audit found and this change closes three additional paths: baseline-new-report bypass through a same-clock comparator, disposition leakage across offline items, and online/offline mixed-precision disagreement. Full harness tests are 489 passed with 87 subtests and default tests are 171 passed. Clinical topology still requires a fresh full run; semantic acceptance is not expert confirmation."
+      "limitations": "Two adversarial audit rounds found and this change closes four additional paths: baseline-new-report bypass through a same-clock comparator, disposition leakage across offline items, online/offline mixed-precision disagreement, and misclassifying a same-clock diagnostic comparator's existing target as a new baseline-interval report. Full harness tests are 490 passed with 87 subtests and default tests are 171 passed. Clinical topology still requires a fresh full run; semantic acceptance is not expert confirmation."
     }
   ]
 }
