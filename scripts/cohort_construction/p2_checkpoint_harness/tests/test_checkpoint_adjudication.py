@@ -727,7 +727,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             rationale="证据原文存在，但可见clock未知，保留人工复核。")["item"]
         self.assertEqual(item["review_status"], "REVIEW_REQUIRED")
 
-    def test_support_requires_strictly_earlier_program_comparator(self):
+    def test_same_clock_support_uses_semantic_comparator_but_unknown_clock_requires_review(self):
         first_text = "拟行EUS+FNA。"
         second_text = "转入后继续EUS+FNA。"
         first = candidate("EV-FIRST", "S-FIRST", first_text, first_text,
@@ -741,9 +741,20 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                     checkpoint("CP-SECOND", [second], clock="2026-03-02")],
                     [first, second], [source("S-FIRST", first_text, "2026-03-01"),
                                       source("S-SECOND", second_text, "2026-03-02")])
+                if comparator_clock == "2026-03-02":
+                    store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                                     evolution="FIRST_VISIBLE", rationale="同刻首份管理锚点。")
+                    context = registry.get("read_checkpoint_adjudication_context").run("CP-SECOND")
+                    self.assertEqual(context["same_time_comparator_checkpoint_id"], "CP-FIRST")
+                    self.assertEqual(len(context["same_time_candidate_states"]), 1)
+                    item = store.adjudicate(
+                        checkpoint_id="CP-SECOND", disposition="SUPPORT_ONLY",
+                        evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id="CP-IGNORED",
+                        rationale="同刻无法定序，但原文是同一计划的支持记录。")["item"]
+                    self.assertEqual(item["comparator_checkpoint_id"], "CP-FIRST")
+                    continue
                 expected = ("UNORDERED_CANDIDATE_STATE_REQUIRES_REVIEW"
-                            if comparator_clock in {"2026-03-02", None}
-                            else "SUPPORT_ONLY_REQUIRES_COMPARATOR")
+                            if comparator_clock is None else "SUPPORT_ONLY_REQUIRES_COMPARATOR")
                 with self.assertRaisesRegex(ToolError, expected):
                     store.adjudicate(
                         checkpoint_id="CP-SECOND", disposition="SUPPORT_ONLY",
@@ -752,9 +763,34 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                 item = store.adjudicate(
                     checkpoint_id="CP-SECOND", disposition="REVIEW_REQUIRED",
                     evolution="UNCERTAIN", comparator_checkpoint_id="CP-SECOND",
-                    rationale="没有严格更早状态，保留待核。")["item"]
+                    rationale="没有可比较状态，保留待核。")["item"]
                 self.assertIsNone(item["comparator_checkpoint_id"])
                 self.assertIsNotNone(registry.get("read_checkpoint_adjudication_context"))
+
+    def test_same_clock_support_cannot_hide_new_report_after_earlier_baseline(self):
+        first = candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。")
+        same = candidate("EV-SAME", "S-SAME", "再次评估手术。", "再次评估手术。",
+                         clock="2026-03-03")
+        current = candidate("EV-CURRENT", "S-CURRENT", "继续既定手术。", "继续既定手术。",
+                            clock="2026-03-03")
+        ct = source("S-CT", "增强CT未见远处转移。", "2026-03-02")
+        ct["kind"] = "imaging"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SAME", [same], clock="2026-03-03"),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, same, current], [source("S-FIRST", "拟行手术。", "2026-03-01"),
+                                     source("S-SAME", "再次评估手术。", "2026-03-03"),
+                                     source("S-CURRENT", "继续既定手术。", "2026-03-03"), ct])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(checkpoint_id="CP-SAME", disposition="REVIEW_REQUIRED",
+                         evolution="UNCERTAIN", comparator_checkpoint_id="CP-FIRST",
+                         rationale="同刻语义关系待核。")
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+            store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                             evolution="SAME_ROUND_SUPPORT",
+                             rationale="不能借同刻comparator隐藏较早基线后的新CT。")
 
     def test_finish_rejects_missing_unknown_and_duplicate_adjudications(self):
         first_text = "拟行手术。"
@@ -879,11 +915,15 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                                checkpoint("CP-SECOND", [second])], [first, second], [
                                    source("S-FIRST", first_text, "2026-03-01"),
                                    source("S-SECOND", second_text, "2026-03-01")])
-        for checkpoint_id in ("CP-FIRST", "CP-SECOND"):
-            with self.subTest(checkpoint_id=checkpoint_id):
-                with self.assertRaisesRegex(ToolError, "UNORDERED_CANDIDATE_STATE_REQUIRES_REVIEW"):
-                    store.adjudicate(checkpoint_id=checkpoint_id, disposition="RETAIN_CP",
-                                     evolution="FIRST_VISIBLE", rationale="同刻候选不能忽略。")
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="同刻首份可作为首见锚点。")
+        with self.assertRaisesRegex(ToolError, "FIRST_VISIBLE_REQUIRES_NO_SAME_TIME_RETAINED_STATE"):
+            store.adjudicate(checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+                             evolution="FIRST_VISIBLE", rationale="不能重复声明首见。")
+        item = store.adjudicate(checkpoint_id="CP-SECOND", disposition="SUPPORT_ONLY",
+                                evolution="SAME_ROUND_SUPPORT",
+                                rationale="同刻原文为同轮支持。")["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-FIRST")
 
     def test_non_actionable_support_can_be_cited_as_new_evidence(self):
         first_text = "拟行胰十二指肠切除术。"
@@ -951,11 +991,38 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             checkpoint("CP-FIRST", [first]), checkpoint("CP-SECOND", [second])],
             [first, second], [source("S-FIRST", first_text, "2026-03-01"),
                               source("S-SECOND", second_text, "2026-03-01")])
-        for checkpoint_id in ("CP-FIRST", "CP-SECOND"):
-            item = store.adjudicate(
-                checkpoint_id=checkpoint_id, disposition="REVIEW_REQUIRED",
-                evolution="UNCERTAIN", rationale="同刻管理候选不可定序。")["item"]
-            self.assertIsNone(item["comparator_checkpoint_id"])
+        first_item = store.adjudicate(
+            checkpoint_id="CP-FIRST", disposition="REVIEW_REQUIRED",
+            evolution="UNCERTAIN", rationale="首份同刻管理候选关系待核。")["item"]
+        self.assertIsNone(first_item["comparator_checkpoint_id"])
+        second_item = store.adjudicate(
+            checkpoint_id="CP-SECOND", disposition="REVIEW_REQUIRED",
+            evolution="UNCERTAIN", rationale="第二份与同刻待核CP关系仍不明。")["item"]
+        self.assertEqual(second_item["comparator_checkpoint_id"], "CP-FIRST")
+
+    def test_review_required_enters_later_strictly_earlier_comparator(self):
+        first_text = "拟行手术。"
+        second_text = "复查后仍拟行手术。"
+        evidence_text = "MRI未见远处转移。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-03")
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-03")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-03"),
+                              source("S-MRI", evidence_text, "2026-03-02")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="REVIEW_REQUIRED",
+                         evolution="UNCERTAIN", rationale="首份关系待核但保留在全景。")
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-SECOND")
+        self.assertEqual(context["comparator_checkpoint_id"], "CP-FIRST")
+        item = store.adjudicate(
+            checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[citation("S-MRI", evidence_text, "未见远处转移")],
+            rationale="后续新MRI相对待核但可见的首份CP构成证据演化。")["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-FIRST")
 
     def test_mixed_precision_latest_states_require_review_without_arbitrary_comparator(self):
         text = "再次评估手术。"

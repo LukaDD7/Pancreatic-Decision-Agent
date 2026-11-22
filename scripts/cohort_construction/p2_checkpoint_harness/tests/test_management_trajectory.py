@@ -13,6 +13,7 @@ from scripts.cohort_construction.p2_checkpoint_harness.stages.diagnostic_events 
 from scripts.cohort_construction.p2_checkpoint_harness.stages.management_trajectory import (
     project_management_trajectory,
 )
+from scripts.cohort_construction.p2_checkpoint_harness.stages.ordering import compare
 
 
 BEFORE = "BEFORE_ACQUISITION"
@@ -1173,7 +1174,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
                 evolution="REPEATED_PLAN", comparator_checkpoint_id="CP-M-UNKNOWN",
                 evidence_supports=[], rationale="未知comparator")])
 
-    def test_global_adjudication_rejects_same_clock_or_later_comparator(self):
+    def test_global_adjudication_allows_same_clock_support_and_rejects_later_comparator(self):
         first_text = "拟行胰十二指肠切除术。"
         second_text = "拟开始新辅助化疗。"
         items = [
@@ -1199,11 +1200,48 @@ class ManagementTrajectoryTests(unittest.TestCase):
         provisional = self.project(candidates=same_items, sources=same_sources)
         ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
                for cp in provisional["candidate_checkpoints"]}
-        with self.assertRaisesRegex(ValueError, "strictly earlier"):
-            self.project(candidates=same_items, sources=same_sources, adjudications=[dict(
-                checkpoint_id=ids["EV-SAME"], disposition="SUPPORT_ONLY",
-                evolution="REPEATED_PLAN", comparator_checkpoint_id=ids["EV-FIRST"],
-                evidence_supports=[], rationale="同钟comparator")])
+        result = self.project(candidates=same_items, sources=same_sources, adjudications=[
+            dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="同刻首见"),
+            dict(checkpoint_id=ids["EV-SAME"], disposition="SUPPORT_ONLY",
+                 evolution="REPEATED_PLAN", comparator_checkpoint_id=ids["EV-FIRST"],
+                 evidence_supports=[], rationale="同刻同轮支持")])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        self.assertEqual(result["candidate_checkpoints"][0]["checkpoint_id"], ids["EV-FIRST"])
+        migrations = {row["event_id"]: row for row in result["migrations"]}
+        self.assertEqual(migrations["EV-SAME"]["to_checkpoint_id"], ids["EV-FIRST"])
+        adjudications = [
+            dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="同刻首见"),
+            dict(checkpoint_id=ids["EV-SAME"], disposition="SUPPORT_ONLY",
+                 evolution="REPEATED_PLAN", comparator_checkpoint_id=ids["EV-FIRST"],
+                 evidence_supports=[], rationale="同刻同轮支持")]
+        reversed_result = self.project(candidates=same_items, sources=same_sources,
+                                       adjudications=list(reversed(adjudications)))
+        self.assertEqual(len(reversed_result["candidate_checkpoints"]), 1)
+
+    def test_global_adjudication_allows_mixed_precision_same_clock_support(self):
+        first = candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。")
+        same = candidate("EV-SAME", "S-SAME", "继续手术计划。", "继续手术计划。",
+                         action_type="START_NAT", target="新辅助治疗")
+        sources = [source("S-FIRST", "拟行手术。"), source("S-SAME", "继续手术计划。")]
+        sources[0]["clock"].update(value="2026-03-01 10:00", precision="minute")
+        provisional = self.project(candidates=[first, same], sources=sources)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"]}
+        self.assertEqual(compare(provisional["candidate_checkpoints"][0],
+                                 provisional["candidate_checkpoints"][1])["relation"],
+                         "same_time_unresolved")
+        result = self.project(candidates=[first, same], sources=sources, adjudications=[
+            dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                 evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                 evidence_supports=[], rationale="首见"),
+            dict(checkpoint_id=ids["EV-SAME"], disposition="SUPPORT_ONLY",
+                 evolution="SAME_ROUND_SUPPORT", comparator_checkpoint_id=ids["EV-FIRST"],
+                 evidence_supports=[], rationale="混合精度同刻支持")])
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
 
     def test_global_adjudication_rejects_comparator_cycle(self):
         first_text = "拟行胰十二指肠切除术。"

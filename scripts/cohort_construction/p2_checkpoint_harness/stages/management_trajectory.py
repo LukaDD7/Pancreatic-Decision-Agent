@@ -454,8 +454,11 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
         if not clock or not comparator_clock:
             raise ValueError("comparator clocks must be known: %s -> %s"
                              % (checkpoint_id, comparators[checkpoint_id]))
-        if comparator_clock >= clock:
-            raise ValueError("comparator must be strictly earlier than adjudicated CP: %s -> %s"
+        relation = compare(comparator, checkpoint)["relation"]
+        current_disposition = adjudications[checkpoint_id]["disposition"]
+        if relation != "before" and not (
+                current_disposition == "SUPPORT_ONLY" and relation == "same_time_unresolved"):
+            raise ValueError("comparator must be strictly earlier, or same-clock SUPPORT_ONLY: %s -> %s"
                              % (checkpoint_id, comparators[checkpoint_id]))
 
     missing = sorted(set(management_by_id) - set(adjudications))

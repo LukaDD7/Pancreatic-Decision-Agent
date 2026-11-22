@@ -786,6 +786,29 @@
       ],
       "status": "fresh_full_pipeline_five_case_engineering_stability_validated_with_SCALE05_conservative_redundancy_limit",
       "limitations": "This is engineering and candidate-topology stability evidence, not clinical accuracy validation or an expert Reference. SCALE-05 retained 19 CPs versus 15 in the older frozen-Discovery r48 projection: six management CPs are REVIEW_REQUIRED/UNCERTAIN, comprising four same-clock documents, one unclear evidence-time relation and one evidence-quote overlap. Conservative same-clock retention still creates visible redundancy and is not resolved. The 11-09 cancellation/biopsy CP was not supported by the future CT report. Old r48 CP counts are structural references only, not matched fresh-run cost comparisons. Formal report time remains a documentation proxy, not actual clinician image-review time."
+    },
+    {
+      "id": "HAR-LIVE-042",
+      "problem": "In fresh r52 SCALE-05, four management documents on 2023-11-08 shared the same 08:23 laboratory evidence round and surgical plan. The Agent initially submitted RETAIN_CP+NEW_EVIDENCE_ROUND for two of them, but any same-clock peer forced REVIEW_REQUIRED+UNCERTAIN. Review checkpoints then remained independent in materials but were excluded from later comparators, so all four repeatedly compared with 11-07 and no semantic same-round merge was possible. The context also lacked a same-clock landscape and did not require management-comparator original reading.",
+      "change_type": "semantic_same_clock_support_review_comparator_landscape_and_original_reading",
+      "real_counterexample": {
+        "case_id": "SCALE-05",
+        "run": "live-r52/SCALE-05",
+        "checkpoint_ids": ["CP-M-e2dd7ea92330b0769281", "CP-M-f05fff33222ff133c9e2", "CP-M-587039443c0fb8d586d1", "CP-M-6f65c6c887524f9d1cca"],
+        "observation": "Two RETAIN submissions were rejected by UNORDERED_CANDIDATE_STATE_REQUIRES_REVIEW; the accepted REVIEW results all cited the same red-cell report and retained four independent candidates. Same-clock ordering cannot be inferred, but same-clock semantic support does not require an ordering claim."
+      },
+      "positive_control": "A same-clock retained or review CP can be the automatic comparator for SUPPORT_ONLY; a later CP also sees a strictly earlier REVIEW CP. The context exposes all same-clock candidate/source indexes and the current plus management-comparator originals must be fully delivered. Offline projection conserves same-clock SUPPORT migrations independent of adjudication item order and mixed-precision clock representation.",
+      "negative_control": "Unknown-clock and multiple-parallel-state ambiguity still requires review; FIRST_VISIBLE cannot be repeated after a same-clock retained/review state. A same-clock SUPPORT cannot bypass timed original reports after the strictly earlier baseline, and new evidence still requires strict comparator-to-report ordering, original citation and span checks.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_support_uses_semantic_comparator_but_unknown_clock_requires_review",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_support_cannot_hide_new_report_after_earlier_baseline",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_review_required_enters_later_strictly_earlier_comparator",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_same_clock_candidates_cannot_each_claim_first_visible",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_global_adjudication_allows_same_clock_support_and_rejects_later_comparator",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_global_adjudication_allows_mixed_precision_same_clock_support"
+      ],
+      "status": "synthetic_regression_and_adversarial_audit_counterexamples_passed_live_pending",
+      "limitations": "The adversarial audit found and this change closes three additional paths: baseline-new-report bypass through a same-clock comparator, disposition leakage across offline items, and online/offline mixed-precision disagreement. Full harness tests are 489 passed with 87 subtests and default tests are 171 passed. Clinical topology still requires a fresh full run; semantic acceptance is not expert confirmation."
     }
   ]
 }
