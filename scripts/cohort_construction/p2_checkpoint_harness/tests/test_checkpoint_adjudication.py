@@ -451,6 +451,47 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                         evidence_supports=[dict(source_id="S-LAB-COPY", quote="项目1")],
                         rationale="历史副本不能重新开轮。")
 
+    def test_rejected_old_evidence_exits_to_support_without_false_uncertainty(self):
+        store, _ = self._context_chain_fixture(extra=2)
+        old_lab = source("S-OLD-LAB", "[检验项目名称]\n旧项目\n[检验结果值]\n0",
+                         "2026-03-03")
+        old_lab["kind"] = "lab"
+        store.source_index.sources.append(old_lab)
+        store.source_index.by_id[old_lab["source_id"]] = old_lab
+        store.adjudicate(checkpoint_id="CP-0", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-1", disposition="CONTEXT_ONLY",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")],
+            rationale="第一批检验只推进证据时间线。")
+        store.adjudicate(
+            checkpoint_id="CP-2", disposition="RETAIN_CP",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-2", quote="项目2")],
+            rationale="第二批检验后形成实质再评价。")
+        store.adjudicate(checkpoint_id="CP-3", disposition="SUPPORT_ONLY",
+                         evolution="REPEATED_PLAN", rationale="重复既定计划。")
+        with self.assertRaisesRegex(ToolError, "SUPPORT_ONLY"):
+            store.adjudicate(
+                checkpoint_id="CP-4", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")],
+                rationale="错误重复消费旧证据。")
+        with self.assertRaisesRegex(ToolError, "SUPPORT_ONLY"):
+            store.adjudicate(
+                checkpoint_id="CP-4", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-OLD-LAB", quote="旧项目")],
+                rationale="错误使用比较CP之前的证据。")
+        item = store.adjudicate(
+            checkpoint_id="CP-4", disposition="SUPPORT_ONLY", evolution="REPEATED_PLAN",
+            evidence_supports=[],
+            rationale="新管理部署可见，但旧证据和已消费证据均已确定不新，归并而不制造待核状态。")["item"]
+        self.assertEqual(item["evidence_supports"], [])
+        self.assertEqual(item["review_status"], "CANDIDATE_ADJUDICATED")
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-2")
+
     def test_carried_secondhand_evidence_preserves_source_status_and_review_tags(self):
         first_text = "拟行手术。"
         context_text = "外院MRI提示肿瘤缩小，继续既定计划。"
@@ -1276,6 +1317,35 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                 evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id="CP-FIRST",
                 evidence_supports=[citation("S-BASELINE", baseline_text, "未见远处转移")],
                 rationale="错误地拿比较CP之前的基线患者证据充当新增证据。")
+
+    def test_mixed_precision_evidence_rejection_preserves_uncertain_exit(self):
+        first_text = "拟行胰十二指肠切除术。"
+        second_text = "复查后拟行胰十二指肠切除术。"
+        same_day_text = "增强CT示未见远处转移。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        second = candidate("EV-SECOND", "S-SECOND", second_text, second_text,
+                           clock="2026-03-02")
+        same_day = source("S-SAME-DAY", same_day_text, "2026-03-01 12:00")
+        same_day["clock"]["precision"] = "minute"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SECOND", [second], clock="2026-03-02")],
+            [first, second], [source("S-FIRST", first_text, "2026-03-01"),
+                              source("S-SECOND", second_text, "2026-03-02"), same_day])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见锚点。")
+        with self.assertRaisesRegex(ToolError, r"REVIEW_REQUIRED\+UNCERTAIN"):
+            store.adjudicate(
+                checkpoint_id="CP-SECOND", disposition="RETAIN_CP",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[citation("S-SAME-DAY", same_day_text, "未见远处转移")],
+                rationale="同日不同精度不能证明严格晚于comparator。")
+        item = store.adjudicate(
+            checkpoint_id="CP-SECOND", disposition="REVIEW_REQUIRED",
+            evolution="UNCERTAIN", evidence_supports=[],
+            review_tags=["EVIDENCE_TIME_NOT_VERIFIED"],
+            rationale="同日混合精度导致新增关系确实无法判断，保留待核。")["item"]
+        self.assertEqual(item["review_status"], "REVIEW_REQUIRED")
 
     def test_comparator_cannot_skip_latest_retained_diagnostic_state(self):
         first_text = "拟行胰十二指肠切除术。"

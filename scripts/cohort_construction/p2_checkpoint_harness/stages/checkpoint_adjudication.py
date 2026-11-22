@@ -73,7 +73,7 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 新动作、新计划、转科和执行本身不是证据演化；comparator已有报告及其副本、后续文书对同一旧报告的复述和未来报告也不能作为新增证据。若原始报告可找到，仍须核对并引用原始报告，不能用后一份文书给旧证据重新定时。同刻不是必须REVIEW的理由，可依据原文判断同轮支持。只有证据是否新增、是否形成实质再评价或语义关系确实无法判断时才用REVIEW_REQUIRED+UNCERTAIN；该状态保留独立候选CP，并进入后续comparator全景，不等于已确认临床决策。
 
 evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、来源时钟、报告身份、引文和span重叠；未来检查计划等与当前目标管理动作重叠的引文必须拒绝，不能靠关键词改判临床真值。逐项提交后立即继续，不要反复重新列出全部CP。
-若返回SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE，下一步必须read_source错误中列出的匹配候选，核对后用原始报告source_id和原文quote替换复述引文；不得原样重复提交。若返回EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT，删除对应未来检验引文，不得标为来源未明；仅可另引当前时点已发生的新生理状态或治疗经过，否则改SUPPORT_ONLY，关系确实不明时改REVIEW_REQUIRED+UNCERTAIN。原报告不能证明严格晚于comparator或无法支持证据演化时，同样改判，不得继续用旧复述重试。"""
+若返回SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE，下一步必须read_source错误中列出的匹配候选，核对后用原始报告source_id和原文quote替换复述引文；不得原样重复提交。若返回EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT，删除对应未来检验引文，不得标为来源未明；仅可另引当前时点已发生的新生理状态或治疗经过，否则改SUPPORT_ONLY，关系确实不明时改REVIEW_REQUIRED+UNCERTAIN。原报告不能证明严格晚于comparator或无法支持证据演化时，同样改判，不得继续用旧复述重试。若收到CONTEXT_EVIDENCE_ALREADY_CONSUMED，停止替换已消费引文；它证明该证据已消费，不等于关系不明，不得仅据此改REVIEW。若收到EVIDENCE_NOT_NEW_AFTER_COMPARATOR，按错误中的实际关系处理：明确早于comparator时不得改REVIEW；同刻或时间未知只表示不能证明严格晚于，可阅读后判同轮SUPPORT，确实因此无法判断新增关系时才REVIEW_REQUIRED+UNCERTAIN。有pending且当前形成实质再评价时，用pending原source_id提交RETAIN_CP；没有pending或其他真正新增证据且关系明确时，即使出现新动作、手术或转科计划，也改SUPPORT_ONLY，然后继续后续CP。"""
 
 
 def _event_id(candidate, index):
@@ -533,7 +533,10 @@ class CheckpointAdjudicationStore:
                     raise ToolError(
                         "CONTEXT_EVIDENCE_ALREADY_CONSUMED: 同一证据或其报告副本已被比较状态消费；"
                         "只有后续RETAIN_CP可用pending中的原source_id携带该证据形成代表CP，"
-                        "CONTEXT_ONLY不能重复消费，换source_id也不能绕过报告身份核验。")
+                        "CONTEXT_ONLY不能重复消费，换source_id也不能绕过报告身份核验。"
+                        "这些拒绝证明所提交证据不新，不等于关系不明，不得仅据此改REVIEW。"
+                        "有pending且当前形成实质再评价时，用pending原source_id提交RETAIN_CP；"
+                        "没有pending或其他真正新增证据时，即使出现新动作、手术或转科计划，也改SUPPORT_ONLY。")
                 inherited = True
             if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None \
                     and self._is_diagnostic_comparator_target(source, comparator):
@@ -557,9 +560,19 @@ class CheckpointAdjudicationStore:
                     and not inherited:
                 comparator_relation = compare(comparator, source)["relation"]
                 if comparator_relation != "before":
+                    if comparator_relation == "after":
+                        recovery = ("该证据明确早于comparator，不是关系不明，不得改REVIEW；"
+                                    "没有其他真正新增证据时，即使出现新动作、手术或转科计划，"
+                                    "也改SUPPORT_ONLY。")
+                    else:
+                        recovery = ("同刻或时间未知只表示不能证明严格晚于，不等于已经证明是旧证据；"
+                                    "阅读原文后可判同轮SUPPORT_ONLY，确实因此无法判断新增关系时才可"
+                                    "REVIEW_REQUIRED+UNCERTAIN且不提供引文，不要继续替换引文重试。")
                     raise ToolError(
                         "EVIDENCE_NOT_NEW_AFTER_COMPARATOR: 新增证据必须严格晚于最近保留的比较CP；"
-                        "比较CP已有、同刻或时间未知的证据不能构成证据演化。")
+                        "比较CP已有、同刻或时间未知的证据不能构成证据演化。"
+                        "有pending且当前形成实质再评价时，用pending原source_id提交RETAIN_CP。"
+                        + recovery)
             normalized.append(span)
         return normalized
 

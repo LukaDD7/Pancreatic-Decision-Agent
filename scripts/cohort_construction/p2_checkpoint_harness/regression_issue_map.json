@@ -858,6 +858,25 @@
       ],
       "status": "structural_patch_regression_validated_pending_uniform_fresh_ten_case_run",
       "limitations": "This patch resolves an interface contradiction, not a clinical semantic tightening. The r57 wrong-stage operational runs and r58 pre-patch runs are excluded from the formal uniform ten-case preview. Full Harness passed 507 tests and default tests passed 171. Fresh patched-model validation is still required."
+    },
+    {
+      "id": "HAR-LIVE-045",
+      "problem": "In fresh r60 SCALE-09, the Agent repeatedly replaced already-consumed or pre-comparator evidence citations after receiving CONTEXT_EVIDENCE_ALREADY_CONSUMED and EVIDENCE_NOT_NEW_AFTER_COMPARATOR. It treated a new management deployment as evidence evolution instead of exiting to SUPPORT_ONLY when pending and timed-interval evidence were empty, leaving 11 management checkpoints unadjudicated and the run INCOMPLETE.",
+      "change_type": "terminal_tool_error_recovery_guidance_without_evidence_guard_relaxation",
+      "real_counterexample": {
+        "case_id": "SCALE-09",
+        "run": "live-r60/SCALE-09",
+        "checkpoint_id": "CP-M-efde76f4d9c963fe78f6",
+        "observation": "A 2023-05-26 consultation recommended surgery and transfer, but the cited CA199 report had already been consumed by a previous context state and CEA preceded the retained comparator. Discovery completed all 60 units; adjudication stopped after 5 of 16 management candidates."
+      },
+      "positive_control": "After rejected consumed or old citations, the Agent is directed to stop citation substitution. A substantive reassessment with pending evidence must carry the original pending source into RETAIN_CP; with no pending or other genuinely new evidence, even a new operation or transfer plan is SUPPORT_ONLY. These deterministic rejections alone are not uncertainty.",
+      "negative_control": "Consumed evidence, same-hash copies, pre-comparator evidence and management-action spans remain invalid NEW_EVIDENCE_ROUND support. Deterministically consumed or pre-comparator evidence must not be relabelled REVIEW_REQUIRED+UNCERTAIN, which would create a false independent comparator. Same-time or unknown-clock rejection is not called proof of old evidence: semantic same-round SUPPORT remains available, and genuinely unresolved ordering may still be REVIEW_REQUIRED. Pending evidence inheritance and all source, clock, span and original-report checks remain unchanged.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_rejected_old_evidence_exits_to_support_without_false_uncertainty",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_mixed_precision_evidence_rejection_preserves_uncertain_exit"
+      ],
+      "status": "terminal_recovery_regression_passed_pending_fresh_r61_SCALE09",
+      "limitations": "This is error-recovery guidance, not a change to evidence-evolution semantics or automatic acceptance of the uncertain CP. The failed r60 SCALE-09 result remains excluded. Nine completed cases are not rerun because their accepted submissions did not encounter this recovery path; the final preview must record the r61 prompt revision used only for SCALE-09."
     }
   ]
 }
