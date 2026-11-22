@@ -792,6 +792,69 @@ class CheckpointAdjudicationTests(unittest.TestCase):
                              evolution="SAME_ROUND_SUPPORT",
                              rationale="不能借同刻comparator隐藏较早基线后的新CT。")
 
+    def test_same_clock_management_evidence_batch_is_shared_not_new_again(self):
+        first = candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。")
+        same = candidate("EV-SAME", "S-SAME", "检验后拟行手术。", "检验后拟行手术。",
+                         clock="2026-03-03")
+        current = candidate("EV-CURRENT", "S-CURRENT", "继续同一手术计划。", "继续同一手术计划。",
+                            clock="2026-03-03")
+        lab_text = "[检验项目名称]\n红细胞计数\n[检验结果值]\n4.10"
+        lab1 = source("S-LAB-1", lab_text, "2026-03-02")
+        lab2 = source("S-LAB-2", lab_text.replace("红细胞计数", "白细胞计数"), "2026-03-02")
+        for lab in (lab1, lab2):
+            lab["kind"] = "lab"
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SAME", [same], clock="2026-03-03"),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, same, current], [source("S-FIRST", "拟行手术。", "2026-03-01"), lab1, lab2,
+                                     source("S-SAME", "检验后拟行手术。", "2026-03-03"),
+                                     source("S-CURRENT", "继续同一手术计划。", "2026-03-03")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-SAME", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="红细胞计数")],
+            rationale="同刻首份CP使用新检验批次。")
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-CURRENT")
+        self.assertEqual(context["same_time_comparator_checkpoint_id"], "CP-SAME")
+        self.assertEqual(context["same_time_comparator_evidence_source_ids"], ["S-LAB-1"])
+        self.assertEqual(context["timed_interval_report_groups"], [])
+        item = store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                                evolution="SAME_ROUND_SUPPORT",
+                                rationale="同刻文书共享已裁决检验批次，没有新增证据。")["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-SAME")
+
+    def test_same_clock_shared_lab_batch_does_not_hide_later_lab(self):
+        first = candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。")
+        same = candidate("EV-SAME", "S-SAME", "检验后拟行手术。", "检验后拟行手术。",
+                         clock="2026-03-03")
+        current = candidate("EV-CURRENT", "S-CURRENT", "继续同一手术计划。", "继续同一手术计划。",
+                            clock="2026-03-03")
+        lab_text = "[检验项目名称]\n红细胞计数\n[检验结果值]\n4.10"
+        lab1 = source("S-LAB-1", lab_text, "2026-03-02 08:00")
+        lab2 = source("S-LAB-2", lab_text.replace("红细胞计数", "白细胞计数"), "2026-03-02 09:00")
+        for lab in (lab1, lab2):
+            lab["kind"] = "lab"
+            lab["clock"]["precision"] = "minute"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-SAME", [same], clock="2026-03-03"),
+            checkpoint("CP-CURRENT", [current], clock="2026-03-03")],
+            [first, same, current], [source("S-FIRST", "拟行手术。", "2026-03-01"), lab1, lab2,
+                                     source("S-SAME", "检验后拟行手术。", "2026-03-03"),
+                                     source("S-CURRENT", "继续同一手术计划。", "2026-03-03")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-SAME", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="红细胞计数")],
+            rationale="同刻首份CP使用08:00检验。")
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+            store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
+                             evolution="SAME_ROUND_SUPPORT",
+                             rationale="不能用共享08:00批次掩盖09:00新检验。")
+
     def test_same_clock_diagnostic_target_is_not_new_after_earlier_baseline(self):
         first = candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。")
         current = candidate("EV-CURRENT", "S-CURRENT", "CT后继续既定计划。", "CT后继续既定计划。",

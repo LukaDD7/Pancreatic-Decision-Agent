@@ -528,6 +528,10 @@ class CheckpointAdjudicationStore:
                 review_comparator_id = unresolved[0]["checkpoint_id"]
         active_comparator = self.checkpoints.by_id.get(
             comparator_id or review_comparator_id)
+        same_time_evidence_source_ids = sorted({
+            citation["source_id"]
+            for citation in (self.items.get(same_time_comparator_id) or {}).get(
+                "evidence_supports", [])})
         self.source_index.set_adjudication_context(checkpoint, active_comparator)
         return dict(
             checkpoint_id=checkpoint_id,
@@ -540,6 +544,7 @@ class CheckpointAdjudicationStore:
             same_time_comparator_checkpoint_id=same_time_comparator_id,
             same_time_comparator=(self.checkpoints.detail(same_time_comparator_id)
                                   if same_time_comparator_id else None),
+            same_time_comparator_evidence_source_ids=same_time_evidence_source_ids,
             parallel_same_time_checkpoint_ids=same_time if len(same_time) > 1 else [],
             review_comparator_checkpoint_id=review_comparator_id,
             review_comparator=(self.checkpoints.detail(review_comparator_id)
@@ -549,7 +554,8 @@ class CheckpointAdjudicationStore:
             timed_interval_report_groups=(self._timed_interval_report_groups(
                 checkpoint, self.checkpoints.require(comparator_id),
                 exclude_comparators=([self.checkpoints.require(same_time_comparator_id)]
-                                     if same_time_comparator_id else []))
+                                     if same_time_comparator_id else []),
+                exclude_source_ids=same_time_evidence_source_ids)
                 if comparator_id else []),
             evidence_policy=dict(
                 comparator_targets_reusable_as_new_evidence=False,
@@ -762,7 +768,7 @@ class CheckpointAdjudicationStore:
         return False
 
     def _timed_interval_report_groups(self, checkpoint, comparator, *,
-                                      exclude_comparators=()):
+                                      exclude_comparators=(), exclude_source_ids=()):
         groups = {}
         for row in self._interval_rows(checkpoint, comparator, include_current=True):
             if row["interval_relation"] != "IN_INTERVAL":
@@ -792,7 +798,22 @@ class CheckpointAdjudicationStore:
                 result=fields.get("检验结果值"), unit=fields.get("检验结果单位"),
                 abnormal_flag=fields.get("结果正常标志")))
         results = []
+        excluded_source_ids = set(exclude_source_ids)
         for group in groups.values():
+            if excluded_source_ids.intersection(group["source_ids"]):
+                if group["kind"] != "LAB_REPORT_BATCH":
+                    continue
+                excluded_clocks = {
+                    _clock_value(self.source_index.require(source_id))
+                    for source_id in excluded_source_ids}
+                group["source_ids"] = [
+                    source_id for source_id in group["source_ids"]
+                    if _clock_value(self.source_index.require(source_id)) not in excluded_clocks]
+                group["items"] = [
+                    item for item in group["items"]
+                    if _clock_value(item) not in excluded_clocks]
+                if not group["source_ids"]:
+                    continue
             group["items"].sort(key=lambda item: (
                 (item["clock"] or {}).get("value") or "", item["source_id"]))
             abnormal = [item for item in group["items"]
@@ -1014,9 +1035,10 @@ class CheckpointAdjudicationStore:
                     "必须标记READ_AND_USED：" + ",".join(not_used))
 
     def _require_timed_interval_reports(self, checkpoint, comparator, *,
-                                        exclude_comparators=()):
+                                        exclude_comparators=(), exclude_source_ids=()):
         groups = self._timed_interval_report_groups(
-            checkpoint, comparator, exclude_comparators=exclude_comparators)
+            checkpoint, comparator, exclude_comparators=exclude_comparators,
+            exclude_source_ids=exclude_source_ids)
         missing = [group["representative_source_id"] for group in groups
                    if group["representative_source_id"]
                    not in self.source_index.read_source_ids]
@@ -1027,9 +1049,10 @@ class CheckpointAdjudicationStore:
                 + ",".join(missing))
 
     def _require_support_has_no_new_interval_reports(self, checkpoint, comparator, *,
-                                                     exclude_comparators=()):
+                                                     exclude_comparators=(), exclude_source_ids=()):
         groups = self._timed_interval_report_groups(
-            checkpoint, comparator, exclude_comparators=exclude_comparators)
+            checkpoint, comparator, exclude_comparators=exclude_comparators,
+            exclude_source_ids=exclude_source_ids)
         if groups:
             raise ToolError(
                 "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW: 程序已确认comparator之后、"
@@ -1198,12 +1221,18 @@ class CheckpointAdjudicationStore:
             excluded = ([comparator] if comparator is not None
                         and evidence_comparator["checkpoint_id"] != comparator_checkpoint_id
                         else [])
+            same_time_evidence_ids = {
+                citation["source_id"]
+                for citation in (self.items.get(comparator_checkpoint_id) or {}).get(
+                    "evidence_supports", [])} if excluded else set()
             if disposition in {RETAIN, SUPPORT}:
                 self._require_timed_interval_reports(
-                    checkpoint, evidence_comparator, exclude_comparators=excluded)
+                    checkpoint, evidence_comparator, exclude_comparators=excluded,
+                    exclude_source_ids=same_time_evidence_ids)
             if disposition == SUPPORT:
                 self._require_support_has_no_new_interval_reports(
-                    checkpoint, evidence_comparator, exclude_comparators=excluded)
+                    checkpoint, evidence_comparator, exclude_comparators=excluded,
+                    exclude_source_ids=same_time_evidence_ids)
         if comparator is not None:
             self._require_comparator_read(
                 checkpoint, comparator,
