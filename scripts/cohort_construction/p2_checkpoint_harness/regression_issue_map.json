@@ -766,6 +766,26 @@
       ],
       "status": "fresh_full_pipeline_live_validation_passed",
       "limitations": "The fresh r51 SCALE-01 run completed all 38 Discovery units and checkpoint adjudication with no tool errors. The Agent read the full CT and operation sources, removed CP-D-9b20fc3898f377a385b5 as an independent CP while retaining the report as context, and rendered 9 CPs with conserved migrations. The flag requests candidate review; it neither proves the clinician's actual image-review time nor automatically deletes a CP. The historical flag name is retained for interface compatibility although the trigger no longer requires an action."
+    },
+    {
+      "id": "HAR-LIVE-041",
+      "problem": "Optional open actions and acquisition/report/operation conflict review needed multi-case fresh-run stability evidence rather than a single SCALE-01 result or frozen-Discovery replay.",
+      "change_type": "five_case_fresh_full_pipeline_live_stability_validation",
+      "real_counterexample": {
+        "cases": ["SCALE-01", "SCALE-02", "SCALE-05", "SCALE-06", "SCALE-09"],
+        "runs": ["live-r51/SCALE-01-fresh", "live-r52/SCALE-02", "live-r52/SCALE-05", "live-r52/SCALE-06", "live-r52/SCALE-09"],
+        "observation": "All five fresh runs completed 314 Discovery units and adjudication with 1665 requests and 20337892 tokens, no unfinished units, transport recoveries or adjudication attempt problems, and conserved management/diagnostic migrations. The five previews contain 9, 17, 19, 6 and 15 CPs respectively (66 total); 215 null-action submissions were accepted without action gate errors."
+      },
+      "positive_control": "SCALE-01 and SCALE-06 each required review of a preoperatively acquired but postoperatively reported diagnostic source even with an empty reference action; the Agent read the diagnostic and operative originals, removed independent CP status and conserved the report as context. SCALE-09 retained an after-arrival contrast-CT CP with no reference action.",
+      "negative_control": "No optional-action or action-phase gate was restored. Source/span verification, evidence evolution review, complete current and operative source reading for time-conflict review, and migration conservation remained active.",
+      "required_tests": [
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_management_trajectory.py::ManagementTrajectoryTests::test_preoperative_exam_reported_after_operation_needs_review_without_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_diagnostic_reviews.py::DiagnosticReviewToolTests::test_yes_allows_missing_or_unlisted_free_text_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_discovery_diagnostic_reviews.py::ManagementActionTests::test_new_decision_and_reassessment_allow_missing_action",
+        "scripts/cohort_construction/p2_checkpoint_harness/tests/test_action_review_projection.py::ActionReviewProjectionTests::test_retained_checkpoint_allows_missing_action_and_does_not_phase_validate"
+      ],
+      "status": "fresh_full_pipeline_five_case_engineering_stability_validated_with_SCALE05_conservative_redundancy_limit",
+      "limitations": "This is engineering and candidate-topology stability evidence, not clinical accuracy validation or an expert Reference. SCALE-05 retained 19 CPs versus 15 in the older frozen-Discovery r48 projection: six management CPs are REVIEW_REQUIRED/UNCERTAIN, comprising four same-clock documents, one unclear evidence-time relation and one evidence-quote overlap. Conservative same-clock retention still creates visible redundancy and is not resolved. The 11-09 cancellation/biopsy CP was not supported by the future CT report. Old r48 CP counts are structural references only, not matched fresh-run cost comparisons. Formal report time remains a documentation proxy, not actual clinician image-review time."
     }
   ]
 }
