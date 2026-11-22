@@ -856,8 +856,8 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_first_visible_external_restatement_requires_delivered_original",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_first_visible_cannot_cite_other_management_action_as_baseline"
       ],
-      "status": "structural_patch_regression_validated_pending_uniform_fresh_ten_case_run",
-      "limitations": "This patch resolves an interface contradiction, not a clinical semantic tightening. The r57 wrong-stage operational runs and r58 pre-patch runs are excluded from the formal uniform ten-case preview. Full Harness passed 507 tests and default tests passed 171. Fresh patched-model validation is still required."
+      "status": "fresh_ten_case_full_pipeline_and_browser_validation_passed",
+      "limitations": "All ten cases completed fresh Discovery and full-case adjudication with 2959 real requests and 35734283 tokens, rendering 117 candidate CPs and 58 primary-evaluation CPs; every per-case browser traversal passed and migration/source/privacy receipts passed. SCALE-01/06 use r59, SCALE-02/03/04/05/07/08/10 use r60, and SCALE-09 uses r61 after HAR-LIVE-045. v0.3/v0.4 differ only in operational budget; r61 changes only rejection-recovery guidance, not evidence semantics. The r57 wrong-stage runs, r58 pre-patch runs, incomplete r59 SCALE-02, and failed r60 SCALE-09 remain excluded failure receipts. Nine successful cases were not rerun for the r61 recovery-text patch. This is private candidate engineering validation, not expert Reference or clinical accuracy validation."
     },
     {
       "id": "HAR-LIVE-045",
@@ -875,8 +875,8 @@
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_rejected_old_evidence_exits_to_support_without_false_uncertainty",
         "scripts/cohort_construction/p2_checkpoint_harness/tests/test_checkpoint_adjudication.py::CheckpointAdjudicationTests::test_mixed_precision_evidence_rejection_preserves_uncertain_exit"
       ],
-      "status": "terminal_recovery_regression_passed_pending_fresh_r61_SCALE09",
-      "limitations": "This is error-recovery guidance, not a change to evidence-evolution semantics or automatic acceptance of the uncertain CP. The failed r60 SCALE-09 result remains excluded. Nine completed cases are not rerun because their accepted submissions did not encounter this recovery path; the final preview must record the r61 prompt revision used only for SCALE-09."
+      "status": "fresh_r61_SCALE09_full_pipeline_and_adversarial_audit_validated",
+      "limitations": "Fresh r61 SCALE-09 completed all 60 Discovery units and all 15 management adjudications with 356 real requests, 6380339 tokens, no unfinished work or attempt problems. The former blocking 2023-05-26 consultation/transfer CP was correctly SUPPORT_ONLY+SAME_ROUND_SUPPORT rather than false uncertainty, and later management adjudications completed. The 13-CP preview passed browser traversal and all source, migration and privacy checks. Full Harness passed 509 tests and default tests passed 171. Two adversarial review rounds found false uncertainty and mixed-precision guidance errors; both were corrected before the final no-blocking-review and fresh run. The failed r60 result remains excluded. Nine completed cases were not rerun because their accepted submissions did not encounter this recovery path; the preview records the r61 prompt revision used only for SCALE-09. This is recovery validation, not clinical confirmation."
     }
   ]
 }
