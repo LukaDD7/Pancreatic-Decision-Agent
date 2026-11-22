@@ -258,7 +258,7 @@ class ActionReviewProjectionTests(unittest.TestCase):
                          "新辅助化疗")
         self.assertEqual(old["summary"]["action_reviewed_count"], 0)
         self.assertEqual(old["summary"]["action_review_disposition_counts"], {})
-        self.assertEqual(old["format_version"], "management-trajectory-0.3.7")
+        self.assertEqual(old["format_version"], "management-trajectory-0.4.0")
 
     def test_invalid_unknown_duplicate_and_unflagged_reviews_are_rejected(self):
         reviewed = self.action_review(self.checkpoint)

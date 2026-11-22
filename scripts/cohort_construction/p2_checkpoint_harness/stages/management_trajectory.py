@@ -30,7 +30,7 @@ from .actions import get_action
 from .ordering import compare
 
 
-PROJECTION_VERSION = "management-trajectory-0.3.7"
+PROJECTION_VERSION = "management-trajectory-0.4.0"
 BEFORE = "BEFORE_ACQUISITION"
 AFTER = "AFTER_EVIDENCE_ARRIVAL"
 REASSESSMENT = "MANAGEMENT_REASSESSMENT"
@@ -57,7 +57,9 @@ ROUTINE_POSTOPERATIVE_TERMS = (
     "术后常规", "伤口", "引流管护理", "生命体征观察",
 )
 CURATIVE_ACTION_TERMS = ("根治", "切除", "resect", "explor", "探查")
-ADJUDICATION_DISPOSITIONS = {"RETAIN_CP", "SUPPORT_ONLY", "REVIEW_REQUIRED"}
+ADJUDICATION_DISPOSITIONS = {
+    "RETAIN_CP", "SUPPORT_ONLY", "CONTEXT_ONLY", "REVIEW_REQUIRED",
+}
 ADJUDICATION_EVOLUTIONS = {
     "FIRST_VISIBLE", "NEW_EVIDENCE_ROUND", "SAME_ROUND_SUPPORT", "REPEATED_PLAN",
     "EXECUTION", "DIFFERENT_TASK", "UNCERTAIN",
@@ -416,8 +418,16 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
         if evolution not in ADJUDICATION_EVOLUTIONS:
             raise ValueError("unknown checkpoint adjudication evolution: %s" % evolution)
         comparator_id = item.get("comparator_checkpoint_id")
-        if disposition == "SUPPORT_ONLY" and not comparator_id:
-            raise ValueError("SUPPORT_ONLY requires comparator_checkpoint_id: %s" % checkpoint_id)
+        if disposition in {"SUPPORT_ONLY", "CONTEXT_ONLY"} and not comparator_id:
+            raise ValueError(
+                "%s requires comparator_checkpoint_id: %s" % (disposition, checkpoint_id))
+        if disposition == "CONTEXT_ONLY" and (
+                evolution != "NEW_EVIDENCE_ROUND"
+                or not isinstance(item.get("evidence_supports"), list)
+                or not item["evidence_supports"]):
+            raise ValueError(
+                "CONTEXT_ONLY requires NEW_EVIDENCE_ROUND and evidence_supports: %s"
+                % checkpoint_id)
         if comparator_id:
             comparator = management_by_id.get(comparator_id) or diagnostic_by_id.get(comparator_id)
             if comparator is None:
@@ -477,6 +487,22 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
         comparator_id = comparators.get(checkpoint_id)
         return final_destination(comparator_id) if comparator_id else None
 
+    for checkpoint_id, adjudication in adjudications.items():
+        if adjudication["disposition"] not in {"RETAIN_CP", "REVIEW_REQUIRED"}:
+            continue
+        original_comparator_id = comparators.get(checkpoint_id)
+        if original_comparator_id not in adjudications \
+                or adjudications[original_comparator_id]["disposition"] != "CONTEXT_ONLY":
+            continue
+        destination = final_destination(original_comparator_id)
+        if destination is None:
+            raise ValueError("context evidence chain has no retained destination: %s"
+                             % checkpoint_id)
+        destination_id = destination["checkpoint"]["checkpoint_id"]
+        adjudication["evidence_state_comparator_checkpoint_id"] = original_comparator_id
+        adjudication["comparator_checkpoint_id"] = destination_id
+        comparators[checkpoint_id] = destination_id
+
     retained = []
     for draft in management_drafts:
         checkpoint_id = draft["checkpoint"]["checkpoint_id"]
@@ -501,18 +527,18 @@ def _apply_checkpoint_adjudications(management_drafts, diagnostic_drafts,
         comparator_id = adjudication.get("comparator_checkpoint_id")
         destination = final_destination(checkpoint_id)
         if destination is None:
-            raise ValueError("SUPPORT_ONLY comparator chain has no retained destination: %s"
+            raise ValueError("non-retained comparator chain has no retained destination: %s"
                              % checkpoint_id)
         reason = "GLOBAL_ADJUDICATION_" + adjudication["evolution"]
         destination_id = destination["checkpoint"]["checkpoint_id"]
         destination["checkpoint"].setdefault(
             "supporting_adjudications", []).append(deepcopy(adjudication))
         for item in draft["items"]:
-            item["migration_status"] = "SUPPORT_ONLY"
+            item["migration_status"] = disposition
             item["global_adjudication"] = True
             item["attached_to"] = destination_id
             migration_by_event[item["event_id"]].update(
-                migration_status="SUPPORT_ONLY", status="SUPPORT_ONLY", reason=reason,
+                migration_status=disposition, status=disposition, reason=reason,
                 to_checkpoint_id=destination_id)
             if item not in destination["attached_items"]:
                 destination["attached_items"].append(item)

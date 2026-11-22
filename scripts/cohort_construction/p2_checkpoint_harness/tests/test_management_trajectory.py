@@ -502,7 +502,7 @@ class ManagementTrajectoryTests(unittest.TestCase):
                          checkpoint["checkpoint_id"])
         self.assertEqual(migrations["EV-RESTATEMENT"]["reason"],
                          "MERGED_SAME_UNRESOLVED_MANAGEMENT_QUESTION")
-        self.assertEqual(result["format_version"], "management-trajectory-0.3.7")
+        self.assertEqual(result["format_version"], "management-trajectory-0.4.0")
         materials = project_candidate_materials(
             case_id="SYN-TRAJECTORY", sources=[source("S-COURSE", text)],
             candidates=items, projection=result,
@@ -947,6 +947,107 @@ class ManagementTrajectoryTests(unittest.TestCase):
         original = next(item for item in packet["researcher_target_originals"]
                         if item["source_id"] == "S-TRANSFER")
         self.assertEqual(original["text"], text)
+
+    def test_global_context_only_new_evidence_is_not_an_independent_cp_or_backfilled(self):
+        event = diagnostic("DE-CT", "CT-1")
+        text = "新检验回报后继续既定胰十二指肠切除术。"
+        item = candidate("EV-PLAN", "S-PLAN", text, text, clock="2026-03-03")
+        sources = [source("CT-1", "CT报告。"),
+                   source("S-PLAN", text, clock="2026-03-03")]
+        sources[1]["clocks"] = {"source_create_time": dict(
+            value="2026-03-03 09:00", precision="minute")}
+        reviews = [review("DE-CT", AFTER)]
+        management_id = self.provisional_management_id([item], sources)
+        diagnostic_id = self.project(
+            sources=sources, events=[event], reviews=reviews
+        )["candidate_checkpoints"][0]["checkpoint_id"]
+        adjudication = dict(
+            checkpoint_id=management_id, disposition="CONTEXT_ONLY",
+            evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=diagnostic_id,
+            evidence_supports=[dict(source_id="S-LAB", quote="红细胞计数")],
+            rationale="新检验存在，但当前文书没有形成新的实质再评价。")
+        result = self.project(
+            candidates=[item], sources=sources, events=[event], reviews=reviews,
+            adjudications={"items": [adjudication]})
+        self.assertEqual(len(result["candidate_checkpoints"]), 1)
+        checkpoint = result["candidate_checkpoints"][0]
+        self.assertEqual(checkpoint["checkpoint_id"], diagnostic_id)
+        self.assertEqual(checkpoint["supporting_adjudications"], [adjudication])
+        migration = next(row for row in result["migrations"]
+                         if row["event_id"] == "EV-PLAN")
+        self.assertEqual(migration["migration_status"], "CONTEXT_ONLY")
+        self.assertEqual(migration["reason"], "GLOBAL_ADJUDICATION_NEW_EVIDENCE_ROUND")
+        self.assertEqual(migration["to_checkpoint_id"], diagnostic_id)
+        packet = project_candidate_materials(
+            case_id="SYN-TRAJECTORY", sources=sources, candidates=[item],
+            projection=result)["packets"][0]
+        self.assertNotIn("S-PLAN", {row["source_id"] for row in packet["included_sources"]})
+        self.assertIn("S-PLAN", packet["masked_projection"]["excluded_support_source_ids"])
+
+    def test_context_then_independent_cp_reconnects_comparator_without_losing_evidence(self):
+        items = [
+            candidate("EV-FIRST", "S-FIRST", "拟行手术。", "拟行手术。"),
+            candidate("EV-CONTEXT", "S-CONTEXT", "检验后维持计划。", "检验后维持计划。",
+                      clock="2026-03-03", action_type="REVIEW_LABS", target="常规检验"),
+            candidate("EV-LAST", "S-LAST", "综合检验重新评估切除。", "综合检验重新评估切除。",
+                      clock="2026-03-04", action_type="REASSESS", target="根治切除"),
+        ]
+        sources = [source("S-FIRST", "拟行手术。"),
+                   source("S-CONTEXT", "检验后维持计划。", clock="2026-03-03"),
+                   source("S-LAST", "综合检验重新评估切除。", clock="2026-03-04"),
+                   source("S-LAB", "红细胞计数", clock="2026-03-02")]
+        provisional = self.project(candidates=items, sources=sources)
+        ids = {cp["member_event_ids"][0]: cp["checkpoint_id"]
+               for cp in provisional["candidate_checkpoints"]}
+        for disposition, evolution in (("RETAIN_CP", "NEW_EVIDENCE_ROUND"),
+                                       ("REVIEW_REQUIRED", "UNCERTAIN")):
+            with self.subTest(disposition=disposition):
+                adjudications = [
+                    dict(checkpoint_id=ids["EV-FIRST"], disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", comparator_checkpoint_id=None,
+                         evidence_supports=[], rationale="首见"),
+                    dict(checkpoint_id=ids["EV-CONTEXT"], disposition="CONTEXT_ONLY",
+                         evolution="NEW_EVIDENCE_ROUND", comparator_checkpoint_id=ids["EV-FIRST"],
+                         evidence_supports=[dict(source_id="S-LAB", quote="红细胞计数")],
+                         rationale="只积累新检验"),
+                    dict(checkpoint_id=ids["EV-LAST"], disposition=disposition,
+                         evolution=evolution, comparator_checkpoint_id=ids["EV-CONTEXT"],
+                         evidence_supports=([dict(source_id="S-LAB", quote="红细胞计数")]
+                                            if disposition == "RETAIN_CP" else []),
+                         rationale="后续独立评价"),
+                ]
+                result = self.project(candidates=items, sources=sources,
+                                      adjudications=adjudications)
+                last = next(cp for cp in result["candidate_checkpoints"]
+                            if cp["checkpoint_id"] == ids["EV-LAST"])
+                global_review = last["global_adjudication"]
+                self.assertEqual(global_review["comparator_checkpoint_id"], ids["EV-FIRST"])
+                self.assertEqual(global_review["evidence_state_comparator_checkpoint_id"],
+                                 ids["EV-CONTEXT"])
+                self.assertNotIn("REVIEW_REQUIRED_MISSING_COMPARATOR_STATE",
+                                 last["review_flags"])
+                self.assertEqual(last["non_diagnostic_evidence_assertions"][0]["source_id"],
+                                 "S-LAB") if disposition == "RETAIN_CP" else None
+
+    def test_offline_context_only_rejects_invalid_evolution_or_empty_evidence(self):
+        event = diagnostic("DE-CT", "CT-1")
+        text = "新检验回报后继续手术。"
+        item = candidate("EV-PLAN", "S-PLAN", text, text, clock="2026-03-03")
+        sources = [source("CT-1", "CT报告。"), source("S-PLAN", text, clock="2026-03-03")]
+        management_id = self.provisional_management_id([item], sources)
+        diagnostic_id = self.project(
+            sources=sources, events=[event], reviews=[review("DE-CT", AFTER)]
+        )["candidate_checkpoints"][0]["checkpoint_id"]
+        for evolution, supports in (("REPEATED_PLAN", [dict(source_id="S-LAB", quote="检验")]),
+                                    ("NEW_EVIDENCE_ROUND", [])):
+            with self.subTest(evolution=evolution):
+                with self.assertRaisesRegex(ValueError, "CONTEXT_ONLY requires"):
+                    self.project(
+                        candidates=[item], sources=sources, events=[event],
+                        reviews=[review("DE-CT", AFTER)], adjudications=[dict(
+                            checkpoint_id=management_id, disposition="CONTEXT_ONLY",
+                            evolution=evolution, comparator_checkpoint_id=diagnostic_id,
+                            evidence_supports=supports, rationale="非法离线组合")])
 
     def test_global_retain_new_evidence_round_skips_legacy_signature_merge(self):
         event = diagnostic("DE-CT", "CT-1")

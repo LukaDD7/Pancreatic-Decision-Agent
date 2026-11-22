@@ -21,12 +21,13 @@ from .actions import (
 )
 
 
-ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.3.1"
+ADJUDICATION_FORMAT = "p2-checkpoint-adjudication-0.4.0"
 MANAGEMENT_KIND = "MANAGEMENT_REASSESSMENT"
 RETAIN = "RETAIN_CP"
 SUPPORT = "SUPPORT_ONLY"
+CONTEXT = "CONTEXT_ONLY"
 REVIEW = "REVIEW_REQUIRED"
-DISPOSITIONS = {RETAIN, SUPPORT, REVIEW}
+DISPOSITIONS = {RETAIN, SUPPORT, CONTEXT, REVIEW}
 EVOLUTIONS = {
     "FIRST_VISIBLE", "NEW_EVIDENCE_ROUND", "SAME_ROUND_SUPPORT",
     "REPEATED_PLAN", "EXECUTION", "DIFFERENT_TASK", "UNCERTAIN",
@@ -63,11 +64,13 @@ ADJUDICATION_SYSTEM_PROMPT = """你在完整Discovery和离线候选投影之后
 先加载checkpoint-adjudication技能，并按其中的最小必要读取流程工作。先用list_candidate_checkpoints逐页查看全部candidate_checkpoints及其review_flags。凡review_flags含ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，read_source从start=0完整读取至少一份当前来源及至少一份手术记录原文；若结果被spill为头尾预览，必须用read_spilled分页读完locator，再调用一次review_checkpoint_action。复审只能REMOVE_INDEPENDENT_CP撤销无独立评价任务的诊断CP，或RETAIN_CP_WITH_ACTION保留CP；后者可留空动作，也可自由描述字典外动作，动作不是必答题。管理CP不能由本工具删除。已撤销诊断CP立即退出后续comparator，程序自动重接最近保留状态。
 动作复审全部完成后，每个MANAGEMENT_REASSESSMENT必须恰好调用一次adjudicate_checkpoint，其他诊断CP不需要证据演化裁决，全部完成后finish。
 
-程序自动确定唯一最近保留或待核comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。管理comparator也必须至少完整读取一份原文，横向判断不能只看候选详情。same_time_candidate_states列出全部同刻候选及其来源；同刻不能决定先后，但不阻止语义归并，可横向比较后判SUPPORT_ONLY，或由新证据支持独立CP，只有语义关系也不明时才REVIEW。若上下文返回timed_interval_report_groups，必须逐组read_source其representative_source_id，核对程序已确定落在当前区间的原始报告；区间内检验已合并为一个批次，只需读取一个最新异常代表项，不代表已阅读所有检验项目，不得声称未看到新报告。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；NEW_EVIDENCE_ROUND的诊断comparator目标报告必须在当前上下文中读取，REVIEW无需为此补读诊断报告。
+程序自动确定唯一最近保留、证据上下文或待核comparator，不允许Agent自行选择。每个管理CP先read_checkpoint_adjudication_context，再用read_source从start=0完整读取至少一份当前来源原文（end省略），不得以局部片段代替全文判断。管理comparator也必须至少完整读取一份原文，横向判断不能只看候选详情。same_time_candidate_states列出全部同刻候选及其来源；同刻不能决定先后，但不阻止语义归并，可横向比较后判SUPPORT_ONLY，或由新证据支持独立CP/证据上下文，只有语义关系也不明时才REVIEW。若上下文返回timed_interval_report_groups，必须逐组read_source其representative_source_id，核对程序已确定落在当前区间的原始报告；区间内检验已合并为一个批次，只需读取一个最新异常代表项，不代表已阅读所有检验项目，不得声称未看到新报告。SUPPORT_ONLY不需要证据引文，也不强制读取诊断comparator报告正文。只有准备声明NEW_EVIDENCE_ROUND或证据关系不清时，才用search_checkpoint_sources限定范围检索并按需读取原始证据；RETAIN或CONTEXT_ONLY的NEW_EVIDENCE_ROUND均须在当前上下文中读取诊断comparator目标报告，REVIEW无需为此补读诊断报告。
 
-RETAIN_CP+NEW_EVIDENCE_ROUND要求当前CP相对comparator出现新的或发生变化的患者信息，且承载该信息的当前来源不晚于当前CP。证据演化的底线是新增，不要求异常、阳性、具有专科特异性或实际改变管理方向。常规检验、术前监测、阴性结果和正常结果只要是在comparator之后新回报，仍构成证据演化，不得据此判SUPPORT_ONLY。证据演化与原始来源是否交付是两个维度：可以来自本院原始报告、外院证据，或当前文书对新增检查的复述。当前文书明确记载comparator之后的新检查、治疗经过或疗效变化时，即使原报告未交付，也可引用该复述并设置evidence_source_status=EXTERNAL_RESTATEMENT或UNATTRIBUTED_RESTATEMENT；程序自动生成来源及时间待核标签，不因原报告缺失否定证据演化或删除CP。
+证据演化与独立管理CP是两个门槛。RETAIN_CP或CONTEXT_ONLY的NEW_EVIDENCE_ROUND都要求当前CP相对comparator出现新的或发生变化的患者信息，且承载该信息的当前来源不晚于当前CP。证据演化的底线是新增，不要求异常、阳性、具有专科特异性或实际改变管理方向。常规检验、术前监测、阴性结果和正常结果只要是在comparator之后新回报，仍构成证据演化，不得据此判无新增的SUPPORT_ONLY。证据演化与原始来源是否交付是两个维度：可以来自本院原始报告、外院证据，或当前文书对新增检查的复述。当前文书明确记载comparator之后的新检查、治疗经过或疗效变化时，即使原报告未交付，也可引用该复述并设置evidence_source_status=EXTERNAL_RESTATEMENT或UNATTRIBUTED_RESTATEMENT；程序自动生成来源及时间待核标签，不因原报告缺失否定证据演化。
 
-新动作、新计划、转科和执行本身不是证据演化；comparator已有报告及其副本、后续文书对同一旧报告的复述和未来报告也不能作为新增证据。若原始报告可找到，仍须核对并引用原始报告，不能用后一份文书给旧证据重新定时。同刻不是必须REVIEW的理由，可依据原文判断同轮支持。只有证据是否新增或语义关系确实无法判断时才用REVIEW_REQUIRED+UNCERTAIN；该状态保留独立候选CP，并进入后续comparator全景，不等于已确认临床决策。
+同一未决管理问题下，证据可以连续积累，但只保留最能体现“新证据后的实质再评价”的代表CP；动作是否相似不是判断标准。准备保留时必须能从原文说明：新增证据推进了哪个具体未决问题，以及当前文书如何围绕该变化进行实质再评价。动作不变仍可保留，例如关键影像回答了此前可切除性不确定；动作不同也不能替代新增证据。若报告确实新增，但当前文书只是复述结果、重复既定计划或写下执行安排，没有推进未决问题的实质再评价，用CONTEXT_ONLY+NEW_EVIDENCE_ROUND并引用新增证据。该状态不形成独立评价CP，但推进后续comparator的证据时间线，避免下一CP重复利用同一证据；原文仍按原时钟保留，不回填为较早CP的当时可见信息。
+
+新动作、新计划、转科和执行本身不是证据演化；comparator已有报告及其副本、后续文书对同一旧报告的复述和未来报告也不能作为新增证据。若原始报告可找到，仍须核对并引用原始报告，不能用后一份文书给旧证据重新定时。同刻不是必须REVIEW的理由，可依据原文判断同轮支持。只有证据是否新增、是否形成实质再评价或语义关系确实无法判断时才用REVIEW_REQUIRED+UNCERTAIN；该状态保留独立候选CP，并进入后续comparator全景，不等于已确认临床决策。
 
 evidence_supports只提供source_id和逐字连续quote，不提供start/end。程序核验比较状态、来源时钟、报告身份、引文和span重叠；未来检查计划等与当前目标管理动作重叠的引文必须拒绝，不能靠关键词改判临床真值。逐项提交后立即继续，不要反复重新列出全部CP。
 若返回SECONDARY_RESTATEMENT_REQUIRES_ORIGINAL_SOURCE，下一步必须read_source错误中列出的匹配候选，核对后用原始报告source_id和原文quote替换复述引文；不得原样重复提交。若返回EVIDENCE_ORIGINAL_REPORT_AFTER_CHECKPOINT，删除对应未来检验引文，不得标为来源未明；仅可另引当前时点已发生的新生理状态或治疗经过，否则改SUPPORT_ONLY，关系确实不明时改REVIEW_REQUIRED+UNCERTAIN。原报告不能证明严格晚于comparator或无法支持证据演化时，同样改判，不得继续用旧复述重试。"""
@@ -309,6 +312,37 @@ class CheckpointAdjudicationStore:
                 and candidate["checkpoint_id"] != checkpoint["checkpoint_id"]
                 and compare(candidate, checkpoint)["relation"] == "same_time_unresolved"}
 
+    def _context_chain(self, checkpoint_id):
+        chain = []
+        seen = set()
+        while checkpoint_id and checkpoint_id not in seen:
+            seen.add(checkpoint_id)
+            item = self.items.get(checkpoint_id)
+            if not item or item.get("disposition") != CONTEXT:
+                break
+            chain.append(checkpoint_id)
+            checkpoint_id = item.get("comparator_checkpoint_id")
+        return chain, checkpoint_id
+
+    def _pending_context_evidence(self, checkpoint, *, latest, same_time):
+        context_ids = []
+        for checkpoint_id in sorted(latest | same_time):
+            chain, _ = self._context_chain(checkpoint_id)
+            context_ids.extend(chain)
+        evidence = []
+        for context_id in dict.fromkeys(context_ids):
+            for citation in (self.items.get(context_id) or {}).get("evidence_supports", []):
+                item = self.items[context_id]
+                evidence.append(dict(
+                    context_checkpoint_id=context_id, citation=deepcopy(citation),
+                    evidence_source_status=item.get("evidence_source_status"),
+                    review_tags=deepcopy(item.get("review_tags") or [])))
+        return evidence
+
+    def _consumed_state_evidence(self, *, latest, same_time):
+        return [deepcopy(citation) for item in self.items.values()
+                for citation in item.get("evidence_supports") or []]
+
     def _same_time_candidates(self, checkpoint):
         return [dict(self.checkpoints._summary(candidate),
                      adjudication_disposition=(
@@ -443,7 +477,8 @@ class CheckpointAdjudicationStore:
                 "REVIEW_REQUIRED+UNCERTAIN。匹配候选："
                 + ",".join(matched_original_ids[:5]))
 
-    def _evidence(self, checkpoint, citations, *, disposition, evolution, comparator=None):
+    def _evidence(self, checkpoint, citations, *, disposition, evolution, comparator=None,
+                  pending_evidence=(), consumed_evidence=()):
         if citations is None:
             citations = []
         if not isinstance(citations, list):
@@ -481,6 +516,18 @@ class CheckpointAdjudicationStore:
                                 "EVIDENCE_OVERLAPS_MANAGEMENT_CANDIDATE: 其他CP或其他文书中的"
                                 "管理动作句也不能作为新增患者证据。")
             source = self.source_index.require(span["source_id"])
+            inherited = False
+            if evolution == "NEW_EVIDENCE_ROUND" \
+                    and self._is_consumed_evidence(source, consumed_evidence):
+                exact_pending = any(
+                    span["source_id"] == pending["citation"]["source_id"]
+                    for pending in pending_evidence)
+                if disposition != RETAIN or not exact_pending:
+                    raise ToolError(
+                        "CONTEXT_EVIDENCE_ALREADY_CONSUMED: 同一证据或其报告副本已被比较状态消费；"
+                        "只有后续RETAIN_CP可用pending中的原source_id携带该证据形成代表CP，"
+                        "CONTEXT_ONLY不能重复消费，换source_id也不能绕过报告身份核验。")
+                inherited = True
             if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None \
                     and self._is_diagnostic_comparator_target(source, comparator):
                 raise ToolError(
@@ -499,7 +546,8 @@ class CheckpointAdjudicationStore:
                 raise ToolError(
                     "EVIDENCE_CLOCK_UNKNOWN_REQUIRES_REVIEW: 来源或CP可见clock未知，"
                     "请改用REVIEW_REQUIRED+UNCERTAIN。")
-            if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None:
+            if evolution == "NEW_EVIDENCE_ROUND" and comparator is not None \
+                    and not inherited:
                 comparator_relation = compare(comparator, source)["relation"]
                 if comparator_relation != "before":
                     raise ToolError(
@@ -532,6 +580,10 @@ class CheckpointAdjudicationStore:
             citation["source_id"]
             for citation in (self.items.get(same_time_comparator_id) or {}).get(
                 "evidence_supports", [])})
+        pending_evidence = self._pending_context_evidence(
+            checkpoint, latest=set(latest), same_time=set(same_time))
+        consumed_evidence = self._consumed_state_evidence(
+            latest=set(latest), same_time=set(same_time))
         self.source_index.set_adjudication_context(checkpoint, active_comparator)
         return dict(
             checkpoint_id=checkpoint_id,
@@ -545,6 +597,7 @@ class CheckpointAdjudicationStore:
             same_time_comparator=(self.checkpoints.detail(same_time_comparator_id)
                                   if same_time_comparator_id else None),
             same_time_comparator_evidence_source_ids=same_time_evidence_source_ids,
+            pending_context_evidence=deepcopy(pending_evidence),
             parallel_same_time_checkpoint_ids=same_time if len(same_time) > 1 else [],
             review_comparator_checkpoint_id=review_comparator_id,
             review_comparator=(self.checkpoints.detail(review_comparator_id)
@@ -555,7 +608,8 @@ class CheckpointAdjudicationStore:
                 checkpoint, self.checkpoints.require(comparator_id),
                 exclude_comparators=([self.checkpoints.require(same_time_comparator_id)]
                                      if same_time_comparator_id else []),
-                exclude_source_ids=same_time_evidence_source_ids)
+                exclude_source_ids=same_time_evidence_source_ids,
+                pending_evidence=consumed_evidence)
                 if comparator_id else []),
             evidence_policy=dict(
                 comparator_targets_reusable_as_new_evidence=False,
@@ -740,35 +794,43 @@ class CheckpointAdjudicationStore:
             (row["clock"] or {}).get("value") or "9999", row["source_id"]))
         return rows
 
+    def _same_report_identity(self, source, target):
+        if source["source_id"] == target["source_id"]:
+            return True
+        if source.get("source_sha256") is None \
+                or target.get("source_sha256") != source.get("source_sha256"):
+            return False
+        source_exam_number = self._source_exam_number(source)
+        target_exam_number = self._source_exam_number(target)
+        if source_exam_number and target_exam_number \
+                and source_exam_number != target_exam_number:
+            return False
+        source_dates = self._source_exam_dates(source)
+        target_dates = self._source_exam_dates(target)
+        same_precision = source_dates and target_dates and {
+            len(value) for value in source_dates
+        } == {len(value) for value in target_dates}
+        return not (same_precision and source_dates.isdisjoint(target_dates))
+
     def _is_diagnostic_comparator_target(self, source, comparator):
         if comparator.get("kind") == MANAGEMENT_KIND:
             return False
         target_ids = set(self.checkpoints.diagnostic_target_source_ids(comparator))
-        if source["source_id"] in target_ids:
-            return True
-        if source.get("source_sha256") is None:
-            return False
-        source_dates = self._source_exam_dates(source)
-        source_exam_number = self._source_exam_number(source)
-        for target_id in target_ids:
-            target = self.source_index.require(target_id)
-            if target.get("source_sha256") != source.get("source_sha256"):
-                continue
-            target_exam_number = self._source_exam_number(target)
-            if source_exam_number and target_exam_number \
-                    and source_exam_number != target_exam_number:
-                continue
-            target_dates = self._source_exam_dates(target)
-            same_precision = source_dates and target_dates and {
-                len(value) for value in source_dates
-            } == {len(value) for value in target_dates}
-            if same_precision and source_dates.isdisjoint(target_dates):
-                continue
-            return True
-        return False
+        return any(self._same_report_identity(source, self.source_index.require(target_id))
+                   for target_id in target_ids)
+
+    def _is_consumed_evidence(self, source, citations):
+        return any(self._same_report_identity(
+            source, self.source_index.require(citation["source_id"]))
+            for citation in citations)
+
+    def _is_pending_context_evidence(self, source, pending_evidence):
+        return self._is_consumed_evidence(
+            source, [pending["citation"] for pending in pending_evidence])
 
     def _timed_interval_report_groups(self, checkpoint, comparator, *,
-                                      exclude_comparators=(), exclude_source_ids=()):
+                                      exclude_comparators=(), exclude_source_ids=(),
+                                      pending_evidence=()):
         groups = {}
         for row in self._interval_rows(checkpoint, comparator, include_current=True):
             if row["interval_relation"] != "IN_INTERVAL":
@@ -776,7 +838,9 @@ class CheckpointAdjudicationStore:
             source = self.source_index.require(row["source_id"])
             if self._is_diagnostic_comparator_target(source, comparator) or any(
                     self._is_diagnostic_comparator_target(source, excluded)
-                    for excluded in exclude_comparators):
+                    for excluded in exclude_comparators) \
+                    or (source.get("kind") != "lab"
+                        and self._is_consumed_evidence(source, pending_evidence)):
                 continue
             kind = source.get("kind")
             if kind == "lab":
@@ -798,7 +862,8 @@ class CheckpointAdjudicationStore:
                 result=fields.get("检验结果值"), unit=fields.get("检验结果单位"),
                 abnormal_flag=fields.get("结果正常标志")))
         results = []
-        excluded_source_ids = set(exclude_source_ids)
+        excluded_source_ids = set(exclude_source_ids) | {
+            citation["source_id"] for citation in pending_evidence}
         for group in groups.values():
             if excluded_source_ids.intersection(group["source_ids"]):
                 if group["kind"] != "LAB_REPORT_BATCH":
@@ -1018,8 +1083,9 @@ class CheckpointAdjudicationStore:
                       if review["status"] == "READ_AND_USED")
         if disposition == SUPPORT and used:
             raise ToolError(
-                "INTERVAL_NEW_EVIDENCE_REQUIRES_RETAIN_OR_REVIEW: 已标记新增证据，"
-                "不能再声称无新增证据并SUPPORT_ONLY：" + ",".join(used))
+                "INTERVAL_NEW_EVIDENCE_REQUIRES_RETAIN_CONTEXT_OR_REVIEW: 已标记新增证据，"
+                "不能再声称无新增证据并SUPPORT_ONLY；无实质再评价时用CONTEXT_ONLY："
+                + ",".join(used))
         cited = {citation.get("source_id") for citation in evidence_supports or ()}
         if disposition == RETAIN and evolution == "NEW_EVIDENCE_ROUND":
             not_cited = sorted(set(used) - cited)
@@ -1035,10 +1101,11 @@ class CheckpointAdjudicationStore:
                     "必须标记READ_AND_USED：" + ",".join(not_used))
 
     def _require_timed_interval_reports(self, checkpoint, comparator, *,
-                                        exclude_comparators=(), exclude_source_ids=()):
+                                        exclude_comparators=(), exclude_source_ids=(),
+                                        pending_evidence=()):
         groups = self._timed_interval_report_groups(
             checkpoint, comparator, exclude_comparators=exclude_comparators,
-            exclude_source_ids=exclude_source_ids)
+            exclude_source_ids=exclude_source_ids, pending_evidence=pending_evidence)
         missing = [group["representative_source_id"] for group in groups
                    if group["representative_source_id"]
                    not in self.source_index.read_source_ids]
@@ -1049,16 +1116,18 @@ class CheckpointAdjudicationStore:
                 + ",".join(missing))
 
     def _require_support_has_no_new_interval_reports(self, checkpoint, comparator, *,
-                                                     exclude_comparators=(), exclude_source_ids=()):
+                                                     exclude_comparators=(), exclude_source_ids=(),
+                                                     pending_evidence=()):
         groups = self._timed_interval_report_groups(
             checkpoint, comparator, exclude_comparators=exclude_comparators,
-            exclude_source_ids=exclude_source_ids)
+            exclude_source_ids=exclude_source_ids, pending_evidence=pending_evidence)
         if groups:
             raise ToolError(
-                "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW: 程序已确认comparator之后、"
+                "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_CONTEXT_OR_REVIEW: 程序已确认comparator之后、"
                 "当前CP之前存在新原始报告，新增即构成证据演化；常规、阴性、正常、术前监测或"
                 "未改变管理方向均不能作为SUPPORT_ONLY理由。请引用新报告改"
-                "RETAIN_CP+NEW_EVIDENCE_ROUND；仅时间或来源关系确实不明时改"
+                "RETAIN_CP+NEW_EVIDENCE_ROUND；若当前文书没有实质再评价，改"
+                "CONTEXT_ONLY+NEW_EVIDENCE_ROUND；仅时间或来源关系确实不明时改"
                 "REVIEW_REQUIRED+UNCERTAIN。")
 
     def _require_comparator_read(self, checkpoint, comparator, *,
@@ -1095,10 +1164,8 @@ class CheckpointAdjudicationStore:
     def adjudicate(self, checkpoint_id, disposition, evolution,
                    comparator_checkpoint_id=None, evidence_supports=None,
                    rationale="", evidence_source_status=None, review_tags=None):
-        if evidence_source_status is None:
-            evidence_source_status = ("ORIGINAL_OR_LOCAL_SOURCE" if evidence_supports
-                                      else "NOT_APPLICABLE")
-        if evidence_source_status not in EVIDENCE_SOURCE_STATUSES:
+        if evidence_source_status is not None \
+                and evidence_source_status not in EVIDENCE_SOURCE_STATUSES:
             raise ToolError("EVIDENCE_SOURCE_STATUS_INVALID:" + str(evidence_source_status))
         if review_tags is None:
             review_tags = []
@@ -1111,15 +1178,6 @@ class CheckpointAdjudicationStore:
         if unknown_tags:
             raise ToolError("REVIEW_TAGS_INVALID:" + ",".join(sorted(unknown_tags)))
         review_tags = list(review_tags)
-        source_review_tag = SECONDHAND_REVIEW_TAGS.get(evidence_source_status)
-        if source_review_tag:
-            if disposition != RETAIN or evolution != "NEW_EVIDENCE_ROUND":
-                raise ToolError("SECONDHAND_STATUS_REQUIRES_RETAIN_NEW_EVIDENCE_ROUND")
-            if not evidence_supports:
-                raise ToolError("SECONDHAND_STATUS_REQUIRES_EVIDENCE_SUPPORT")
-            for tag in (source_review_tag, "EVIDENCE_TIME_NOT_VERIFIED"):
-                if tag not in review_tags:
-                    review_tags.append(tag)
         checkpoint = self.checkpoints.by_id.get(checkpoint_id)
         if checkpoint is None:
             self._remember_problem("UNKNOWN_CHECKPOINT_ID", checkpoint_id)
@@ -1155,6 +1213,40 @@ class CheckpointAdjudicationStore:
             self._require_prior_adjudications(checkpoint)
         latest_retained = self._latest_retained(checkpoint)
         same_time_retained = self._same_time_retained(checkpoint)
+        pending_evidence = self._pending_context_evidence(
+            checkpoint, latest=latest_retained, same_time=same_time_retained)
+        consumed_evidence = self._consumed_state_evidence(
+            latest=latest_retained, same_time=same_time_retained)
+        cited_source_ids = {citation.get("source_id") for citation in evidence_supports or []
+                            if isinstance(citation, dict)}
+        inherited = [pending for pending in pending_evidence
+                     if pending["citation"]["source_id"] in cited_source_ids]
+        inherited_statuses = {pending.get("evidence_source_status") for pending in inherited}
+        inherited_status = ("UNATTRIBUTED_RESTATEMENT"
+                            if "UNATTRIBUTED_RESTATEMENT" in inherited_statuses
+                            else "EXTERNAL_RESTATEMENT"
+                            if "EXTERNAL_RESTATEMENT" in inherited_statuses else None)
+        if evidence_source_status is not None and inherited_status \
+                and evidence_source_status != inherited_status:
+            raise ToolError(
+                "INHERITED_EVIDENCE_SOURCE_STATUS_MISMATCH: 携带上下文证据时必须保留其外院/"
+                "未明来源属性，不能改标为原始或本院证据。")
+        if evidence_source_status is None:
+            evidence_source_status = (inherited_status or "ORIGINAL_OR_LOCAL_SOURCE"
+                                      if evidence_supports else "NOT_APPLICABLE")
+        for pending in inherited:
+            for tag in pending.get("review_tags") or []:
+                if tag not in review_tags:
+                    review_tags.append(tag)
+        source_review_tag = SECONDHAND_REVIEW_TAGS.get(evidence_source_status)
+        if source_review_tag:
+            if disposition not in {RETAIN, CONTEXT} or evolution != "NEW_EVIDENCE_ROUND":
+                raise ToolError("SECONDHAND_STATUS_REQUIRES_RETAIN_OR_CONTEXT_NEW_EVIDENCE_ROUND")
+            if not evidence_supports:
+                raise ToolError("SECONDHAND_STATUS_REQUIRES_EVIDENCE_SUPPORT")
+            for tag in (source_review_tag, "EVIDENCE_TIME_NOT_VERIFIED"):
+                if tag not in review_tags:
+                    review_tags.append(tag)
         if (len(latest_retained) > 1 or len(same_time_retained) > 1) \
                 and not (disposition == REVIEW and evolution == "UNCERTAIN"):
             raise ToolError(
@@ -1180,16 +1272,24 @@ class CheckpointAdjudicationStore:
                     checkpoint_id)["review_comparator_checkpoint_id"]
         if comparator_checkpoint_id is not None:
             comparator = self.checkpoints.require(comparator_checkpoint_id)
-        if disposition == SUPPORT:
+        if disposition in {SUPPORT, CONTEXT}:
             if comparator is None:
-                raise ToolError("SUPPORT_ONLY_REQUIRES_COMPARATOR")
-            if evolution not in SUPPORT_EVOLUTIONS:
+                raise ToolError(disposition + "_REQUIRES_COMPARATOR")
+            if disposition == SUPPORT and evolution not in SUPPORT_EVOLUTIONS:
                 raise ToolError("SUPPORT_ONLY_EVOLUTION_INVALID:" + evolution)
-            if comparator_checkpoint_id not in latest_retained | same_time_retained:
+            if disposition == CONTEXT and evolution != "NEW_EVIDENCE_ROUND":
+                raise ToolError("CONTEXT_ONLY_REQUIRES_NEW_EVIDENCE_ROUND")
+            valid_comparators = (latest_retained | same_time_retained
+                                 if disposition == SUPPORT else latest_retained)
+            if comparator_checkpoint_id not in valid_comparators:
                 raise ToolError(
-                    "COMPARATOR_NOT_LATEST_RETAINED_STATE: SUPPORT_ONLY必须挂到最近保留或待核状态，"
-                    "不能跳过中间CP或挂到未保留CP。当前唯一可选comparator："
-                    + ",".join(sorted(latest_retained | same_time_retained)))
+                    "COMPARATOR_NOT_LATEST_RETAINED_STATE: 必须挂到程序确定的最近比较状态，"
+                    "不能跳过中间CP、同刻状态或已有诊断CP。当前唯一可选comparator："
+                    + ",".join(sorted(valid_comparators)))
+            if disposition == CONTEXT and not evidence_supports:
+                raise ToolError(
+                    "CONTEXT_ONLY_REQUIRES_EVIDENCE_SUPPORT: 新证据上下文必须引用实际新增患者证据；"
+                    "没有新增证据时使用SUPPORT_ONLY。")
         elif disposition == RETAIN:
             if comparator is not None:
                 if evolution != "NEW_EVIDENCE_ROUND":
@@ -1225,22 +1325,25 @@ class CheckpointAdjudicationStore:
                 citation["source_id"]
                 for citation in (self.items.get(comparator_checkpoint_id) or {}).get(
                     "evidence_supports", [])} if excluded else set()
-            if disposition in {RETAIN, SUPPORT}:
+            if disposition in {RETAIN, SUPPORT, CONTEXT}:
                 self._require_timed_interval_reports(
                     checkpoint, evidence_comparator, exclude_comparators=excluded,
-                    exclude_source_ids=same_time_evidence_ids)
+                    exclude_source_ids=same_time_evidence_ids,
+                    pending_evidence=consumed_evidence)
             if disposition == SUPPORT:
                 self._require_support_has_no_new_interval_reports(
                     checkpoint, evidence_comparator, exclude_comparators=excluded,
-                    exclude_source_ids=same_time_evidence_ids)
+                    exclude_source_ids=same_time_evidence_ids,
+                    pending_evidence=consumed_evidence)
         if comparator is not None:
             self._require_comparator_read(
                 checkpoint, comparator,
                 require_diagnostic_target=(
-                    disposition == RETAIN and evolution == "NEW_EVIDENCE_ROUND"))
+                    disposition in {RETAIN, CONTEXT} and evolution == "NEW_EVIDENCE_ROUND"))
         evidence = self._evidence(
             checkpoint, evidence_supports, disposition=disposition, evolution=evolution,
-            comparator=comparator)
+            comparator=comparator, pending_evidence=pending_evidence,
+            consumed_evidence=consumed_evidence)
         item = dict(
             checkpoint_id=checkpoint_id, disposition=disposition, evolution=evolution,
             comparator_checkpoint_id=comparator_checkpoint_id,
@@ -1250,7 +1353,7 @@ class CheckpointAdjudicationStore:
             review_status=("REVIEW_REQUIRED" if disposition == REVIEW or review_tags
                            else "CANDIDATE_ADJUDICATED"))
         self.items[checkpoint_id] = item
-        if disposition in {RETAIN, REVIEW}:
+        if disposition in {RETAIN, CONTEXT, REVIEW}:
             self.retained_checkpoint_ids.add(checkpoint_id)
         return dict(recorded=True, item=deepcopy(item),
                     note=("程序仅核验结构、原文定位、span不重叠、最近保留状态和检索时钟；"
@@ -1387,7 +1490,8 @@ class CheckpointAdjudicationStore:
             name="adjudicate_checkpoint",
             description=("裁决一个MANAGEMENT_REASSESSMENT候选CP。证据演化与来源核验分开；"
                          "外院或未明来源的新证据复述也可RETAIN并标来源属性。"
-                         "REVIEW_REQUIRED保留独立CP，SUPPORT_ONLY才归并。"),
+                         "REVIEW_REQUIRED保留独立CP；SUPPORT_ONLY归入同轮支持；"
+                         "CONTEXT_ONLY只推进证据时间线，不形成独立评价CP。"),
             input_schema=dict(
                 type="object", additionalProperties=False,
                 required=["checkpoint_id", "disposition", "evolution", "rationale"],
@@ -1504,10 +1608,10 @@ def build_prompt(checkpoints, *, case_id):
 
 候选CP共 %d 个，其中MANAGEMENT_REASSESSMENT共 %d 个，阶段冲突动作复审共 %d 个。先逐页list_candidate_checkpoints查看全部CP。
 凡带ACTION_TASK_MISMATCH_REVIEW_REQUIRED的CP，先read_checkpoint_action_review_context，完整读取至少一份当前来源和一份手术记录后，用review_checkpoint_action提交一次。REMOVE_INDEPENDENT_CP只用于无独立评价任务的诊断CP；保留时只能用RETAIN_CP_WITH_ACTION和字典action_id，OTHER_SPECIFIED才另填具体target。不要仅凭程序标签裁决，必须阅读手术记录。撤销后程序立即重接最近保留comparator。
-动作复审完成后，按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP、唯一最近保留或待核comparator及同刻候选索引，不得自行选择比较对象。未撤销诊断CP和待核管理CP也属于后续比较全景。每个管理CP恰好adjudicate_checkpoint一次。当前和管理comparator均须完整阅读至少一份原文。同刻不妨碍语义归并；动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
-每次裁决前读取当前来源原文。SUPPORT_ONLY不强制读取诊断comparator报告；仅NEW_EVIDENCE_ROUND或关系不清时用search_checkpoint_sources按需检索，NEW_EVIDENCE_ROUND须在当前CP/comparator上下文中读取诊断comparator目标报告。区间索引不要求逐项处置。
-证据演化的底线是新增，不要求异常、阳性、专科特异性或改变管理。comparator后新回报的常规检验、术前监测及正常/阴性结果同样构成证据演化；程序已确认的timed_interval_report_groups存在时不得SUPPORT_ONLY。
-RETAIN_CP+NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且原始证据严格晚于comparator、不晚于当前CP。comparator目标报告及其在后续文书中的旧复述均不可用；BEFORE_ACQUISITION comparator的未来目标报告只用于识别比较对象。时间不确定用REVIEW_REQUIRED+UNCERTAIN。
+动作复审完成后，按clock从早到晚，每个管理CP先read_checkpoint_adjudication_context，由程序返回当前CP、唯一最近保留、证据上下文或待核comparator及同刻候选索引，不得自行选择比较对象。未撤销诊断CP、证据上下文和待核管理CP也属于后续比较全景。每个管理CP恰好adjudicate_checkpoint一次。当前和管理comparator均须完整阅读至少一份原文。同刻不妨碍语义归并；动作更具体、新计划、转科、复述或执行不等于证据演化；CT后既有EUS+FNA动作时，后续转入记录中的EUS+FNA/择期手术应归并为SUPPORT_ONLY。
+每次裁决前读取当前来源原文。SUPPORT_ONLY不强制读取诊断comparator报告；仅NEW_EVIDENCE_ROUND或关系不清时用search_checkpoint_sources按需检索，RETAIN或CONTEXT_ONLY的NEW_EVIDENCE_ROUND须在当前CP/comparator上下文中读取诊断comparator目标报告。区间索引不要求逐项处置。
+证据演化的底线是新增，不要求异常、阳性、专科特异性或改变管理。comparator后新回报的常规检验、术前监测及正常/阴性结果同样构成证据演化；程序已确认的timed_interval_report_groups存在时不得无新增的SUPPORT_ONLY。独立管理CP还需实质再评价：同一未决管理问题下，证据可以连续积累，但只保留最能体现新证据后的实质再评价的代表CP；动作是否相似不是判断标准。有新增证据但当前文书只复述结果、重复既定计划或执行安排时，用CONTEXT_ONLY+NEW_EVIDENCE_ROUND，推进证据时间线但不形成独立评价CP。
+RETAIN或CONTEXT_ONLY的NEW_EVIDENCE_ROUND必须附不重叠于当前member candidate span的逐字患者证据，且原始证据严格晚于comparator、不晚于当前CP。若comparator是连续CONTEXT_ONLY链，后续RETAIN可用pending_context_evidence中的原source_id携带已积累证据，形成实质再评价的代表CP；CONTEXT_ONLY不能重复消费，同报告副本不能换source_id绕过。comparator目标报告及其在后续文书中的旧复述均不可用；BEFORE_ACQUISITION comparator的未来目标报告只用于识别比较对象。时间或实质再评价关系不确定用REVIEW_REQUIRED+UNCERTAIN。
 逐项提交后立即继续，全部动作复审和管理CP完成后finish。
 """ % (case_id, len(checkpoints), management_count, action_review_count)
 

@@ -186,7 +186,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             candidates=[member],
             projection=dict(candidate_checkpoints=[ct_checkpoint, transfer_checkpoint]))
 
-        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.3.1")
+        self.assertEqual(result["format"], "p2-checkpoint-adjudication-0.4.0")
         self.assertEqual(result["case_id"], "SYN-EUS")
         self.assertEqual(len(result["items"]), 1)
         item = result["items"][0]
@@ -227,6 +227,230 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             rationale="程序按唯一quote核验并生成区间。")
         self.assertEqual(result["item"]["evidence_supports"][0]["end"],
                          evidence_text.index(quote) + len(quote))
+
+    def test_context_only_new_evidence_advances_comparator_without_retaining_management_cp(self):
+        first_text = "拟行胰十二指肠切除术。"
+        middle_text = "检验回报后继续既定手术计划。"
+        last_text = "术前讨论再次确认既定手术。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        middle = candidate("EV-MIDDLE", "S-MIDDLE", middle_text, middle_text,
+                           clock="2026-03-03")
+        last = candidate("EV-LAST", "S-LAST", last_text, last_text,
+                         clock="2026-03-04")
+        lab_text = "[检验项目名称]\n红细胞计数\n[检验结果值]\n4.10"
+        lab = source("S-LAB", lab_text, "2026-03-02")
+        lab["kind"] = "lab"
+        store, registry = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-MIDDLE", [middle], clock="2026-03-03"),
+            checkpoint("CP-LAST", [last], clock="2026-03-04")],
+            [first, middle, last], [source("S-FIRST", first_text, "2026-03-01"),
+                                    source("S-MIDDLE", middle_text, "2026-03-03"),
+                                    source("S-LAST", last_text, "2026-03-04"), lab])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见管理锚点。")
+        with self.assertRaisesRegex(ToolError, "CONTEXT_ONLY_REQUIRES_EVIDENCE_SUPPORT"):
+            store.adjudicate(
+                checkpoint_id="CP-MIDDLE", disposition="CONTEXT_ONLY",
+                evolution="NEW_EVIDENCE_ROUND", rationale="新证据必须定位。")
+        item = store.adjudicate(
+            checkpoint_id="CP-MIDDLE", disposition="CONTEXT_ONLY",
+            evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB", quote="红细胞计数")],
+            rationale="新检验已回报，但当前文书仅重复既定手术，未形成新的实质再评价。")["item"]
+        self.assertEqual(item["evolution"], "NEW_EVIDENCE_ROUND")
+        self.assertEqual(item["evidence_source_status"], "ORIGINAL_OR_LOCAL_SOURCE")
+        self.assertIn("CP-MIDDLE", store.retained_checkpoint_ids)
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-LAST")
+        self.assertEqual(context["comparator_checkpoint_id"], "CP-MIDDLE")
+        last_item = store.adjudicate(
+            checkpoint_id="CP-LAST", disposition="SUPPORT_ONLY",
+            evolution="SAME_ROUND_SUPPORT",
+            rationale="相对上一证据状态没有新增资料，仍是同一手术计划。")["item"]
+        self.assertEqual(last_item["comparator_checkpoint_id"], "CP-MIDDLE")
+        summary = store.result(case_id="SYN-CONTEXT", stop="answered")["summary"]
+        self.assertEqual(summary["disposition_counts"],
+                         {"CONTEXT_ONLY": 1, "RETAIN_CP": 1, "SUPPORT_ONLY": 1})
+
+    @staticmethod
+    def _context_chain_fixture(*, same_time=False, extra=False):
+        texts = ["拟行手术。", "检验回报后继续手术。", "新检验回报，继续既定计划。",
+                 "综合全部检验后重新评估根治切除。"]
+        clocks = ["2026-02-28", "2026-03-02", "2026-03-04", "2026-03-05"]
+        for index in range(extra):
+            texts.append("后续再次评估%d。" % index)
+            clocks.append("2026-03-%02d" % (6 + index))
+        if same_time:
+            clocks[-1] = clocks[-2]
+        members = [candidate("EV-%d" % index, "S-%d" % index, text, text, clock=clock)
+                   for index, (text, clock) in enumerate(zip(texts, clocks))]
+        sources = [source("S-%d" % index, text, clock)
+                   for index, (text, clock) in enumerate(zip(texts, clocks))]
+        for index, clock in enumerate(("2026-03-01", "2026-03-03"), start=1):
+            lab = source("S-LAB-%d" % index,
+                         "[检验项目名称]\n项目%d\n[检验结果值]\n%d" % (index, index), clock)
+            lab["kind"] = "lab"
+            sources.append(lab)
+        checkpoints = [checkpoint("CP-%d" % index, [member], clock=clock)
+                       for index, (member, clock) in enumerate(zip(members, clocks))]
+        return make_store(checkpoints, members, sources)
+
+    def test_continuous_context_evidence_can_be_carried_by_later_substantive_reassessment(self):
+        store, registry = self._context_chain_fixture()
+        store.adjudicate(checkpoint_id="CP-0", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        for index in (1, 2):
+            store.adjudicate(
+                checkpoint_id="CP-%d" % index, disposition="CONTEXT_ONLY",
+                evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-LAB-%d" % index, quote="项目%d" % index)],
+                rationale="有新增检验，但本记录只重复计划。")
+        context = registry.get("read_checkpoint_adjudication_context").run("CP-3")
+        self.assertEqual([row["citation"]["source_id"]
+                          for row in context["pending_context_evidence"]],
+                         ["S-LAB-2", "S-LAB-1"])
+        item = store.adjudicate(
+            checkpoint_id="CP-3", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="项目1"),
+                               dict(source_id="S-LAB-2", quote="项目2")],
+            rationale="当前文书综合两批新检验，实质再评价根治切除。")["item"]
+        self.assertEqual(item["comparator_checkpoint_id"], "CP-2")
+        self.assertEqual([row["source_id"] for row in item["evidence_supports"]],
+                         ["S-LAB-1", "S-LAB-2"])
+
+    def test_same_clock_context_evidence_can_only_promote_original_source_to_retain(self):
+        store, _ = self._context_chain_fixture(same_time=True)
+        store.adjudicate(checkpoint_id="CP-0", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-1", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")], rationale="积累首批证据。")
+        store.adjudicate(
+            checkpoint_id="CP-2", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-2", quote="项目2")],
+            rationale="新检验已消费但无实质再评价。")
+        with self.assertRaisesRegex(ToolError, "CONTEXT_EVIDENCE_ALREADY_CONSUMED"):
+            store.adjudicate(
+                checkpoint_id="CP-3", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-LAB-2", quote="项目2")], rationale="重复消费。")
+        item = store.adjudicate(
+            checkpoint_id="CP-3", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-2", quote="项目2")],
+            rationale="同刻后续文书形成实质再评价。")["item"]
+        self.assertEqual(item["evidence_supports"][0]["source_id"], "S-LAB-2")
+
+    def test_same_hash_copy_cannot_reopen_context_evidence_round(self):
+        store, _ = self._context_chain_fixture()
+        original = store.source_index.require("S-LAB-1")
+        duplicate = deepcopy(original)
+        duplicate.update(source_id="S-LAB-COPY", clock=dict(value="2026-03-04", precision="date"),
+                         source_sha256="same-report")
+        original["source_sha256"] = "same-report"
+        store.source_index.sources.append(duplicate)
+        store.source_index.by_id[duplicate["source_id"]] = duplicate
+        store.adjudicate(checkpoint_id="CP-0", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-1", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")], rationale="只积累证据。")
+        with self.assertRaisesRegex(ToolError, "CONTEXT_EVIDENCE_ALREADY_CONSUMED"):
+            store.adjudicate(
+                checkpoint_id="CP-2", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-LAB-COPY", quote="项目1")],
+                rationale="不能用报告副本再次形成新证据。")
+
+    def test_retain_consumption_also_blocks_later_same_hash_copy(self):
+        store, _ = self._context_chain_fixture(extra=True)
+        original = store.source_index.require("S-LAB-1")
+        duplicate = deepcopy(original)
+        duplicate.update(source_id="S-LAB-COPY", clock=dict(value="2026-03-05", precision="date"),
+                         source_sha256="same-report")
+        original["source_sha256"] = "same-report"
+        store.source_index.sources.append(duplicate)
+        store.source_index.by_id[duplicate["source_id"]] = duplicate
+        store.adjudicate(checkpoint_id="CP-0", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-1", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")], rationale="积累证据。")
+        store.adjudicate(
+            checkpoint_id="CP-2", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-2", quote="项目2")], rationale="继续积累。")
+        store.adjudicate(
+            checkpoint_id="CP-3", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")], rationale="代表CP。")
+        with self.assertRaisesRegex(ToolError, "CONTEXT_EVIDENCE_ALREADY_CONSUMED"):
+            store.adjudicate(
+                checkpoint_id="CP-4", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+                evidence_supports=[dict(source_id="S-LAB-COPY", quote="项目1")],
+                rationale="代表CP之后也不能用副本开新轮。")
+
+    def test_historical_evidence_copy_is_blocked_after_retain_or_review(self):
+        for disposition in ("RETAIN_CP", "REVIEW_REQUIRED"):
+            with self.subTest(disposition=disposition):
+                store, _ = self._context_chain_fixture(extra=2)
+                original = store.source_index.require("S-LAB-1")
+                duplicate = deepcopy(original)
+                duplicate.update(source_id="S-LAB-COPY", source_sha256="same-report",
+                                 clock=dict(value="2026-03-06", precision="date"))
+                original["source_sha256"] = "same-report"
+                store.source_index.sources.append(duplicate)
+                store.source_index.by_id[duplicate["source_id"]] = duplicate
+                store.adjudicate(checkpoint_id="CP-0", disposition="RETAIN_CP",
+                                 evolution="FIRST_VISIBLE", rationale="首见。")
+                store.adjudicate(
+                    checkpoint_id="CP-1", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+                    evidence_supports=[dict(source_id="S-LAB-1", quote="项目1")], rationale="首批证据。")
+                if disposition == "RETAIN_CP":
+                    new_lab = source("S-LAB-3", "[检验项目名称]\n项目3\n[检验结果值]\n3",
+                                     "2026-03-03")
+                    new_lab["kind"] = "lab"
+                    store.source_index.sources.append(new_lab)
+                    store.source_index.by_id[new_lab["source_id"]] = new_lab
+                store.adjudicate(
+                    checkpoint_id="CP-2", disposition=disposition,
+                    evolution="NEW_EVIDENCE_ROUND" if disposition == "RETAIN_CP" else "UNCERTAIN",
+                    evidence_supports=([dict(source_id="S-LAB-3", quote="项目3")]
+                                       if disposition == "RETAIN_CP" else []),
+                    rationale="中间独立状态。")
+                store.adjudicate(checkpoint_id="CP-3", disposition="SUPPORT_ONLY",
+                                 evolution="REPEATED_PLAN", rationale="延续计划。")
+                with self.assertRaisesRegex(ToolError, "CONTEXT_EVIDENCE_ALREADY_CONSUMED"):
+                    store.adjudicate(
+                        checkpoint_id="CP-4", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+                        evidence_supports=[dict(source_id="S-LAB-COPY", quote="项目1")],
+                        rationale="历史副本不能重新开轮。")
+
+    def test_carried_secondhand_evidence_preserves_source_status_and_review_tags(self):
+        first_text = "拟行手术。"
+        context_text = "外院MRI提示肿瘤缩小，继续既定计划。"
+        last_text = "结合外院MRI重新评估根治切除。"
+        first = candidate("EV-FIRST", "S-FIRST", first_text, first_text)
+        middle = candidate("EV-MIDDLE", "S-MIDDLE", context_text, "继续既定计划。",
+                           clock="2026-03-03")
+        last = candidate("EV-LAST", "S-LAST", last_text, last_text, clock="2026-03-04")
+        middle_source = source("S-MIDDLE", context_text, "2026-03-03")
+        middle_source["kind"] = "document"
+        store, _ = make_store([
+            checkpoint("CP-FIRST", [first]),
+            checkpoint("CP-MIDDLE", [middle], clock="2026-03-03"),
+            checkpoint("CP-LAST", [last], clock="2026-03-04")],
+            [first, middle, last], [source("S-FIRST", first_text, "2026-03-01"),
+                                    middle_source, source("S-LAST", last_text, "2026-03-04")])
+        store.adjudicate(checkpoint_id="CP-FIRST", disposition="RETAIN_CP",
+                         evolution="FIRST_VISIBLE", rationale="首见。")
+        store.adjudicate(
+            checkpoint_id="CP-MIDDLE", disposition="CONTEXT_ONLY", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-MIDDLE", quote="外院MRI提示肿瘤缩小")],
+            evidence_source_status="EXTERNAL_RESTATEMENT", rationale="只记录外院结果。")
+        item = store.adjudicate(
+            checkpoint_id="CP-LAST", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
+            evidence_supports=[dict(source_id="S-MIDDLE", quote="外院MRI提示肿瘤缩小")],
+            rationale="后续形成实质再评价。")["item"]
+        self.assertEqual(item["evidence_source_status"], "EXTERNAL_RESTATEMENT")
+        self.assertEqual(item["review_status"], "REVIEW_REQUIRED")
+        self.assertIn("EXTERNAL_EVIDENCE_ORIGINAL_NOT_VERIFIED", item["review_tags"])
+        self.assertIn("EVIDENCE_TIME_NOT_VERIFIED", item["review_tags"])
 
     def test_external_restatement_can_retain_new_evidence_with_specific_review_tags(self):
         first_text = "建议开始新辅助治疗。"
@@ -787,7 +1011,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         store.adjudicate(checkpoint_id="CP-SAME", disposition="REVIEW_REQUIRED",
                          evolution="UNCERTAIN", comparator_checkpoint_id="CP-FIRST",
                          rationale="同刻语义关系待核。")
-        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_CONTEXT_OR_REVIEW"):
             store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
                              evolution="SAME_ROUND_SUPPORT",
                              rationale="不能借同刻comparator隐藏较早基线后的新CT。")
@@ -850,7 +1074,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             checkpoint_id="CP-SAME", disposition="RETAIN_CP", evolution="NEW_EVIDENCE_ROUND",
             evidence_supports=[dict(source_id="S-LAB-1", quote="红细胞计数")],
             rationale="同刻首份CP使用08:00检验。")
-        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_CONTEXT_OR_REVIEW"):
             store.adjudicate(checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
                              evolution="SAME_ROUND_SUPPORT",
                              rationale="不能用共享08:00批次掩盖09:00新检验。")
@@ -1206,7 +1430,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ToolError, "TIMED_INTERVAL_REPORT_NOT_READ"):
             store.adjudicate(**call)
         registry.get("read_source").run("S-AG")
-        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_CONTEXT_OR_REVIEW"):
             store.adjudicate(
                 checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
                 evolution="REPEATED_PLAN",
@@ -1237,7 +1461,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             "CP-CURRENT")
         self.assertEqual(context["timed_interval_report_groups"][0]
                          ["representative_source_id"], "S-LAB")
-        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_CONTEXT_OR_REVIEW"):
             store.adjudicate(
                 checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
                 evolution="REPEATED_PLAN", rationale="正常检验不改变管理。")
@@ -1261,7 +1485,7 @@ class CheckpointAdjudicationTests(unittest.TestCase):
             "CP-CURRENT")
         self.assertEqual(context["timed_interval_report_groups"][0]
                          ["representative_source_id"], "S-PROC")
-        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_OR_REVIEW"):
+        with self.assertRaisesRegex(ToolError, "NEW_INTERVAL_REPORT_REQUIRES_RETAIN_CONTEXT_OR_REVIEW"):
             store.adjudicate(
                 checkpoint_id="CP-CURRENT", disposition="SUPPORT_ONLY",
                 evolution="REPEATED_PLAN", rationale="既有手术计划的重复。")

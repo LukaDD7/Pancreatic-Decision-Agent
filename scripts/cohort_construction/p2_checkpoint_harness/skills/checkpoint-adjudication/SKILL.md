@@ -7,7 +7,7 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 
 ## 职责边界
 
-你审核程序生成的候选CP，不重新发现候选，不修改原文，不创建临床Reference。程序负责comparator、时钟、报告身份、引文和span核验；你负责复审检查执行—报告时间代理—手术边界与候选任务是否冲突，并判断当前文书是同轮支持、真正出现新患者证据，还是关系待核。
+你审核程序生成的候选CP，不重新发现候选，不修改原文，不创建临床Reference。程序负责comparator、时钟、报告身份、引文和span核验；你负责复审检查执行—报告时间代理—手术边界与候选任务是否冲突，并区分无新增的同轮支持、新证据后的实质管理再评价、有新增证据但无独立管理再评价，以及关系待核。
 
 ## 先处理时间与任务冲突
 
@@ -21,11 +21,11 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 1. 逐页 `list_candidate_checkpoints`，完成上述动作复审后，管理CP按clock从早到晚处理；其他诊断CP不做证据演化裁决。
 2. 每个管理CP调用 `read_checkpoint_adjudication_context`。程序返回当前CP、唯一最近保留或待核comparator和 `same_time_candidate_states` 同刻候选索引，不需要选择或填写comparator ID。待核CP若最终保留为独立候选，也进入后续实际比较全景。
 3. 阅读上下文中的双方clock、kind、candidate_actions、member spans和 `diagnostic_target_source_ids`，再 `read_source(source_id,start=0)` 完整读取至少一份当前CP来源和至少一份管理comparator来源至文末（end省略），不得只读candidate附近片段或结构化详情就声称全篇没有新证据。同刻候选不能严格定序，但不妨碍语义判断：横向阅读原文后，可以判同轮支持、重复计划或执行；只有语义关系也不明时才待核。
-4. 若上下文有 `timed_interval_report_groups`，逐组 `read_source` 其 `representative_source_id`。这些是程序按报告时钟确定落在当前区间的原始检验、影像、病理或高风险检查报告；区间内检验合并为一个批次，只读一个最新异常代表项核对是否有新检验，不需要逐项阅读，也不能声称已读所有项目。裁决理由必须处理这类新报告，不得再写“无新检查”。程序确认存在这些新报告时不得提交 `SUPPORT_ONLY`；引用新报告保留CP，只有关系确实不明时才提交 `REVIEW_REQUIRED+UNCERTAIN`。
+4. 若上下文有 `timed_interval_report_groups`，逐组 `read_source` 其 `representative_source_id`。这些是程序按报告时钟确定落在当前区间的原始检验、影像、病理或高风险检查报告；区间内检验合并为一个批次，只读一个最新异常代表项核对是否有新检验，不需要逐项阅读，也不能声称已读所有项目。裁决理由必须处理这类新报告，不得再写“无新检查”。程序确认存在这些新报告时不得提交无新增的 `SUPPORT_ONLY`；引用新报告后按是否形成实质再评价选择 `RETAIN_CP` 或 `CONTEXT_ONLY`，只有关系确实不明时才提交 `REVIEW_REQUIRED+UNCERTAIN`。
 5. 当前文书只是旧报告复述、既定计划、转科、执行或更具体安排，且没有新区间证据时，直接 `SUPPORT_ONLY`，不需要引文，也不要求读取诊断comparator的报告正文。若文书记载的是comparator之后新发生的外院检查、治疗经过或疗效变化，则不属于旧复述，按证据演化继续判断。
-6. 准备声称 `RETAIN_CP+NEW_EVIDENCE_ROUND` 时，诊断comparator的目标报告必须在当前上下文中读取；此前其他CP的读取不替代本次读取。新证据关系不清时可选检索、读取相关原始证据，不要求为了提交REVIEW而补读诊断报告。
+6. 准备声称 `RETAIN_CP` 或 `CONTEXT_ONLY` 的 `NEW_EVIDENCE_ROUND` 时，诊断comparator的目标报告必须在当前上下文中读取；此前其他CP的读取不替代本次读取。新证据关系不清时可选检索、读取相关原始证据，不要求为了提交REVIEW而补读诊断报告。
 7. 证据演化与来源核验分开。外院或来源不明的原报告未交付，不妨碍当前文书记录构成新证据：引用当前文书中的逐字复述，设置 `evidence_source_status=EXTERNAL_RESTATEMENT` 或 `UNATTRIBUTED_RESTATEMENT`，程序自动添加来源与底层时间待核标签。原报告可找到且证明是comparator旧报告时，仍须引用原报告，不得重新定时。
-8. 只有证据是否新增或语义关系确实无法判断时才用 `REVIEW_REQUIRED+UNCERTAIN`，不能仅因同刻就待核。该状态保留独立候选CP并进入后续comparator全景，不自动归并；`review_tags` 用于说明具体待核事项。
+8. 只有证据是否新增、是否形成实质再评价或语义关系确实无法判断时才用 `REVIEW_REQUIRED+UNCERTAIN`，不能仅因同刻就待核。该状态保留独立候选CP并进入后续comparator全景，不自动归并；`review_tags` 用于说明具体待核事项。
 
 ## 按需检索：先限定范围，再读原文
 
@@ -46,7 +46,10 @@ description: 用最小按需检索裁决候选CP的证据演化、同轮支持�
 
 - `FIRST_VISIBLE`：全病例没有更早候选且尚未形成同刻保留或待核状态的首见锚点。
 - `NEW_EVIDENCE_ROUND`：当前CP相对comparator出现新的或发生变化的患者信息，附逐字连续quote。来源可以是原始报告，也可以是明确记载新检查或治疗变化的当前文书；后者必须标记外院或未明来源复述。当前或其他CP的管理动作句不能作为患者证据。
-- **证据演化的底线是新增**：不要求结果异常、阳性、具有专科特异性或实际改变管理方向。comparator之后新回报的常规检验、术前监测、正常或阴性结果同样构成证据演化，不得以此为 `SUPPORT_ONLY` 理由。
+- **证据演化的底线是新增**：不要求结果异常、阳性、具有专科特异性或实际改变管理方向。comparator之后新回报的常规检验、术前监测、正常或阴性结果同样构成证据演化，不得以此为无新增的 `SUPPORT_ONLY` 理由。
+- **独立管理CP还需要实质再评价**：同一未决管理问题下，证据可以连续积累，但只保留最能体现“新证据后的实质再评价”的代表CP；动作是否相似不是判断标准。保留理由必须说明新增证据推进了哪个具体未决问题，以及当前文书如何围绕该变化进行实质再评价。关键证据解决此前不确定时，动作不变仍可保留。
+- `CONTEXT_ONLY+NEW_EVIDENCE_ROUND`：报告确实新增，但当前文书只是复述结果、重复既定计划或写下执行安排，没有推进未决问题的实质再评价。必须引用新增证据；不形成独立评价CP，但推进后续comparator的证据时间线，防止同一证据被下一CP重复当成新增。原文按原时钟保留，不回填为较早CP的当时可见信息。
+- 连续上下文之后若出现真正的实质再评价，后续 `RETAIN_CP` 可引用 `pending_context_evidence` 中的原 `source_id`，携带已积累证据成为代表CP。`CONTEXT_ONLY` 不能重复消费同一证据；相同报告的副本不能换 `source_id` 绕过。
 - comparator已有报告及其副本、后续文书中的旧复述均不是新证据。未来报告即使因身份核对被读取，也不代表当前可见。外院原报告未交付不等于证据不存在，也不等于复述一定是旧证据。
 - `SUPPORT_ONLY`：仅在没有新增患者证据时使用 `SAME_ROUND_SUPPORT`、`REPEATED_PLAN` 或 `EXECUTION`，不提供证据引文。程序确认有 `timed_interval_report_groups` 时会拒绝该裁决。
 - `evidence_source_status`：原始/本院证据用 `ORIGINAL_OR_LOCAL_SOURCE`；外院复述用 `EXTERNAL_RESTATEMENT`；来源不明复述用 `UNATTRIBUTED_RESTATEMENT`。来源待核标签由程序生成，其他具体待核事项用 `review_tags`。
