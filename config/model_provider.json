@@ -1,7 +1,7 @@
 {
   "provider": "boyu",
-  "model": "kimi-k3",
-  "thinking": "disabled",
+  "model": "deepseek-v4.1-flash",
+  "thinking": null,
   "protocol": "openai-compatible-chat-completions",
   "credential_environment": "BOYU_API_KEY",
   "endpoint_environment": "BOYU_API_BASE",
