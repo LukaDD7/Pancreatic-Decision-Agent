@@ -1,0 +1,66 @@
+{
+  "IPMN-AUDIT-PARSE-001": {
+    "title": "实体肿块尺寸被误作囊肿尺寸",
+    "evidence": "首轮定向原文复核发现；不在报告中保留患者级摘录",
+    "required_tests": [
+      "tests/test_ipmn_data_readiness.py::test_ipmn_audit_parse_001_solid_mass_is_not_cyst_size"
+    ],
+    "controls": [
+      "tests/test_ipmn_data_readiness.py::test_followup_cyst_measurement_does_not_require_repeated_ipmn_wording"
+    ]
+  },
+  "IPMN-AUDIT-PARSE-002": {
+    "title": "每个径线分别带单位时只读取第一径",
+    "evidence": "首轮定向原文复核发现；合成反例固定2.8mm*3.5mm",
+    "required_tests": [
+      "tests/test_ipmn_data_readiness.py::test_ipmn_audit_parse_002_units_on_each_dimension"
+    ],
+    "controls": [
+      "tests/test_ipmn_data_readiness.py::test_ipmn_audit_parse_002_units_on_each_dimension"
+    ]
+  },
+  "IPMN-HARNESS-002": {
+    "title": "审计CLI把冻结快照人数硬编码为接口前提",
+    "status": "fixed_synthetic_cli_verified_real_data_not_rerun",
+    "evidence": "source_indexes固定断言7122/9921且main硬编码N0/N1，阻断小型合成包端到端回归并可能误拒其他合法来源快照",
+    "root_layer": "来源索引接口与运行编排",
+    "required_tests": [
+      "tests/test_ipmn_data_readiness.py::test_ipmn_audit_cli_synthetic_source_and_review_handoff"
+    ],
+    "controls": [
+      "tests/test_ipmn_data_readiness.py::test_handoff_counts_cannot_release_clinical_confirmation"
+    ]
+  },
+  "IPMN-HARNESS-003": {
+    "title": "候选冻结复核未绑定具体manifest和审计版本",
+    "status": "fixed_synthetic_cli_verified_real_data_not_rerun",
+    "evidence": "早期handoff只凭candidate_freeze=passed和通用证据引用即可放行，无法防止复核后替换公式、代码或summary",
+    "root_layer": "候选冻结与临床确认承接接口",
+    "required_tests": [
+      "tests/test_ipmn_data_readiness.py::test_ipmn_audit_cli_synthetic_source_and_review_handoff",
+      "tests/test_ipmn_data_readiness.py::test_candidate_manifest_rejects_outcome_source_fields"
+    ],
+    "controls": [
+      "tests/test_ipmn_data_readiness.py::test_handoff_complete_traceable_reviews_release_confirmation"
+    ]
+  },
+  "IPMN-HARNESS-004": {
+    "title": "冻结manifest缺少受约束的实际计算承接",
+    "status": "fixed_synthetic_engine_verified_real_data_not_run",
+    "evidence": "此前只能校验和放行manifest，不能在统一测量契约上执行；下游自行选择病灶、模态或可见时点会形成未审计平行实现",
+    "root_layer": "审定测量长表与冻结候选执行接口",
+    "required_tests": [
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_preserves_signed_shrinkage_and_missing_patients",
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_excludes_future_available_measurement",
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_rejects_cross_object_series",
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_rejects_cross_modality_series",
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_requires_reviewed_measurement_links",
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_binds_builtin_engine_hash",
+      "tests/test_ipmn_data_readiness.py::test_measurement_rows_reject_outcome_injection"
+    ],
+    "controls": [
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_supports_signed_mpd_change",
+      "tests/test_ipmn_data_readiness.py::test_candidate_computation_does_not_impute_missing_values"
+    ]
+  }
+}

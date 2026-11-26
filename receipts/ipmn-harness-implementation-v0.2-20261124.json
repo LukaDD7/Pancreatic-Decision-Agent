@@ -1,0 +1,70 @@
+{
+  "receipt_version": "ipmn-harness-implementation-v0.2",
+  "date": "2026-11-24",
+  "baseline_receipt": "receipts/ipmn-harness-slimming-v1.1-20261124.json",
+  "scope": "Remove snapshot-coupled audit interfaces and bind candidate-freeze release to an explicit immutable artifact.",
+  "issues": [
+    {
+      "id": "IPMN-HARNESS-002",
+      "observed_layer": "audit CLI source ingestion",
+      "root_cause": "Frozen snapshot counts 7122/9921 were treated as interface preconditions, preventing synthetic end-to-end tests and other source snapshots.",
+      "fix": "Derive N0/N1 from actual indexes; validate unique IDs, L1/L2 linkage, unambiguous CSV selection, and exact patient archive coverage.",
+      "verification": "A real ZIP-to-CLI synthetic run with two L2 rows and one L1 patient produces N0=2 and N1=1.",
+      "status": "fixed_synthetic_verified_real_data_not_rerun"
+    },
+    {
+      "id": "IPMN-HARNESS-003",
+      "observed_layer": "candidate-freeze handoff",
+      "root_cause": "A generic passed review was not bound to the candidate formula, code, analysis plan, or readiness summary and could be reused after artifact replacement.",
+      "fix": "Add a strict candidate manifest schema, semantic blinding checks, canonical summary/manifest hashes, and a separate release CLI that consumes an existing summary without rerunning the audit.",
+      "verification": "Synthetic ZIP-to-audit-to-release succeeds only with matching artifacts; changing the formula after review fails and does not create a handoff.",
+      "status": "fixed_synthetic_verified_real_data_not_rerun"
+    }
+  ],
+  "files": {
+    "protocol": "docs/ipmn/IPMN_主研究精简执行版_v1.1.md",
+    "issue_map": "scripts/ipmn_data_readiness/regression_issue_map.json",
+    "candidate_schema": "contracts/ipmn/v0.1/candidate_manifest.schema.json",
+    "candidate_validation": "scripts/ipmn_data_readiness/candidate.py",
+    "release_cli": "scripts/ipmn_data_readiness/release.py",
+    "handoff": "scripts/ipmn_data_readiness/handoff.py",
+    "audit": "scripts/ipmn_data_readiness/audit.py",
+    "tests": "tests/test_ipmn_data_readiness.py"
+  },
+  "slimming": {
+    "removed_snapshot_specific_count_assertions": true,
+    "avoided_second_audit_run_for_release": true,
+    "new_parallel_clinical_truth": false,
+    "extensions_reintroduced": false
+  },
+  "unchanged": {
+    "parsing_rules": true,
+    "rules_sha256": "cc05beeec70d8167dfae23d127cfcfca8824ee74e97ba60be22083a8ef6aeecc",
+    "clinical_inclusion_rules": true,
+    "frozen_historical_outputs": true,
+    "candidate_or_outcome_model_run_on_real_data": false
+  },
+  "verification": {
+    "targeted_ipmn_tests": "18 passed",
+    "project_pytest": "178 passed",
+    "p1_regression_guard": {
+      "active_tests": "55 passed",
+      "legacy_tests": "51 passed",
+      "required_tests_skipped": [],
+      "success": true
+    },
+    "frozen_r3_handoff": {
+      "decision": "READINESS_REVIEW_REQUIRED",
+      "clinical_confirmation_permitted": false,
+      "candidate_freeze_artifact": null,
+      "summary_hash_bound": true
+    },
+    "release_cli_help": true
+  },
+  "open_blockers": [
+    "IPMN-HARNESS-001 remains open because /Volumes/LQ1000/IPMN is unavailable; no parser root cause has been asserted.",
+    "No real-data migration run has been performed after the source-index interface fix.",
+    "Clinical population, index-cyst measurement, outcome adjudication, and isolated statistical release remain external review tasks.",
+    "READY_FOR_CLINICAL_CONFIRMATION is only an interface precondition; no real candidate or clinical confirmation has been produced."
+  ]
+}

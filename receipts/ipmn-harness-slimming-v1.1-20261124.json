@@ -1,0 +1,80 @@
+{
+  "receipt_version": "ipmn-harness-slimming-v1.1",
+  "date": "2026-11-24",
+  "scope": "Record harness-first iteration principles, slim the IPMN main execution path, and add a structured readiness handoff.",
+  "baseline": {
+    "protocol": "docs/ipmn/IPMN_研究方案_v1.0_完整版.docx",
+    "frozen_audit": "private/ipmn_data_readiness_v0/run_v0_20261113_r3/",
+    "frozen_audit_version": "ipmn_data_readiness_v0",
+    "historical_outputs_modified": false
+  },
+  "changes": [
+    {
+      "type": "iteration_policy",
+      "path": "AGENTS.md",
+      "detail": "Section 11 requires execution-chain reconstruction before attributing Agent errors to model capability, minimal reproduction, traceable interface contracts, end-to-end regression, and removal of unnecessary interfaces."
+    },
+    {
+      "type": "protocol",
+      "path": "docs/ipmn/IPMN_主研究精简执行版_v1.1.md",
+      "detail": "Defines one main study chain, G0-G4 readiness gates, five minimal handoff objects, deferred extensions, and open issue IPMN-HARNESS-001."
+    },
+    {
+      "type": "handoff_interface",
+      "path": "scripts/ipmn_data_readiness/handoff.py",
+      "detail": "Adds six explicit readiness reviews, strict status/evidence validation, and fail-closed clinical-confirmation release."
+    },
+    {
+      "type": "audit_integration",
+      "path": "scripts/ipmn_data_readiness/audit.py",
+      "detail": "Adds optional --review-file and readiness_handoff.json output; includes handoff.py in code hashes."
+    },
+    {
+      "type": "tests",
+      "path": "tests/test_ipmn_data_readiness.py",
+      "detail": "Covers no count-based automatic release, unknown review rejection, evidence-required pass, failed-review repair, and complete traceable release."
+    }
+  ],
+  "unchanged": {
+    "parsing_rules": true,
+    "rules_sha256": "cc05beeec70d8167dfae23d127cfcfca8824ee74e97ba60be22083a8ef6aeecc",
+    "cohort_inclusion_rules": true,
+    "clinical_reference": true,
+    "candidate_selection_or_outcome_model_run": false
+  },
+  "open_issue": {
+    "id": "IPMN-HARNESS-001",
+    "status": "open_source_unavailable",
+    "observation": "Frozen audit contains repeated MPD status coverage but no repeated numeric MPD coverage; some analysis_only rows contain pancreatic duct measurements from a different evidence channel.",
+    "root_cause_confirmed": false,
+    "blocked_source": "/Volumes/LQ1000/IPMN",
+    "required_next_step": "Replay raw report to field adapter, parser, same-modality aggregation, and report layers; do not change parser or merge analysis_only values before source verification."
+  },
+  "verification": {
+    "project_pytest": {
+      "command": ".venv/bin/python -m pytest -q",
+      "result": "176 passed"
+    },
+    "p1_regression_guard": {
+      "command": ".venv/bin/python scripts/cohort_construction/p1_source_quality/regression_guard/run_checks.py",
+      "active_tests": "55 passed",
+      "legacy_tests": "51 passed",
+      "required_tests_skipped": [],
+      "success": true
+    },
+    "frozen_summary_handoff_probe": {
+      "decision": "READINESS_REVIEW_REQUIRED",
+      "clinical_confirmation_permitted": false,
+      "next_action_count": 6,
+      "N5_repeat_numeric_cyst_size": 109,
+      "E_postlandmark_3y_target_pathology_candidates": 2
+    },
+    "audit_cli_help_includes_review_file": true
+  },
+  "not_completed": [
+    "No new real-data audit run because the source volume is unavailable.",
+    "No raw-source MPD root-cause adjudication.",
+    "No clinical outcome, index-cyst, measurement, or statistical release.",
+    "No clinical confirmation or phenotype-outcome association analysis."
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "receipt_version": "ipmn-candidate-execution-v0.3",
+  "date": "2026-11-24",
+  "baseline_receipt": "receipts/ipmn-harness-implementation-v0.2-20261124.json",
+  "scope": "Implement the frozen candidate on a reviewed measurement long table without introducing a parallel clinical truth or unsafe dynamic evaluation.",
+  "issue": {
+    "id": "IPMN-HARNESS-004",
+    "observed_layer": "candidate manifest execution handoff",
+    "root_cause": "The manifest could be validated and released but had no common constrained executor, allowing downstream implementations to make different object, modality, visibility, and missing-data choices.",
+    "fix": "Add a strict reviewed measurement-row contract and a whitelist-only candidate executor bound to the built-in engine hash at both release and computation.",
+    "status": "fixed_synthetic_engine_verified_real_data_not_run"
+  },
+  "implementation": {
+    "measurement_contract": "scripts/ipmn_data_readiness/measurement.py",
+    "candidate_executor": "scripts/ipmn_data_readiness/candidate.py",
+    "manifest_schema": "contracts/ipmn/v0.1/candidate_manifest.schema.json",
+    "supported_formulas": [
+      "signed_size_change / observation_days",
+      "signed_mpd_change / observation_days"
+    ],
+    "dynamic_expression_evaluation": false,
+    "negative_growth_preserved": true,
+    "missing_values_imputed": false,
+    "engine_hash_checked_at_release": true,
+    "engine_hash_checked_at_computation": true
+  },
+  "failure_guards": [
+    "exam and availability times must both be inside the frozen window",
+    "one measurement object, modality, protocol, and measurement version per patient series",
+    "identity and protocol reviews must both pass",
+    "missing, conflicting same-day, and insufficient observations remain not computable",
+    "measurement rows outside an explicit patient set are rejected",
+    "unknown row fields, including outcome injections, are rejected",
+    "patients without measurements remain explicit not-computable outputs",
+    "unsupported formulas and stale built-in engine hashes are rejected"
+  ],
+  "verification": {
+    "targeted_ipmn_tests": "32 passed",
+    "project_pytest": "192 passed",
+    "p1_regression_guard": {
+      "active_tests": "55 passed",
+      "legacy_tests": "51 passed",
+      "required_tests_skipped": [],
+      "success": true
+    },
+    "repository_safety_check": "passed",
+    "frozen_r3_handoff": {
+      "decision": "READINESS_REVIEW_REQUIRED",
+      "clinical_confirmation_permitted": false,
+      "candidate_freeze_artifact": null
+    }
+  },
+  "unchanged": {
+    "parsing_rules": true,
+    "rules_sha256": "cc05beeec70d8167dfae23d127cfcfca8824ee74e97ba60be22083a8ef6aeecc",
+    "clinical_inclusion_rules": true,
+    "frozen_historical_outputs": true,
+    "real_patient_candidate_values_generated": false,
+    "clinical_confirmation_run": false
+  },
+  "open_blockers": [
+    "/Volumes/LQ1000/IPMN remained unavailable when rechecked on 2026-11-24.",
+    "IPMN-HARNESS-001 still requires raw-source replay; no MPD parser root cause is asserted.",
+    "Real measurement rows require source and clinical identity/protocol review before the executor can produce research outputs.",
+    "Outcome adjudication and isolated statistical release remain external review tasks."
+  ],
+  "documentation": {
+    "protocol": "docs/ipmn/IPMN_主研究精简执行版_v1.1.md",
+    "issue_map": "scripts/ipmn_data_readiness/regression_issue_map.json"
+  }
+}

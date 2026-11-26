@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IPMN v1.1 outcome-blind candidate freeze manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "protocol_version",
+    "status",
+    "readiness_summary_sha256",
+    "primary_hypothesis_id",
+    "candidates",
+    "selection",
+    "analysis_plan"
+  ],
+  "properties": {
+    "manifest_version": {"const": "ipmn-candidate-manifest-v0.1"},
+    "protocol_version": {"const": "ipmn-main-v1.1"},
+    "status": {"enum": ["draft", "frozen"]},
+    "readiness_summary_sha256": {"$ref": "#/$defs/hash"},
+    "primary_hypothesis_id": {"type": "string", "minLength": 1},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hypothesis_id",
+          "scientific_rationale",
+          "object",
+          "spatial_region",
+          "time_window",
+          "formula",
+          "unit",
+          "minimum_observations",
+          "measurement_version",
+          "code_sha256",
+          "source_fields",
+          "missing_policy",
+          "track",
+          "known_status",
+          "selection_status"
+        ],
+        "properties": {
+          "hypothesis_id": {"type": "string", "minLength": 1},
+          "scientific_rationale": {"type": "string", "minLength": 1},
+          "object": {"type": "string", "minLength": 1},
+          "spatial_region": {"type": "string", "minLength": 1},
+          "time_window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start_relative_to_entry_days", "end_relative_to_entry_days"],
+            "properties": {
+              "start_relative_to_entry_days": {"type": "integer", "minimum": 0},
+              "end_relative_to_entry_days": {"type": "integer", "minimum": 0, "maximum": 365}
+            }
+          },
+          "formula": {"type": "string", "minLength": 1},
+          "unit": {"type": "string", "minLength": 1},
+          "minimum_observations": {"type": "integer", "minimum": 2},
+          "measurement_version": {"type": "string", "minLength": 1},
+          "code_sha256": {
+            "$ref": "#/$defs/hash",
+            "description": "For built-in formulas, the canonical SHA-256 of the candidate.py and measurement.py file-hash object."
+          },
+          "source_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "missing_policy": {"type": "string", "minLength": 1},
+          "track": {"enum": ["primary", "secondary"]},
+          "known_status": {"enum": ["known", "extension", "potentially_novel"]},
+          "selection_status": {"enum": ["selected", "rejected", "duplicate", "failed"]},
+          "parent_hypothesis_id": {"type": ["string", "null"], "minLength": 1},
+          "failure_reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confirmation_outcomes_accessed",
+        "development_patient_set_sha256",
+        "selection_patient_set_sha256",
+        "candidate_budget",
+        "search_call_budget",
+        "selection_rule",
+        "tie_break_rule",
+        "frozen_at",
+        "frozen_by_role"
+      ],
+      "properties": {
+        "confirmation_outcomes_accessed": {"const": false},
+        "development_patient_set_sha256": {"$ref": "#/$defs/hash"},
+        "selection_patient_set_sha256": {"$ref": "#/$defs/hash"},
+        "candidate_budget": {"type": "integer", "minimum": 1},
+        "search_call_budget": {"type": "integer", "minimum": 0},
+        "selection_rule": {"type": "string", "minLength": 1},
+        "tie_break_rule": {"type": "string", "minLength": 1},
+        "frozen_at": {"type": "string", "minLength": 1},
+        "frozen_by_role": {"type": "string", "minLength": 1}
+      }
+    },
+    "analysis_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "m1_version",
+        "m1_code_sha256",
+        "primary_test",
+        "alpha",
+        "landmark_days",
+        "confirmation_window_days"
+      ],
+      "properties": {
+        "m1_version": {"type": "string", "minLength": 1},
+        "m1_code_sha256": {"$ref": "#/$defs/hash"},
+        "primary_test": {"const": "M2_VS_M1_CAUSE_SPECIFIC_COX_LRT"},
+        "alpha": {"const": 0.05},
+        "landmark_days": {"const": 365},
+        "confirmation_window_days": {"const": 1095}
+      }
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
