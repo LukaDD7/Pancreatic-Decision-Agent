@@ -1,0 +1,10 @@
+{
+  "provider": "boyu",
+  "model": "deepseek-v4.1-flash",
+  "thinking": null,
+  "protocol": "openai-compatible-chat-completions",
+  "credential_environment": "BOYU_API_KEY",
+  "endpoint_environment": "BOYU_API_BASE",
+  "clinical_reference": false,
+  "purpose": "NAT C1 form-driven cohort development mapping; isolated from the shared provider default"
+}
